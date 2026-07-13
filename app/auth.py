@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import PyJWKClient
 
 from .config import settings
 
 
 bearer = HTTPBearer(auto_error=False)
+ISSUER = "vardiya-api"
+AUDIENCE = "vardiya-frontend"
 
 
 @dataclass(frozen=True)
@@ -19,37 +22,24 @@ class CurrentUser:
     name: str
 
 
-def _display_name(claims: dict) -> str:
-    return str(
-        claims.get("name")
-        or claims.get("full_name")
-        or claims.get("email")
-        or claims.get("primary_email_address")
-        or "Kullanıcı"
+def create_session(password: str) -> str:
+    if not secrets.compare_digest(password, settings.admin_password):
+        raise HTTPException(status_code=401, detail="Şifre yanlış")
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {"sub": "planning-admin", "name": "Planlama Yöneticisi", "iat": now, "exp": now + timedelta(days=settings.session_days), "iss": ISSUER, "aud": AUDIENCE},
+        settings.session_secret,
+        algorithm="HS256",
     )
 
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> CurrentUser:
-    if settings.auth_disabled:
-        return CurrentUser(id="development-user", name="Planlama Kullanıcısı")
     if credentials is None:
         raise HTTPException(status_code=401, detail="Oturum gerekli")
-    if not settings.clerk_jwks_url or not settings.clerk_issuer_url:
-        raise HTTPException(status_code=503, detail="Clerk yapılandırması tamamlanmadı")
     try:
-        signing_key = PyJWKClient(settings.clerk_jwks_url).get_signing_key_from_jwt(credentials.credentials)
-        options = {"verify_aud": bool(settings.clerk_audience)}
-        claims = jwt.decode(
-            credentials.credentials,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=settings.clerk_audience or None,
-            issuer=settings.clerk_issuer_url,
-            options=options,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=401, detail="Geçersiz oturum") from exc
-    if settings.clerk_authorized_parties and claims.get("azp") not in settings.clerk_authorized_parties:
-        raise HTTPException(status_code=401, detail="Yetkisiz uygulama")
-    return CurrentUser(id=str(claims["sub"]), name=_display_name(claims))
-
+        claims = jwt.decode(credentials.credentials, settings.session_secret, algorithms=["HS256"], issuer=ISSUER, audience=AUDIENCE)
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Oturum geçersiz veya süresi dolmuş") from exc
+    if claims.get("sub") != "planning-admin":
+        raise HTTPException(status_code=401, detail="Oturum geçersiz")
+    return CurrentUser(id="planning-admin", name=str(claims.get("name") or "Planlama Yöneticisi"))

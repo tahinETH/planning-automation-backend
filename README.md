@@ -3,7 +3,7 @@
 Proje artık iki bağımsız uygulamadan oluşur:
 
 - `frontend/`: Next.js üretim planlama arayüzü ve ortak geri bildirim sayfası
-- `backend/`: FastAPI, Clerk oturum doğrulaması, SQLite verisi, görseller ve sesli notlar
+- `backend/`: FastAPI, paylaşılan şifre girişi, SQLite verisi, görseller ve sesli notlar
 
 Excel kaynak dosyası proje kökünde salt okunur kaynak olarak tutulur.
 
@@ -28,7 +28,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Yerel örnek ayarlarda `AUTH_DISABLED=true` kullanılır ve bütün işlemler `Planlama Kullanıcısı` adına kaydedilir.
+`backend/.env` içindeki `ADMIN_PASSWORD` giriş şifresidir. `APP_SESSION_SECRET` için uzun ve rastgele bir değer kullanın. Giriş yapan kişi uygulamada `Planlama Yöneticisi` olarak görünür.
 
 ## Geri bildirim akışı
 
@@ -41,18 +41,20 @@ Yerel örnek ayarlarda `AUTH_DISABLED=true` kullanılır ve bütün işlemler `P
 - Görseller ve ses kayıtları yetkili API üzerinden okunur; doğrudan herkese açık dosya adresleri kullanılmaz.
 - Ekler geri bildirim sayfasından silinebilir.
 
-Ayrıntılı davranış: [`docs/feedback-workflow.md`](docs/feedback-workflow.md).
+Ayrıntılı davranış: [`../frontend/docs/feedback-workflow.md`](../frontend/docs/feedback-workflow.md).
 
-## Clerk
+## Şifreli erişim
 
-Üretimde:
+Backend `POST /api/auth/login` üzerinden şifreyi doğrular ve süreli, imzalı bir oturum jetonu üretir. Frontend bu jetonu tarayıcıda saklar ve API isteklerine ekler. Şifrenin kendisi tarayıcıda saklanmaz.
 
-1. frontend'e `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` ekleyin;
-2. backend'de `AUTH_DISABLED=false` yapın;
-3. `CLERK_ISSUER_URL`, `CLERK_JWKS_URL` ve `CLERK_AUTHORIZED_PARTIES` değerlerini doldurun;
+Kurulum sırasında:
+
+1. `ADMIN_PASSWORD` değerini planlama yöneticisiyle paylaşacağınız şifre yapın;
+2. `APP_SESSION_SECRET` için uzun ve tahmin edilemez ayrı bir değer üretin;
+3. `SESSION_DAYS` ile cihazın kaç gün giriş yapmış kalacağını belirleyin;
 4. frontend ve backend ortamlarında CORS/API adreslerini gerçek alan adlarıyla değiştirin.
 
-Frontend Clerk oturum jetonunu her API isteğinde `Bearer` olarak gönderir. FastAPI jeton imzasını Clerk JWKS üzerinden, issuer ve isteğe bağlı authorized-party/audience kontrolleriyle doğrular. Kullanıcı kimliği frontend tarafından gönderilen serbest metne güvenilerek değil, doğrulanmış jeton claim'lerinden oluşturulur.
+Bu sistem tek bir özel kullanıcı için tasarlanmıştır; kullanıcı rolleri veya ayrı hesaplar içermez.
 
 ## Dağıtım notu
 
@@ -73,4 +75,3 @@ python3 scripts/extract_workbook.py ../Tezgah_Planlama_V51.xlsm data/workbook.js
 python3 scripts/build_planning_seed.py data/workbook.json data/planning-seed.json
 npm test
 ```
-

@@ -10,6 +10,10 @@ class FeedbackCreate(BaseModel):
     page_path: str = Field(default="", max_length=200)
 
 
+class LoginRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=500)
+
+
 class FeedbackUpdate(BaseModel):
     body: str | None = Field(default=None, min_length=1, max_length=20_000)
     status: Literal["active", "resolved", "canceled"] | None = None
@@ -44,4 +48,3 @@ class RevisionPayload(BaseModel):
     impact: dict[str, Any]
     seed: dict[str, Any]
     result: dict[str, Any]
-

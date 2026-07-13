@@ -15,15 +15,12 @@ def _csv(name: str, default: str = "") -> tuple[str, ...]:
 @dataclass(frozen=True)
 class Settings:
     app_env: str = os.getenv("APP_ENV", "development")
-    auth_disabled: bool = os.getenv("AUTH_DISABLED", "false").lower() == "true"
     database_path: Path = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "app.sqlite"))).resolve()
     upload_dir: Path = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "data" / "uploads"))).resolve()
     cors_origins: tuple[str, ...] = _csv("CORS_ORIGINS", "http://localhost:3000")
-    clerk_issuer_url: str = os.getenv("CLERK_ISSUER_URL", "").rstrip("/")
-    clerk_jwks_url: str = os.getenv("CLERK_JWKS_URL", "")
-    clerk_audience: str = os.getenv("CLERK_AUDIENCE", "")
-    clerk_authorized_parties: tuple[str, ...] = _csv("CLERK_AUTHORIZED_PARTIES")
+    admin_password: str = os.getenv("ADMIN_PASSWORD", "vardiya")
+    session_secret: str = os.getenv("APP_SESSION_SECRET", "development-only-change-me")
+    session_days: int = int(os.getenv("SESSION_DAYS", "30"))
 
 
 settings = Settings()
-

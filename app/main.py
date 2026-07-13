@@ -11,10 +11,10 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .auth import CurrentUser, current_user
+from .auth import CurrentUser, create_session, current_user
 from .config import settings
 from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, revisions, save_orders, scenarios
-from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, RevisionPayload, ScenarioPayload
+from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, LoginRequest, RevisionPayload, ScenarioPayload
 
 
 @asynccontextmanager
@@ -37,6 +37,11 @@ def require_feedback(db, feedback_id: str) -> dict[str, Any]:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginRequest):
+    return {"token": create_session(payload.password), "name": "Planlama Yöneticisi"}
 
 
 @app.get("/api/me")
