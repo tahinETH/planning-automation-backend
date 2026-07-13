@@ -1,4 +1,4 @@
-# Vardiya — planlama ve geri bildirim çalışma alanı
+# Selsa Planlama — planlama ve geri bildirim çalışma alanı
 
 Proje artık iki bağımsız uygulamadan oluşur:
 

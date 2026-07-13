@@ -12,8 +12,8 @@ from .config import settings
 
 
 bearer = HTTPBearer(auto_error=False)
-ISSUER = "vardiya-api"
-AUDIENCE = "vardiya-frontend"
+ISSUER = "selsa-planlama-api"
+AUDIENCE = "selsa-planlama-frontend"
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-os.environ["DATABASE_PATH"] = "/tmp/vardiya-feedback-test.sqlite"
-os.environ["UPLOAD_DIR"] = "/tmp/vardiya-feedback-uploads"
+os.environ["DATABASE_PATH"] = "/tmp/selsa-planlama-feedback-test.sqlite"
+os.environ["UPLOAD_DIR"] = "/tmp/selsa-planlama-feedback-uploads"
 os.environ["ADMIN_PASSWORD"] = "test-password"
 os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 
