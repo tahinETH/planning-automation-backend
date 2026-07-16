@@ -13,8 +13,8 @@ from fastapi.responses import FileResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, revisions, save_orders, scenarios
-from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, LoginRequest, RevisionPayload, ScenarioPayload
+from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_orders, save_planning_state, scenarios
+from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
 
 
 @asynccontextmanager
@@ -58,6 +58,16 @@ def get_orders(_: CurrentUser = Depends(current_user)):
 def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_user)):
     save_orders(payload)
     return {"ok": True}
+
+
+@app.get("/api/planning-state")
+def get_planning_state(_: CurrentUser = Depends(current_user)):
+    return planning_state()
+
+
+@app.put("/api/planning-state")
+def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(current_user)):
+    return save_planning_state(payload.seed)
 
 
 @app.get("/api/scenarios")

@@ -48,3 +48,7 @@ class RevisionPayload(BaseModel):
     impact: dict[str, Any]
     seed: dict[str, Any]
     result: dict[str, Any]
+
+
+class PlanningStatePayload(BaseModel):
+    seed: dict[str, Any]

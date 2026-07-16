@@ -50,6 +50,9 @@ def init_database() -> None:
               created_at TEXT NOT NULL, approved_at TEXT NOT NULL, original_json TEXT NOT NULL,
               request_json TEXT NOT NULL, impact_json TEXT NOT NULL, seed_json TEXT NOT NULL, result_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS planning_state (
+              state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS feedbacks (
               id TEXT PRIMARY KEY, author_id TEXT NOT NULL, author_name TEXT NOT NULL,
               page_path TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
@@ -99,6 +102,25 @@ def save_orders(orders: list[dict[str, Any]]) -> None:
         )
 
 
+def planning_state() -> dict[str, Any] | None:
+    with connection() as db:
+        row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+    if row is None:
+        return None
+    return {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+
+
+def save_planning_state(seed: dict[str, Any]) -> dict[str, Any]:
+    timestamp = now_iso()
+    with connection() as db:
+        db.execute(
+            """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
+            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
+            (json.dumps(seed, ensure_ascii=False), timestamp),
+        )
+    return {"seed": seed, "updatedAt": timestamp}
+
+
 def scenarios() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute("SELECT * FROM scenarios ORDER BY created_at DESC").fetchall()
@@ -131,4 +153,3 @@ def all_feedback() -> list[dict[str, Any]]:
     with connection() as db:
         ids = [row["id"] for row in db.execute("SELECT id FROM feedbacks ORDER BY updated_at DESC").fetchall()]
         return [record for feedback_id in ids if (record := feedback_record(db, feedback_id)) is not None]
-

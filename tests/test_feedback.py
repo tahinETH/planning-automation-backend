@@ -45,3 +45,11 @@ def test_feedback_lifecycle():
         listed = client.get("/api/feedbacks", headers=headers)
         assert listed.status_code == 200
         assert listed.json()[0]["comments"][0]["body"] == "Hız değerini de kontrol edelim"
+
+        assert client.get("/api/planning-state", headers=headers).json() is None
+        seed = {"machines": [{"id": "C-01", "active": True}], "products": [], "preferences": [], "orders": []}
+        saved_state = client.put("/api/planning-state", headers=headers, json={"seed": seed})
+        assert saved_state.status_code == 200
+        assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
+        loaded_state = client.get("/api/planning-state", headers=headers)
+        assert loaded_state.json()["seed"] == seed
