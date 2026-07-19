@@ -37,6 +37,7 @@ npm run dev
 - Bulunulan sayfa backend'e sessizce eklenir; formda gösterilmez.
 - **Geri Bildirimler** sayfasında geçmiş notlar, konuşmalar ve ekler birlikte görünür.
 - Bir not düzenlenebilir, yorumlanabilir, çözülebilir, iptal edilebilir veya yeniden açılabilir.
+- `POST /api/order-imports/preview`, `Tip no` ve `Sipariş Adeti` kolonlu `.xlsx` sipariş dosyasını veri değişikliği yapmadan doğrular ve önizleme özeti döndürür.
 - Yorumlar düzenlenebilir.
 - Görseller ve ses kayıtları yetkili API üzerinden okunur; doğrudan herkese açık dosya adresleri kullanılmaz.
 - Ekler geri bildirim sayfasından silinebilir.

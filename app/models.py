@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class FeedbackCreate(BaseModel):
     body: str = Field(min_length=1, max_length=20_000)
     page_path: str = Field(default="", max_length=200)
+    priority: Literal[1, 2, 3] = 2
 
 
 class LoginRequest(BaseModel):
@@ -17,6 +18,7 @@ class LoginRequest(BaseModel):
 class FeedbackUpdate(BaseModel):
     body: str | None = Field(default=None, min_length=1, max_length=20_000)
     status: Literal["active", "resolved", "canceled"] | None = None
+    priority: Literal[1, 2, 3] | None = None
 
 
 class CommentCreate(BaseModel):

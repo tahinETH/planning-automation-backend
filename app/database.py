@@ -57,6 +57,7 @@ def init_database() -> None:
               id TEXT PRIMARY KEY, author_id TEXT NOT NULL, author_name TEXT NOT NULL,
               page_path TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','resolved','canceled')),
+              priority INTEGER NOT NULL DEFAULT 2 CHECK(priority IN (1,2,3)),
               created_at TEXT NOT NULL, updated_at TEXT NOT NULL, resolved_at TEXT, canceled_at TEXT
             );
             CREATE TABLE IF NOT EXISTS feedback_comments (
@@ -75,6 +76,9 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
             """
         )
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
+        if "priority" not in columns:
+            db.execute("ALTER TABLE feedbacks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
 
 
 def _loads(value: str) -> Any:

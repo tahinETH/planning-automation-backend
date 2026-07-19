@@ -15,6 +15,7 @@ from .auth import CurrentUser, create_session, current_user
 from .config import settings
 from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_orders, save_planning_state, scenarios
 from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 
 
 @asynccontextmanager
@@ -58,6 +59,18 @@ def get_orders(_: CurrentUser = Depends(current_user)):
 def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_user)):
     save_orders(payload)
     return {"ok": True}
+
+
+@app.post("/api/order-imports/preview")
+async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+    content = await file.read(MAX_XLSX_BYTES + 1)
+    try:
+        preview = parse_order_xlsx(content)
+    except OrderImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"fileName": Path(file.filename).name, **preview}
 
 
 @app.get("/api/planning-state")
@@ -117,8 +130,8 @@ def get_feedbacks(_: CurrentUser = Depends(current_user)):
 def create_feedback(payload: FeedbackCreate, user: CurrentUser = Depends(current_user)):
     feedback_id, timestamp = str(uuid.uuid4()), now_iso()
     with connection() as db:
-        db.execute("INSERT INTO feedbacks(id,author_id,author_name,page_path,body,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?)",
-                   (feedback_id, user.id, user.name, payload.page_path, payload.body.strip(), timestamp, timestamp))
+        db.execute("INSERT INTO feedbacks(id,author_id,author_name,page_path,body,status,priority,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?,?)",
+                   (feedback_id, user.id, user.name, payload.page_path, payload.body.strip(), payload.priority, timestamp, timestamp))
         return feedback_record(db, feedback_id)
 
 
@@ -128,10 +141,11 @@ def update_feedback(feedback_id: str, payload: FeedbackUpdate, _: CurrentUser = 
         current = require_feedback(db, feedback_id)
         body = payload.body.strip() if payload.body is not None else current["body"]
         status = payload.status or current["status"]
+        priority = payload.priority if payload.priority is not None else current["priority"]
         timestamp = now_iso()
         resolved_at = timestamp if status == "resolved" else None
         canceled_at = timestamp if status == "canceled" else None
-        db.execute("UPDATE feedbacks SET body=?,status=?,updated_at=?,resolved_at=?,canceled_at=? WHERE id=?", (body, status, timestamp, resolved_at, canceled_at, feedback_id))
+        db.execute("UPDATE feedbacks SET body=?,status=?,priority=?,updated_at=?,resolved_at=?,canceled_at=? WHERE id=?", (body, status, priority, timestamp, resolved_at, canceled_at, feedback_id))
         return feedback_record(db, feedback_id)
 
 
