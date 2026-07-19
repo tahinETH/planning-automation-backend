@@ -38,6 +38,7 @@ npm run dev
 - **Geri Bildirimler** sayfasında geçmiş notlar, konuşmalar ve ekler birlikte görünür.
 - Bir not düzenlenebilir, yorumlanabilir, çözülebilir, iptal edilebilir veya yeniden açılabilir.
 - `POST /api/order-imports/preview`, `Tip no` ve `Sipariş Adeti` kolonlu `.xlsx` sipariş dosyasını veri değişikliği yapmadan doğrular ve önizleme özeti döndürür.
+- Excel önizleme servisi yüklenen dosyayı bellekte okur; proje kökündeki `tipler.xlsx` veya başka bir sabit dosya yoluna bağlı değildir. Backend ayrı bir repodan dağıtılabilir.
 - Yorumlar düzenlenebilir.
 - Görseller ve ses kayıtları yetkili API üzerinden okunur; doğrudan herkese açık dosya adresleri kullanılmaz.
 - Ekler geri bildirim sayfasından silinebilir.
