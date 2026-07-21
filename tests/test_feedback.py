@@ -20,8 +20,9 @@ def test_feedback_lifecycle():
         headers = {"Authorization": f"Bearer {login.json()['token']}"}
         assert client.get("/api/feedbacks").status_code == 401
 
-        created = client.post("/api/feedbacks", headers=headers, json={"body": "C-08 planı kontrol edilmeli", "page_path": "Tezgahlar / C-08"})
+        created = client.post("/api/feedbacks", headers=headers, json={"body": "C-08 planı kontrol edilmeli", "page_path": "Tezgahlar / C-08", "priority": 1})
         assert created.status_code == 201
+        assert created.json()["priority"] == 1
         feedback_id = created.json()["id"]
 
         commented = client.post(f"/api/feedbacks/{feedback_id}/comments", headers=headers, json={"body": "Hız değerini de kontrol edelim"})
@@ -30,6 +31,11 @@ def test_feedback_lifecycle():
 
         edited = client.patch(f"/api/feedbacks/{feedback_id}", headers=headers, json={"body": "C-08 kapasitesi kontrol edilmeli"})
         assert edited.json()["body"] == "C-08 kapasitesi kontrol edilmeli"
+        assert edited.json()["priority"] == 1
+
+        reprioritized = client.patch(f"/api/feedbacks/{feedback_id}", headers=headers, json={"priority": 3})
+        assert reprioritized.status_code == 200
+        assert reprioritized.json()["priority"] == 3
 
         uploaded = client.post(f"/api/feedbacks/{feedback_id}/attachments", headers=headers, files=[("files", ("ekran.png", b"png-data", "image/png"))])
         assert uploaded.status_code == 201
@@ -44,6 +50,7 @@ def test_feedback_lifecycle():
 
         listed = client.get("/api/feedbacks", headers=headers)
         assert listed.status_code == 200
+        assert listed.json()[0]["priority"] == 3
         assert listed.json()[0]["comments"][0]["body"] == "Hız değerini de kontrol edelim"
 
         assert client.get("/api/planning-state", headers=headers).json() is None

@@ -9,12 +9,13 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
 from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_orders, save_planning_state, scenarios
-from .models import CommentCreate, CommentUpdate, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .delivery_plan import DeliveryPlanError, build_delivery_plan
+from .models import CommentCreate, CommentUpdate, DeliveryPlanPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 
 
@@ -71,6 +72,21 @@ async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = De
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
+
+
+@app.post("/api/delivery-plan/export")
+def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(current_user)):
+    template_path = Path(__file__).resolve().parents[2] / "Teslimat Planı.xlsx"
+    try:
+        content = build_delivery_plan(template_path, payload.model_dump())
+    except DeliveryPlanError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    filename = f"Teslimat_Plani_{payload.startDate}_{payload.endDate}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/planning-state")

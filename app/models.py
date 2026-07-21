@@ -54,3 +54,21 @@ class RevisionPayload(BaseModel):
 
 class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
+
+
+class DeliveryPlanWeek(BaseModel):
+    label: str = Field(min_length=1, max_length=12)
+
+
+class DeliveryPlanRow(BaseModel):
+    product: str = Field(min_length=1, max_length=100)
+    orderQuantity: int = Field(ge=0)
+    weeklyQuantities: list[int]
+
+
+class DeliveryPlanPayload(BaseModel):
+    startDate: str
+    endDate: str
+    category: str = Field(default="Üretim", min_length=1, max_length=100)
+    weeks: list[DeliveryPlanWeek]
+    rows: list[DeliveryPlanRow]

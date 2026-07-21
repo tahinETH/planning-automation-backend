@@ -43,6 +43,7 @@ def init_database() -> None:
               due_date TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 3,
               order_type TEXT NOT NULL DEFAULT 'Kesin sipariş', allow_partial INTEGER NOT NULL DEFAULT 0,
               partial_delivery_quantity REAL NOT NULL DEFAULT 0, partial_delivery_date TEXT NOT NULL DEFAULT '',
+              delivery_milestones_json TEXT NOT NULL DEFAULT '[]',
               updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS order_revisions (
@@ -79,6 +80,9 @@ def init_database() -> None:
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
         if "priority" not in columns:
             db.execute("ALTER TABLE feedbacks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
+        order_columns = {row["name"] for row in db.execute("PRAGMA table_info(customer_orders)").fetchall()}
+        if "delivery_milestones_json" not in order_columns:
+            db.execute("ALTER TABLE customer_orders ADD COLUMN delivery_milestones_json TEXT NOT NULL DEFAULT '[]'")
 
 
 def _loads(value: str) -> Any:
@@ -88,21 +92,35 @@ def _loads(value: str) -> Any:
 def order_details() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute("SELECT * FROM customer_orders").fetchall()
-    return [{
-        "id": row["order_id"], "dueDate": row["due_date"], "allowPartial": bool(row["allow_partial"]),
-        "partialDeliveryQuantity": row["partial_delivery_quantity"], "partialDeliveryDate": row["partial_delivery_date"],
-    } for row in rows]
+    details = []
+    for row in rows:
+        milestones = _loads(row["delivery_milestones_json"] or "[]")
+        if not milestones and row["allow_partial"] and row["partial_delivery_quantity"] and row["partial_delivery_date"]:
+            milestones = [{"id": "legacy-partial", "quantity": row["partial_delivery_quantity"], "date": row["partial_delivery_date"]}]
+        details.append({
+            "id": row["order_id"], "dueDate": row["due_date"], "allowPartial": bool(milestones),
+            "partialDeliveryQuantity": milestones[0]["quantity"] if milestones else 0,
+            "partialDeliveryDate": milestones[0]["date"] if milestones else "",
+            "deliveryMilestones": milestones,
+        })
+    return details
 
 
 def save_orders(orders: list[dict[str, Any]]) -> None:
     timestamp = now_iso()
     with connection() as db:
         db.executemany(
-            """INSERT INTO customer_orders (order_id,due_date,allow_partial,partial_delivery_quantity,partial_delivery_date,updated_at)
-            VALUES (?,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET due_date=excluded.due_date,
+            """INSERT INTO customer_orders (order_id,due_date,allow_partial,partial_delivery_quantity,partial_delivery_date,delivery_milestones_json,updated_at)
+            VALUES (?,?,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET due_date=excluded.due_date,
             allow_partial=excluded.allow_partial,partial_delivery_quantity=excluded.partial_delivery_quantity,
-            partial_delivery_date=excluded.partial_delivery_date,updated_at=excluded.updated_at""",
-            [(order["id"], order.get("dueDate", ""), int(order.get("allowPartial", False)), order.get("partialDeliveryQuantity", 0), order.get("partialDeliveryDate", ""), timestamp) for order in orders],
+            partial_delivery_date=excluded.partial_delivery_date,delivery_milestones_json=excluded.delivery_milestones_json,
+            updated_at=excluded.updated_at""",
+            [(
+                order["id"], order.get("dueDate", ""), int(bool(order.get("deliveryMilestones")) or order.get("allowPartial", False)),
+                (order.get("deliveryMilestones") or [{}])[0].get("quantity", order.get("partialDeliveryQuantity", 0)),
+                (order.get("deliveryMilestones") or [{}])[0].get("date", order.get("partialDeliveryDate", "")),
+                json.dumps(order.get("deliveryMilestones") or [], ensure_ascii=False), timestamp,
+            ) for order in orders],
         )
 
 
