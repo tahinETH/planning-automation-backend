@@ -16,7 +16,7 @@ from app.main import app
 
 
 def test_delivery_plan_uses_single_category_and_template_structure():
-    template = Path(__file__).resolve().parents[2] / "Teslimat Planı.xlsx"
+    template = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     content = build_delivery_plan(template, {
         "startDate": "2026-07-20",
         "endDate": "2026-08-30",
@@ -55,7 +55,7 @@ def test_delivery_plan_endpoint_returns_an_excel_download():
 
 
 def test_delivery_plan_expands_when_more_than_template_rows_are_active():
-    template = Path(__file__).resolve().parents[2] / "Teslimat Planı.xlsx"
+    template = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     rows = [{"product": f"P{index:03d}", "orderQuantity": index, "weeklyQuantities": [index, 0, 0, 0, 0, 0]} for index in range(1, 51)]
     content = build_delivery_plan(template, {
         "startDate": "2026-07-20", "endDate": "2026-08-30", "category": "Üretim",
@@ -68,7 +68,7 @@ def test_delivery_plan_expands_when_more_than_template_rows_are_active():
 
 
 def test_delivery_plan_expands_week_columns_beyond_the_original_six():
-    template = Path(__file__).resolve().parents[2] / "Teslimat Planı.xlsx"
+    template = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     quantities = [100] * 9
     content = build_delivery_plan(template, {
         "startDate": "2026-06-22", "endDate": "2026-08-23", "category": "Üretim",

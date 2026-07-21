@@ -76,7 +76,7 @@ async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = De
 
 @app.post("/api/delivery-plan/export")
 def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(current_user)):
-    template_path = Path(__file__).resolve().parents[2] / "Teslimat Planı.xlsx"
+    template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     try:
         content = build_delivery_plan(template_path, payload.model_dump())
     except DeliveryPlanError as error:
