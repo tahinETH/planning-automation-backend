@@ -38,6 +38,11 @@ class ScenarioPayload(BaseModel):
     result: dict[str, Any]
 
 
+class DataPackagePayload(BaseModel):
+    scope: Literal["parameters", "settings", "scenarios"]
+    data: Any
+
+
 class RevisionPayload(BaseModel):
     id: str
     orderId: str

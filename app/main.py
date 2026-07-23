@@ -4,6 +4,7 @@ import json
 import mimetypes
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +15,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
 from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_orders, save_planning_state, scenarios
+from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import CommentCreate, CommentUpdate, DeliveryPlanPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 
 
@@ -87,6 +89,31 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/data-packages/export")
+def export_data_package(payload: DataPackagePayload, _: CurrentUser = Depends(current_user)):
+    content = build_data_package(payload.scope, payload.data)
+    filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/data-packages/{scope}/import")
+async def import_data_package(scope: str, file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
+    if scope not in SCOPE_LABELS:
+        raise HTTPException(status_code=404, detail="Veri paketi kapsamı bulunamadı.")
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+    content = await file.read(MAX_DATA_PACKAGE_BYTES + 1)
+    try:
+        data = parse_data_package(content, scope)
+    except DataPackageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"fileName": Path(file.filename).name, "scope": scope, "data": data}
 
 
 @app.get("/api/planning-state")
