@@ -77,3 +77,14 @@ python3 scripts/extract_workbook.py ../Tezgah_Planlama_V51.xlsm data/workbook.js
 python3 scripts/build_planning_seed.py data/workbook.json data/planning-seed.json
 npm test
 ```
+
+## Restarting
+```bash
+sudo systemctl restart planning-automation-backend
+```
+
+Then verify it started correctly:
+
+```bash
+systemctl status planning-automation-backend --no-pager
+```
