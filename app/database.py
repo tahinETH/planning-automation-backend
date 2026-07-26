@@ -54,6 +54,11 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS planning_state (
               state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS demand_import_history (
+              id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, source_file TEXT NOT NULL,
+              snapshot_date TEXT NOT NULL, dataset_json TEXT NOT NULL, summary_json TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS feedbacks (
               id TEXT PRIMARY KEY, author_id TEXT NOT NULL, author_name TEXT NOT NULL,
               page_path TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
@@ -75,6 +80,7 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedbacks_updated_idx ON feedbacks(updated_at DESC);
             CREATE INDEX IF NOT EXISTS feedback_comments_feedback_idx ON feedback_comments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
+            CREATE INDEX IF NOT EXISTS demand_import_history_imported_idx ON demand_import_history(imported_at DESC);
             """
         )
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
@@ -141,6 +147,44 @@ def save_planning_state(seed: dict[str, Any]) -> dict[str, Any]:
             (json.dumps(seed, ensure_ascii=False), timestamp),
         )
     return {"seed": seed, "updatedAt": timestamp}
+
+
+def demand_import_history() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute(
+            "SELECT id,imported_at,source_file,snapshot_date,dataset_json,summary_json FROM demand_import_history ORDER BY imported_at DESC LIMIT 20"
+        ).fetchall()
+    return [{
+        "id": row["id"],
+        "importedAt": row["imported_at"],
+        "sourceFile": row["source_file"],
+        "snapshotDate": row["snapshot_date"],
+        "dataset": _loads(row["dataset_json"]),
+        "summary": _loads(row["summary_json"]),
+    } for row in rows]
+
+
+def save_demand_import_history(record: dict[str, Any]) -> dict[str, Any]:
+    timestamp = now_iso()
+    with connection() as db:
+        db.execute(
+            """INSERT INTO demand_import_history(id,imported_at,source_file,snapshot_date,dataset_json,summary_json,created_at)
+            VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET imported_at=excluded.imported_at,
+            source_file=excluded.source_file,snapshot_date=excluded.snapshot_date,
+            dataset_json=excluded.dataset_json,summary_json=excluded.summary_json""",
+            (
+                record["id"], record["importedAt"], record["sourceFile"], record["snapshotDate"],
+                json.dumps(record["dataset"], ensure_ascii=False),
+                json.dumps(record["summary"], ensure_ascii=False),
+                timestamp,
+            ),
+        )
+        stale = db.execute(
+            "SELECT id FROM demand_import_history ORDER BY imported_at DESC LIMIT -1 OFFSET 20"
+        ).fetchall()
+        if stale:
+            db.executemany("DELETE FROM demand_import_history WHERE id=?", [(row["id"],) for row in stale])
+    return record
 
 
 def scenarios() -> list[dict[str, Any]]:
