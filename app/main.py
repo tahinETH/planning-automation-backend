@@ -14,10 +14,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import all_feedback, connection, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_orders, save_planning_state, scenarios
+from .database import all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 
 
@@ -74,6 +74,16 @@ async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = De
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
+
+
+@app.get("/api/order-imports/history")
+def get_order_import_history(_: CurrentUser = Depends(current_user)):
+    return demand_import_history()
+
+
+@app.post("/api/order-imports/history", status_code=201)
+def post_order_import_history(payload: DemandImportHistoryPayload, _: CurrentUser = Depends(current_user)):
+    return save_demand_import_history(payload.model_dump())
 
 
 @app.post("/api/delivery-plan/export")

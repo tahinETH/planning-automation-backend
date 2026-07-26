@@ -61,6 +61,15 @@ class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
 
 
+class DemandImportHistoryPayload(BaseModel):
+    id: str = Field(min_length=1, max_length=160)
+    importedAt: str
+    sourceFile: str = Field(min_length=1, max_length=255)
+    snapshotDate: str
+    dataset: dict[str, Any]
+    summary: dict[str, Any]
+
+
 class DeliveryPlanWeek(BaseModel):
     label: str = Field(min_length=1, max_length=12)
 
