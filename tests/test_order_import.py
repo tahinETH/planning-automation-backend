@@ -80,8 +80,19 @@ def confirmed_overview_bytes(week_headers: tuple[str, ...] = ("CW 30.2026", "CW 
             "T": -5760,
             "U": -5760,
         },
+        {
+            "A": "20.07.2026",
+            "C": "R-STOCK",
+            "E": "CENTER PIN",
+            "J": "ST",
+            "Q": 100,
+            "R": "Balance (confirmed)",
+            "S": 100,
+            "T": 50,
+            "U": 20,
+        },
     ]
-    for row, balance in zip(rows, (-6891, -5760)):
+    for row, balance in zip(rows, (-6891, -5760, 20)):
         for index in range(len(week_headers)):
             row[column_name(20 + index)] = balance
 
@@ -115,15 +126,18 @@ def test_parses_confirmed_overview_as_iso_week_demand_with_monday_and_sunday_dat
     parsed = parse_order_xlsx(confirmed_overview_bytes())
 
     assert parsed["format"] == "confirmed-overview"
+    assert parsed["calculationModel"] == "net-shortage-v1"
     assert parsed["sheetName"] == "3. Overview (confirmed)"
     assert parsed["snapshotDate"] == "2026-07-20"
     assert parsed["baselineDueDate"] == "2026-07-19"
     assert parsed["summary"] == {
-        "productCount": 2,
+        "productCount": 3,
         "orderCount": 2,
-        "totalQuantity": 18432,
-        "openingStock": 5781,
+        "totalQuantity": 12651,
+        "openingStock": 5881,
         "priorDemand": 1920,
+        "firstWeekRequirement": 12651,
+        "lastWeekRequirement": 12651,
         "weekCount": 2,
         "firstWeek": "2026-W30",
         "lastWeek": "2026-W31",
@@ -136,15 +150,19 @@ def test_parses_confirmed_overview_as_iso_week_demand_with_monday_and_sunday_dat
         "label": "CW 30.2026",
         "weekStart": "2026-07-20",
         "weekEnd": "2026-07-26",
-        "quantity": 16512,
+        "quantity": 10731,
     }
     first = parsed["products"][0]
     assert first["availableQuantity"] == 5781
     assert first["priorDemand"] == 0
-    assert first["weeklyDemands"][0]["quantity"] == 12672
+    assert first["weeklyDemands"][0]["requiredQuantity"] == 6891
+    assert first["weeklyDemands"][0]["quantity"] == 6891
     second = parsed["products"][1]
     assert second["priorDemand"] == 1920
     assert second["weeklyDemands"][0]["quantity"] == 3840
+    stock_surplus = parsed["products"][2]
+    assert stock_surplus["totalDemand"] == 0
+    assert all(week["quantity"] == 0 for week in stock_surplus["weeklyDemands"])
 
 
 def test_rejects_non_consecutive_confirmed_overview_weeks():

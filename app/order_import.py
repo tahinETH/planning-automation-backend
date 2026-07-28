@@ -227,22 +227,19 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
             raise OrderImportError(f"{row_number}. satırda stok veya '< CW' bakiyesi boş; Excel formülleri hesaplanmış olmalıdır.")
         available_quantity = _parse_integer(available_text, available_numeric, row_number, "Available quantity")
         baseline_balance = _parse_integer(baseline_text, baseline_numeric, row_number, "'< CW' bakiyesi", allow_negative=True)
-        prior_demand = available_quantity - baseline_balance
-        if prior_demand < 0:
-            raise OrderImportError(f"{row_number}. satırda '< CW' bakiyesi Available quantity değerinden büyük.")
+        prior_demand = max(0, -baseline_balance)
 
         cumulative_quantity = prior_demand
-        previous_balance = baseline_balance
         weekly_demands: list[dict] = []
         for week in week_columns:
             week_text, week_numeric = cells.get(str(week["column"]), ("", True))
             if not week_text.strip():
                 raise OrderImportError(f"{row_number}. satırdaki {week['label']} bakiyesi boş; Excel formülleri hesaplanmış olmalıdır.")
             balance = _parse_integer(week_text, week_numeric, row_number, f"{week['label']} bakiyesi", allow_negative=True)
-            quantity = previous_balance - balance
-            if quantity < 0:
-                raise OrderImportError(f"{row_number}. satırdaki {week['label']} bakiyesi önceki haftaya göre artıyor; haftalık talep negatif olamaz.")
-            cumulative_quantity += quantity
+            required_quantity = max(0, -balance)
+            next_cumulative_quantity = max(cumulative_quantity, required_quantity)
+            quantity = next_cumulative_quantity - cumulative_quantity
+            cumulative_quantity = next_cumulative_quantity
             weekly_demands.append({
                 "weekId": week["id"],
                 "isoYear": week["isoYear"],
@@ -252,9 +249,9 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
                 "weekEnd": week["weekEnd"],
                 "quantity": quantity,
                 "cumulativeQuantity": cumulative_quantity,
+                "requiredQuantity": required_quantity,
                 "balance": balance,
             })
-            previous_balance = balance
 
         family = cells.get(family_column, ("", False))[0].strip()
         unit = cells.get(unit_column, ("", False))[0].strip()
@@ -285,8 +282,11 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
         )
         weeks.append({key: value for key, value in week.items() if key not in {"column", "columnNumber"}} | {"quantity": quantity})
     active = [product for product in products if int(product["totalDemand"]) > 0]
+    first_week_requirement = sum(int(product["weeklyDemands"][0]["cumulativeQuantity"]) for product in products)
+    last_week_requirement = sum(int(product["totalDemand"]) for product in products)
     return {
         "format": "confirmed-overview",
+        "calculationModel": "net-shortage-v1",
         "sheetName": "3. Overview (confirmed)",
         "snapshotDate": next(iter(snapshot_dates)),
         "baselineLabel": baseline_label,
@@ -297,9 +297,11 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
         "summary": {
             "productCount": len(products),
             "orderCount": len(active),
-            "totalQuantity": sum(int(product["totalDemand"]) for product in active),
+            "totalQuantity": last_week_requirement,
             "openingStock": sum(int(product["availableQuantity"]) for product in products),
             "priorDemand": sum(int(product["priorDemand"]) for product in products),
+            "firstWeekRequirement": first_week_requirement,
+            "lastWeekRequirement": last_week_requirement,
             "weekCount": len(weeks),
             "firstWeek": weeks[0]["id"],
             "lastWeek": weeks[-1]["id"],
