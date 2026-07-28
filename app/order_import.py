@@ -166,7 +166,7 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
         iso_year = int(match.group(2))
         try:
             week_start = date.fromisocalendar(iso_year, iso_week, 1)
-            week_end = date.fromisocalendar(iso_year, iso_week, 7)
+            week_end = date.fromisocalendar(iso_year, iso_week, 6)
         except ValueError:
             raise OrderImportError(f"Geçersiz ISO hafta başlığı: {value}") from None
         week_columns.append({
@@ -196,7 +196,7 @@ def _parse_confirmed_overview(values_by_row: dict[int, dict[str, tuple[str, bool
     unit_column = normalized_headers["unit"]
     available_column = normalized_headers["available quantity"]
     filter_column = normalized_headers["filter"]
-    baseline_due_date = (date.fromisoformat(str(week_columns[0]["weekStart"])) - timedelta(days=1)).isoformat()
+    baseline_due_date = (date.fromisoformat(str(week_columns[0]["weekStart"])) - timedelta(days=2)).isoformat()
     products: list[dict] = []
     rows: list[dict[str, int | str]] = []
     seen: dict[str, int] = {}

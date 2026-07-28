@@ -122,14 +122,14 @@ def test_parses_order_workbook_and_ignores_blank_separators():
     assert parsed["summary"] == {"productCount": 2, "orderCount": 1, "totalQuantity": 3840, "ignoredBlankRows": 1}
 
 
-def test_parses_confirmed_overview_as_iso_week_demand_with_monday_and_sunday_dates():
+def test_parses_confirmed_overview_as_iso_week_demand_with_monday_and_saturday_dates():
     parsed = parse_order_xlsx(confirmed_overview_bytes())
 
     assert parsed["format"] == "confirmed-overview"
     assert parsed["calculationModel"] == "net-shortage-v1"
     assert parsed["sheetName"] == "3. Overview (confirmed)"
     assert parsed["snapshotDate"] == "2026-07-20"
-    assert parsed["baselineDueDate"] == "2026-07-19"
+    assert parsed["baselineDueDate"] == "2026-07-18"
     assert parsed["summary"] == {
         "productCount": 3,
         "orderCount": 2,
@@ -149,7 +149,7 @@ def test_parses_confirmed_overview_as_iso_week_demand_with_monday_and_sunday_dat
         "id": "2026-W30",
         "label": "CW 30.2026",
         "weekStart": "2026-07-20",
-        "weekEnd": "2026-07-26",
+        "weekEnd": "2026-07-25",
         "quantity": 10731,
     }
     first = parsed["products"][0]
@@ -184,7 +184,7 @@ def test_parses_52_consecutive_iso_weeks_across_year_boundary():
     assert parsed["weeks"][0]["id"] == "2026-W40"
     assert parsed["weeks"][0]["weekStart"] == "2026-09-28"
     assert parsed["weeks"][-1]["id"] == "2027-W38"
-    assert parsed["weeks"][-1]["weekEnd"] == "2027-09-26"
+    assert parsed["weeks"][-1]["weekEnd"] == "2027-09-25"
 
 
 def test_rejects_duplicate_products_and_wrong_headers():
