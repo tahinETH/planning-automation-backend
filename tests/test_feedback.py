@@ -45,6 +45,21 @@ def test_feedback_lifecycle():
         assert voiced.status_code == 201
         assert {item["kind"] for item in voiced.json()["attachments"]} == {"image", "voice"}
 
+        documented = client.post(
+            f"/api/feedbacks/{feedback_id}/attachments",
+            headers=headers,
+            files=[("files", ("kontrol-notu.docx", b"word-data", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))],
+        )
+        assert documented.status_code == 201
+        assert {item["kind"] for item in documented.json()["attachments"]} == {"image", "voice", "document"}
+
+        unsupported = client.post(
+            f"/api/feedbacks/{feedback_id}/attachments",
+            headers=headers,
+            files=[("files", ("calistir.exe", b"binary", "application/octet-stream"))],
+        )
+        assert unsupported.status_code == 415
+
         resolved = client.patch(f"/api/feedbacks/{feedback_id}", headers=headers, json={"status": "resolved"})
         assert resolved.json()["status"] == "resolved"
 

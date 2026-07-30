@@ -73,7 +73,7 @@ def init_database() -> None:
             );
             CREATE TABLE IF NOT EXISTS feedback_attachments (
               id TEXT PRIMARY KEY, feedback_id TEXT NOT NULL REFERENCES feedbacks(id) ON DELETE CASCADE,
-              author_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('image','voice')),
+              author_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('image','voice','document')),
               original_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL,
               storage_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
             );
@@ -86,6 +86,24 @@ def init_database() -> None:
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
         if "priority" not in columns:
             db.execute("ALTER TABLE feedbacks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
+        attachment_sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='feedback_attachments'").fetchone()
+        if attachment_sql and "'document'" not in (attachment_sql["sql"] or ""):
+            db.executescript(
+                """
+                ALTER TABLE feedback_attachments RENAME TO feedback_attachments_legacy;
+                CREATE TABLE feedback_attachments (
+                  id TEXT PRIMARY KEY, feedback_id TEXT NOT NULL REFERENCES feedbacks(id) ON DELETE CASCADE,
+                  author_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('image','voice','document')),
+                  original_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL,
+                  storage_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+                );
+                INSERT INTO feedback_attachments(id,feedback_id,author_id,kind,original_name,content_type,size,storage_key,created_at)
+                SELECT id,feedback_id,author_id,kind,original_name,content_type,size,storage_key,created_at
+                FROM feedback_attachments_legacy;
+                DROP TABLE feedback_attachments_legacy;
+                CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
+                """
+            )
         order_columns = {row["name"] for row in db.execute("PRAGMA table_info(customer_orders)").fetchall()}
         if "delivery_milestones_json" not in order_columns:
             db.execute("ALTER TABLE customer_orders ADD COLUMN delivery_milestones_json TEXT NOT NULL DEFAULT '[]'")

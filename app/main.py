@@ -17,7 +17,8 @@ from .config import settings
 from .database import all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 
 
@@ -94,6 +95,17 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
     except DeliveryPlanError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     filename = f"Teslimat_Plani_{payload.startDate}_{payload.endDate}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/general-overview/export")
+def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
+    content = build_overview_workbook(payload.model_dump())
+    filename = f"Genel_Bakis_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -231,14 +243,26 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
         require_feedback(db, feedback_id)
     for upload in files:
         content_type = upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "application/octet-stream"
-        kind = "image" if content_type.startswith("image/") else "voice" if content_type.startswith("audio/") else None
+        suffix = Path(upload.filename or "").suffix.lower()
+        document_suffixes = {".doc", ".docx", ".pdf", ".rtf", ".txt", ".odt"}
+        document_types = {
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/pdf",
+            "application/rtf",
+            "text/rtf",
+            "text/plain",
+            "application/vnd.oasis.opendocument.text",
+            "application/octet-stream",
+        }
+        kind = "image" if content_type.startswith("image/") else "voice" if content_type.startswith("audio/") else "document" if suffix in document_suffixes and content_type in document_types else None
         if kind is None:
-            raise HTTPException(status_code=415, detail="Yalnızca görüntü veya ses dosyası yüklenebilir")
+            raise HTTPException(status_code=415, detail="Yalnızca görüntü, ses, Word, PDF, RTF, ODT veya metin belgesi yüklenebilir")
         content = await upload.read()
-        limit = 20 * 1024 * 1024 if kind == "image" else 50 * 1024 * 1024
+        limit = 50 * 1024 * 1024 if kind == "voice" else 25 * 1024 * 1024 if kind == "document" else 20 * 1024 * 1024
         if not content or len(content) > limit:
             raise HTTPException(status_code=413, detail="Dosya boyutu sınırı aşıldı")
-        suffix = Path(upload.filename or "").suffix[:10]
+        suffix = suffix[:10]
         attachment_id, storage_key = str(uuid.uuid4()), f"{uuid.uuid4().hex}{suffix}"
         (settings.upload_dir / storage_key).write_bytes(content)
         timestamp = now_iso()

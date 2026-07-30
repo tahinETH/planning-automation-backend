@@ -86,3 +86,50 @@ class DeliveryPlanPayload(BaseModel):
     category: str = Field(default="Üretim", min_length=1, max_length=100)
     weeks: list[DeliveryPlanWeek]
     rows: list[DeliveryPlanRow]
+
+
+class OverviewSummary(BaseModel):
+    demand: int = Field(ge=0)
+    planned: int = Field(ge=0)
+    plannedBatchCount: int = Field(ge=0)
+    unplannedBatchCount: int = Field(ge=0)
+    activeMachineCount: int = Field(ge=0)
+    machineCount: int = Field(ge=0)
+    machinesWithWorkCount: int = Field(ge=0)
+    plannedMachineCount: int = Field(ge=0)
+
+
+class OverviewQueueRow(BaseModel):
+    kind: Literal["current", "planned"]
+    position: int = Field(ge=0)
+    product: str = Field(max_length=100)
+    diameter: str = Field(default="", max_length=40)
+    quantity: int = Field(ge=0)
+    endDate: str = Field(default="", max_length=40)
+    workOrder: str = Field(default="", max_length=120)
+
+
+class OverviewMachine(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(default="", max_length=160)
+    active: bool
+    plannedCount: int = Field(ge=0)
+    plannedQuantity: int = Field(ge=0)
+    rows: list[OverviewQueueRow]
+
+
+class OverviewFinding(BaseModel):
+    severity: Literal["critical", "warning", "info"]
+    title: str = Field(max_length=300)
+    detail: str = Field(max_length=2_000)
+    target: str = Field(default="", max_length=200)
+
+
+class OverviewExportPayload(BaseModel):
+    generatedAt: str
+    createdAt: str = ""
+    planState: Literal["planned", "empty"]
+    dirty: bool
+    summary: OverviewSummary
+    machines: list[OverviewMachine]
+    findings: list[OverviewFinding] = []
