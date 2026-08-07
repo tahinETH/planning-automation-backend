@@ -151,7 +151,7 @@ class ProductionArchiveExportRow(BaseModel):
 
 class ProductionArchiveExportPayload(BaseModel):
     generatedAt: str
-    status: Literal["semi-finished", "delivered"]
+    status: Literal["semi-finished", "delivered", "scrapped"]
     filtered: bool = False
     totalAvailable: int = Field(ge=0)
     rows: list[ProductionArchiveExportRow]

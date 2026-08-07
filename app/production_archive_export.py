@@ -36,7 +36,7 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
 
     rows = payload.get("rows", [])
     status = payload.get("status", "semi-finished")
-    status_label = "Yarı mamuller" if status == "semi-finished" else "Teslim edilenler"
+    status_label = "Yarı mamuller" if status == "semi-finished" else "Iskartalar" if status == "scrapped" else "Teslim edilenler"
     generated_at = payload.get("generatedAt") or datetime.now(timezone.utc).isoformat()
     total_quantity = sum(max(0, int(row.get("completedQuantity", 0))) for row in rows)
     machine_count = len({row.get("machineId") for row in rows if row.get("machineId")})
@@ -61,7 +61,7 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
 
     metrics = [
         ("KAYIT", len(rows), "görünen satır"),
-        ("TOPLAM ÜRETİM", total_quantity, "adet"),
+        ("TOPLAM ISKARTA" if status == "scrapped" else "TOPLAM ÜRETİM", total_quantity, "adet"),
         ("TEZGAH", machine_count, "farklı tezgah"),
         ("KAPSAM", "Filtreli" if payload.get("filtered") else "Tümü", f"{payload.get('totalAvailable', len(rows))} kayıt içinde"),
     ]
@@ -85,7 +85,7 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
         if isinstance(value, (int, float)):
             sheet[f"{start}6"].number_format = "#,##0"
 
-    headings = ["Tamamlanma", "Tezgah", "Tezgah adı", "İş emri", "Ürün", "Proses", "Üretilen", "Planlanan başlangıç", "Planlanan bitiş", "Teslim tarihi"]
+    headings = ["Tamamlanma", "Tezgah", "Tezgah adı", "İş emri", "Ürün", "Proses", "Iskarta" if status == "scrapped" else "Üretilen", "Planlanan başlangıç", "Planlanan bitiş", "Teslim tarihi"]
     widths = [16, 12, 24, 18, 20, 14, 14, 20, 20, 16]
     thin = Side(style="thin", color=LINE)
     for column, (heading, width) in enumerate(zip(headings, widths, strict=True), 1):
