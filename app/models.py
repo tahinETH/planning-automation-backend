@@ -133,3 +133,25 @@ class OverviewExportPayload(BaseModel):
     summary: OverviewSummary
     machines: list[OverviewMachine]
     findings: list[OverviewFinding] = []
+
+
+class ProductionArchiveExportRow(BaseModel):
+    completedAt: str = Field(max_length=40)
+    archivedAt: str = Field(default="", max_length=80)
+    machineId: str = Field(min_length=1, max_length=40)
+    machineName: str = Field(default="", max_length=160)
+    workOrder: str = Field(default="", max_length=120)
+    product: str = Field(min_length=1, max_length=100)
+    process: Literal["turning", "drilling", "washing", "gkm"]
+    completedQuantity: int = Field(ge=0)
+    plannedStart: str = Field(default="", max_length=40)
+    plannedEnd: str = Field(default="", max_length=40)
+    deliveryDate: str = Field(default="", max_length=40)
+
+
+class ProductionArchiveExportPayload(BaseModel):
+    generatedAt: str
+    status: Literal["semi-finished", "delivered"]
+    filtered: bool = False
+    totalAvailable: int = Field(ge=0)
+    rows: list[ProductionArchiveExportRow]

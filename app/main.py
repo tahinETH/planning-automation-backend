@@ -17,9 +17,10 @@ from .config import settings
 from .database import all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, RevisionPayload, ScenarioPayload
+from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
+from .production_archive_export import build_production_archive_workbook
 
 
 @asynccontextmanager
@@ -106,6 +107,17 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
     filename = f"Genel_Bakis_{datetime.now().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/production-archive/export")
+def export_production_archive(payload: ProductionArchiveExportPayload, _: CurrentUser = Depends(current_user)):
+    content = build_production_archive_workbook(payload.model_dump())
+    filename = f"Uretim_Arsivi_{payload.status}_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
