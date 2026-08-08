@@ -27,6 +27,7 @@ def archive_payload():
                 "machineName": "CITIZEN 1",
                 "workOrder": "320-1",
                 "product": "R902740",
+                "setupFamily": "piston",
                 "process": "turning",
                 "completedQuantity": 1920,
                 "plannedStart": "2026-08-01",
@@ -40,6 +41,7 @@ def archive_payload():
                 "machineName": "CITIZEN 2",
                 "workOrder": "321-1",
                 "product": "R902741",
+                "setupFamily": "center-pin",
                 "process": "drilling",
                 "completedQuantity": 960,
                 "plannedStart": "2026-08-05",
@@ -59,8 +61,9 @@ def test_production_archive_workbook_contains_visible_rows_and_summary():
     assert sheet["G6"].value == "Filtreli"
     assert sheet["A10"].value == "2026-08-06"
     assert sheet["E10"].value == "R902740"
-    assert sheet["F11"].value == "Delme"
-    assert sheet.auto_filter.ref == "A9:J11"
+    assert sheet["F10"].value == "Piston"
+    assert sheet["G11"].value == "Delme"
+    assert sheet.auto_filter.ref == "A9:K11"
     assert sheet.freeze_panes == "A9"
 
 

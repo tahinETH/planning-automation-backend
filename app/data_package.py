@@ -49,9 +49,10 @@ def _append_rows(sheet, headers: list[str], rows: list[list[Any]]) -> None:
 def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     products = data.get("products", [])
     parameter_sheet = workbook.create_sheet("Ürün Parametreleri")
-    _append_rows(parameter_sheet, ["Ürün", "Şarj Büyüklüğü", "Günlük Üretim", "Vardiya Üretimi", "Parametre Üretimi", "Çap", "Kaynak"], [
+    _append_rows(parameter_sheet, ["Ürün", "Ürün Ailesi", "Şarj Büyüklüğü", "Günlük Üretim", "Vardiya Üretimi", "Parametre Üretimi", "Çap", "Kaynak"], [
         [
             item.get("product", ""),
+            {"piston": "Piston", "center-pin": "Center pim"}.get(item.get("setupFamily"), "Tanımsız"),
             item.get("batchSize", 0),
             item.get("dailyRate", 0),
             item.get("shiftRate", 0),
@@ -77,7 +78,9 @@ def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     _append_rows(setup_sheet, ["Ayar", "Değer"], [
         ["Vardiya süresi (saat)", setup.get("shiftHours", "")],
         ["Aynı çap setup (saat)", setup.get("sameDiameterHours", "")],
-        ["Farklı çap setup (saat)", setup.get("differentDiameterHours", "")],
+        ["Aynı aile, farklı çap setup (saat)", setup.get("sameFamilyDifferentDiameterHours", "")],
+        ["Piston - center pim geçişi (saat)", setup.get("crossFamilyHours", "")],
+        ["Başlangıç / tanımsız aile setup (saat)", setup.get("differentDiameterHours", "")],
     ])
     holiday_sheet = workbook.create_sheet("Tatil Günleri")
     _append_rows(holiday_sheet, ["Tatil", "Excel Tarih Seri No", "Çalışılan Vardiya"], [

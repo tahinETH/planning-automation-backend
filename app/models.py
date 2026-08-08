@@ -142,6 +142,7 @@ class ProductionArchiveExportRow(BaseModel):
     machineName: str = Field(default="", max_length=160)
     workOrder: str = Field(default="", max_length=120)
     product: str = Field(min_length=1, max_length=100)
+    setupFamily: Literal["piston", "center-pin", ""] = ""
     process: Literal["turning", "drilling", "washing", "gkm"]
     completedQuantity: int = Field(ge=0)
     plannedStart: str = Field(default="", max_length=40)

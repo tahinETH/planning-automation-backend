@@ -16,7 +16,7 @@ from app.main import app
 
 def sample_parameters():
     return {
-        "products": [{"product": "R1", "batchSize": 1920, "dailyRate": 375, "shiftRate": 125, "parameterDailyRate": 375, "diameter": "17,2", "source": "Test"}],
+        "products": [{"product": "R1", "setupFamily": "piston", "batchSize": 1920, "dailyRate": 375, "shiftRate": 125, "parameterDailyRate": 375, "diameter": "17,2", "source": "Test"}],
         "preferences": [{"key": "R1", "machines": ["C-01", "C-02"]}],
         "restrictions": [],
         "machineRates": [{"id": "C-01", "rates": {"R1": 375}}],
@@ -28,6 +28,7 @@ def test_data_package_round_trip_and_visible_sheets():
     content = build_data_package("parameters", data)
     workbook = load_workbook(BytesIO(content), read_only=True)
     assert {"Bilgi", "Ürün Parametreleri", "Tezgah Öncelikleri", "__SelsaVeri"}.issubset(workbook.sheetnames)
+    assert workbook["Ürün Parametreleri"]["B2"].value == "Piston"
     assert parse_data_package(content, "parameters") == data
 
 
