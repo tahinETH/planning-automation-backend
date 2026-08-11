@@ -51,6 +51,8 @@ Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/env
 
 `APP_ENV=staging` veya `production` iken örnek/güvensiz parola değerleri uygulamanın başlamasını engeller.
 
+Hetzner staging dağıtımı için repodaki `deploy/` şablonları staging backend'i `/root/planning-automation-backend-staging` altında, `8003` iç portunda ve `api-staging.planning.hfgok.com` alan adında üretim servisinden ayrı çalıştırır.
+
 `backend/.env` içindeki `ADMIN_PASSWORD` giriş şifresidir. `APP_SESSION_SECRET` için uzun ve rastgele bir değer kullanın. Giriş yapan kişi uygulamada `Planlama Yöneticisi` olarak görünür.
 
 ## Geri bildirim akışı

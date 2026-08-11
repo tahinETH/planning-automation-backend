@@ -1,0 +1,15 @@
+[Unit]
+Description=Planning Automation FastAPI backend (staging)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/planning-automation-backend-staging
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/planning-automation-backend-staging/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8003 --env-file /root/planning-automation-backend-staging/.env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
