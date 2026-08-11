@@ -28,6 +28,29 @@ cp .env.example .env.local
 npm run dev
 ```
 
+## Staging çalışma alanı
+
+Günlük geliştirme artık iki repodaki `staging` dalında ve üretimden ayrılmış yerel staging verisiyle yapılır.
+
+Backend staging ortamını başlatmak için:
+
+```bash
+./scripts/run-staging.sh
+```
+
+Bu komut `backend/.env` dosyasını kullanır ve API'yi `http://127.0.0.1:8001` adresinde açar. Yerel staging ayarları `data/staging.sqlite` ve `data/uploads-staging` yollarını kullanır; üretim verisiyle paylaşılmaz. Yeni bir ortam kurarken `.env.staging.example` dosyasını gizli değerleri repoya eklemeden örnek alın.
+
+Frontend ayrı terminalde `npm run dev:staging` ile `http://localhost:3001` adresinde çalıştırılır.
+
+Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/environment ayarlarında tanımlayın:
+
+- `APP_ENV=staging`
+- staging'e özel `ADMIN_PASSWORD` ve en az 32 rastgele karakterden oluşan `APP_SESSION_SECRET`
+- kalıcı diskte staging'e özel `DATABASE_PATH` ve `UPLOAD_DIR`
+- yalnızca staging frontend adresini içeren `CORS_ORIGINS`
+
+`APP_ENV=staging` veya `production` iken örnek/güvensiz parola değerleri uygulamanın başlamasını engeller.
+
 `backend/.env` içindeki `ADMIN_PASSWORD` giriş şifresidir. `APP_SESSION_SECRET` için uzun ve rastgele bir değer kullanın. Giriş yapan kişi uygulamada `Planlama Yöneticisi` olarak görünür.
 
 ## Geri bildirim akışı

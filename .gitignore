@@ -1,5 +1,8 @@
 # Environment
 .env
+.env.*
+!.env.example
+!.env.staging.example
 
 # Python
 __pycache__/
@@ -20,9 +23,8 @@ build/
 htmlcov/
 
 # Local data
-data/app.sqlite
-data/app.sqlite-*
-data/uploads/*
+data/*.sqlite*
+data/uploads*/
 !data/uploads/.gitkeep
 
 # IDE / OS
