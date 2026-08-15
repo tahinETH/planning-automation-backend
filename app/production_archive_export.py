@@ -97,7 +97,7 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
         sheet.column_dimensions[get_column_letter(column)].width = width
 
     process_labels = {"turning": "Torna", "drilling": "Delme", "washing": "Yıkama", "gkm": "GKM"}
-    family_labels = {"piston": "Piston", "center-pin": "Center pim"}
+    family_labels = {"piston": "Piston", "center-pin": "Center pin"}
     for row_index, item in enumerate(rows, 10):
         values = [
             item.get("completedAt", ""),
