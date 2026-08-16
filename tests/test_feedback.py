@@ -75,13 +75,3 @@ def test_feedback_lifecycle():
         assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
         loaded_state = client.get("/api/planning-state", headers=headers)
         assert loaded_state.json()["seed"] == seed
-        history = client.get("/api/planning-state/history", headers=headers)
-        assert history.status_code == 200
-        assert history.json()[0]["seed"] == seed
-        client.put("/api/planning-state", headers=headers, json={"seed": seed})
-        assert len(client.get("/api/planning-state/history", headers=headers).json()) == 1
-        updated_seed = {**seed, "wipLots": [{"id": "wip-1", "availableQuantity": 100}]}
-        client.put("/api/planning-state", headers=headers, json={"seed": updated_seed})
-        revisions = client.get("/api/planning-state/history", headers=headers).json()
-        assert len(revisions) == 2
-        assert revisions[0]["seed"]["wipLots"][0]["id"] == "wip-1"

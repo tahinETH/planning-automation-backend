@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -55,9 +54,6 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS planning_state (
               state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS planning_state_history (
-              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, state_hash TEXT NOT NULL, created_at TEXT NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS demand_import_history (
               id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, source_file TEXT NOT NULL,
               snapshot_date TEXT NOT NULL, dataset_json TEXT NOT NULL, summary_json TEXT NOT NULL,
@@ -85,7 +81,6 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedback_comments_feedback_idx ON feedback_comments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS demand_import_history_imported_idx ON demand_import_history(imported_at DESC);
-            CREATE INDEX IF NOT EXISTS planning_state_history_created_idx ON planning_state_history(created_at DESC);
             """
         )
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
@@ -163,39 +158,13 @@ def planning_state() -> dict[str, Any] | None:
 
 def save_planning_state(seed: dict[str, Any]) -> dict[str, Any]:
     timestamp = now_iso()
-    encoded = json.dumps(seed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    state_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     with connection() as db:
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
             ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
-            (encoded, timestamp),
+            (json.dumps(seed, ensure_ascii=False), timestamp),
         )
-        latest = db.execute("SELECT id,state_hash,created_at FROM planning_state_history ORDER BY created_at DESC LIMIT 1").fetchone()
-        if latest is None or latest["state_hash"] != state_hash:
-            revision_id = f"{timestamp}-{state_hash[:12]}"
-            db.execute(
-                "INSERT INTO planning_state_history(id,seed_json,state_hash,created_at) VALUES(?,?,?,?)",
-                (revision_id, encoded, state_hash, timestamp),
-            )
-            stale = db.execute("SELECT id FROM planning_state_history ORDER BY created_at DESC LIMIT -1 OFFSET 50").fetchall()
-            if stale:
-                db.executemany("DELETE FROM planning_state_history WHERE id=?", [(row["id"],) for row in stale])
-            revision_created_at = timestamp
-        else:
-            revision_id = latest["id"]
-            revision_created_at = latest["created_at"]
-    return {"seed": seed, "updatedAt": timestamp, "historyEntry": {"id": revision_id, "seed": seed, "createdAt": revision_created_at}}
-
-
-def planning_state_history(limit: int = 20) -> list[dict[str, Any]]:
-    safe_limit = max(1, min(50, int(limit)))
-    with connection() as db:
-        rows = db.execute(
-            "SELECT id,seed_json,created_at FROM planning_state_history ORDER BY created_at DESC LIMIT ?",
-            (safe_limit,),
-        ).fetchall()
-    return [{"id": row["id"], "seed": _loads(row["seed_json"]), "createdAt": row["created_at"]} for row in rows]
+    return {"seed": seed, "updatedAt": timestamp}
 
 
 def demand_import_history() -> list[dict[str, Any]]:
