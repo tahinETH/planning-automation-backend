@@ -71,7 +71,8 @@ class DemandImportHistoryPayload(BaseModel):
 
 
 class DeliveryPlanWeek(BaseModel):
-    label: str = Field(min_length=1, max_length=12)
+    label: str = Field(min_length=1, max_length=24)
+    kind: Literal["actual", "carryover", "plan"]
 
 
 class DeliveryPlanRow(BaseModel):
