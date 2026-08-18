@@ -22,6 +22,8 @@ htmlcov/
 # Local data
 data/app.sqlite
 data/app.sqlite-*
+data/staging.sqlite
+data/staging.sqlite-*
 data/uploads/*
 !data/uploads/.gitkeep
 
