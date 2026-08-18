@@ -41,20 +41,20 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
     total_quantity = sum(max(0, int(row.get("completedQuantity", 0))) for row in rows)
     machine_count = len({row.get("machineId") for row in rows if row.get("machineId")})
 
-    sheet.merge_cells("A1:K2")
+    sheet.merge_cells("A1:M2")
     title = sheet["A1"]
     title.value = "SELSA  ·  ÜRETİM ARŞİVİ"
     title.fill = _fill(NAVY)
     title.font = Font(name="Aptos Display", size=18, color=WHITE, bold=True)
     title.alignment = Alignment(vertical="center")
-    for row in sheet["A1:K2"]:
+    for row in sheet["A1:M2"]:
         for cell in row:
             cell.fill = _fill(NAVY)
 
     sheet.merge_cells("A3:F3")
     sheet["A3"] = f"Durum: {status_label}"
     sheet["A3"].font = Font(name="Aptos", size=9, color=GREEN, bold=True)
-    sheet.merge_cells("G3:K3")
+    sheet.merge_cells("G3:M3")
     sheet["G3"] = f"Oluşturulma: {generated_at}"
     sheet["G3"].font = Font(name="Aptos", size=8, color=MUTED)
     sheet["G3"].alignment = Alignment(horizontal="right")
@@ -85,18 +85,18 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
         if isinstance(value, (int, float)):
             sheet[f"{start}6"].number_format = "#,##0"
 
-    headings = ["Tamamlanma", "Tezgah", "Tezgah adı", "İş emri", "Ürün", "Ürün ailesi", "Proses", "Iskarta" if status == "scrapped" else "Üretilen", "Planlanan başlangıç", "Planlanan bitiş", "Teslim tarihi"]
-    widths = [16, 12, 24, 18, 20, 15, 14, 14, 20, 20, 16]
+    headings = [str(payload.get("eventDateLabel") or "Tamamlanma"), "Tezgah", "Tezgah adı", "İş emri", "Ürün", "Ürün ailesi", "Tamamlanan proses", "Mevcut aşama", "Sıradaki operasyon", "Iskarta" if status == "scrapped" else "Üretilen", "Planlanan başlangıç", "Planlanan bitiş", "Teslim tarihi"]
+    widths = [16, 12, 24, 18, 20, 15, 17, 23, 18, 14, 20, 20, 16]
     thin = Side(style="thin", color=LINE)
     for column, (heading, width) in enumerate(zip(headings, widths, strict=True), 1):
         cell = sheet.cell(9, column, heading)
         cell.fill = _fill(NAVY)
         cell.font = Font(name="Aptos", size=8, color=WHITE, bold=True)
-        cell.alignment = Alignment(vertical="center", horizontal="right" if column == 8 else "left")
+        cell.alignment = Alignment(vertical="center", horizontal="right" if column == 10 else "left")
         cell.border = Border(bottom=thin)
         sheet.column_dimensions[get_column_letter(column)].width = width
 
-    process_labels = {"turning": "Torna", "drilling": "Delme", "washing": "Yıkama", "gkm": "GKM"}
+    process_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak alma", "washing": "Yıkama", "gkm": "GKM"}
     family_labels = {"piston": "Piston", "center-pin": "Center pim"}
     for row_index, item in enumerate(rows, 10):
         values = [
@@ -107,6 +107,8 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
             item.get("product", ""),
             family_labels.get(item.get("setupFamily"), "Aile tanımsız"),
             process_labels.get(item.get("process"), item.get("process", "")),
+            item.get("stage", ""),
+            item.get("currentOperation", ""),
             max(0, int(item.get("completedQuantity", 0))),
             item.get("plannedStart", ""),
             item.get("plannedEnd", ""),
@@ -116,13 +118,13 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
             cell = sheet.cell(row_index, column, value)
             cell.fill = _fill(WHITE if row_index % 2 == 0 else PAPER)
             cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {2, 5})
-            cell.alignment = Alignment(vertical="center", horizontal="right" if column == 8 else "left")
+            cell.alignment = Alignment(vertical="center", horizontal="right" if column == 10 else "left")
             cell.border = Border(bottom=thin)
-            if column == 8:
+            if column == 10:
                 cell.number_format = "#,##0"
 
     last_row = max(9, sheet.max_row)
-    sheet.auto_filter.ref = f"A9:K{last_row}"
+    sheet.auto_filter.ref = f"A9:M{last_row}"
     sheet.row_dimensions[1].height = 25
     sheet.row_dimensions[9].height = 25
 

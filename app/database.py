@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -54,6 +55,13 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS planning_state (
               state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS planning_state_history (
+              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS production_sync_state (
+              sync_key TEXT PRIMARY KEY, source_updated_at TEXT NOT NULL,
+              imported_at TEXT NOT NULL, source_url TEXT NOT NULL DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS demand_import_history (
               id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, source_file TEXT NOT NULL,
               snapshot_date TEXT NOT NULL, dataset_json TEXT NOT NULL, summary_json TEXT NOT NULL,
@@ -81,6 +89,7 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedback_comments_feedback_idx ON feedback_comments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS demand_import_history_imported_idx ON demand_import_history(imported_at DESC);
+            CREATE INDEX IF NOT EXISTS planning_state_history_created_idx ON planning_state_history(created_at DESC);
             """
         )
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
@@ -133,19 +142,25 @@ def order_details() -> list[dict[str, Any]]:
 def save_orders(orders: list[dict[str, Any]]) -> None:
     timestamp = now_iso()
     with connection() as db:
-        db.executemany(
-            """INSERT INTO customer_orders (order_id,due_date,allow_partial,partial_delivery_quantity,partial_delivery_date,delivery_milestones_json,updated_at)
-            VALUES (?,?,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET due_date=excluded.due_date,
-            allow_partial=excluded.allow_partial,partial_delivery_quantity=excluded.partial_delivery_quantity,
-            partial_delivery_date=excluded.partial_delivery_date,delivery_milestones_json=excluded.delivery_milestones_json,
-            updated_at=excluded.updated_at""",
-            [(
-                order["id"], order.get("dueDate", ""), int(bool(order.get("deliveryMilestones")) or order.get("allowPartial", False)),
-                (order.get("deliveryMilestones") or [{}])[0].get("quantity", order.get("partialDeliveryQuantity", 0)),
-                (order.get("deliveryMilestones") or [{}])[0].get("date", order.get("partialDeliveryDate", "")),
-                json.dumps(order.get("deliveryMilestones") or [], ensure_ascii=False), timestamp,
-            ) for order in orders],
-        )
+        _save_orders(db, orders, timestamp)
+
+
+def _save_orders(db: sqlite3.Connection, orders: list[dict[str, Any]], timestamp: str, replace: bool = False) -> None:
+    if replace:
+        db.execute("DELETE FROM customer_orders")
+    db.executemany(
+        """INSERT INTO customer_orders (order_id,due_date,allow_partial,partial_delivery_quantity,partial_delivery_date,delivery_milestones_json,updated_at)
+        VALUES (?,?,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET due_date=excluded.due_date,
+        allow_partial=excluded.allow_partial,partial_delivery_quantity=excluded.partial_delivery_quantity,
+        partial_delivery_date=excluded.partial_delivery_date,delivery_milestones_json=excluded.delivery_milestones_json,
+        updated_at=excluded.updated_at""",
+        [(
+            order["id"], order.get("dueDate", ""), int(bool(order.get("deliveryMilestones")) or order.get("allowPartial", False)),
+            (order.get("deliveryMilestones") or [{}])[0].get("quantity", order.get("partialDeliveryQuantity", 0)),
+            (order.get("deliveryMilestones") or [{}])[0].get("date", order.get("partialDeliveryDate", "")),
+            json.dumps(order.get("deliveryMilestones") or [], ensure_ascii=False), timestamp,
+        ) for order in orders],
+    )
 
 
 def planning_state() -> dict[str, Any] | None:
@@ -156,15 +171,92 @@ def planning_state() -> dict[str, Any] | None:
     return {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
 
 
-def save_planning_state(seed: dict[str, Any]) -> dict[str, Any]:
+def planning_state_history() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute(
+            "SELECT id, seed_json, created_at FROM planning_state_history ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+    return [{"id": row["id"], "seed": _loads(row["seed_json"]), "createdAt": row["created_at"]} for row in rows]
+
+
+def production_sync_status() -> dict[str, Any] | None:
+    with connection() as db:
+        row = db.execute(
+            "SELECT source_updated_at, imported_at, source_url FROM production_sync_state WHERE sync_key='production'"
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "sourceUpdatedAt": row["source_updated_at"],
+        "importedAt": row["imported_at"],
+        "sourceUrl": row["source_url"],
+    }
+
+
+class PlanningStateConflict(RuntimeError):
+    def __init__(self, current: dict[str, Any]):
+        super().__init__("Planning state was updated by another session.")
+        self.current = current
+
+
+def _insert_planning_history(db: sqlite3.Connection, seed: dict[str, Any], serialized_seed: str, timestamp: str, prefix: str = "planning") -> dict[str, Any]:
+    history_id = f"{prefix}-{uuid.uuid4()}"
+    db.execute(
+        "INSERT INTO planning_state_history(id,seed_json,created_at) VALUES(?,?,?)",
+        (history_id, serialized_seed, timestamp),
+    )
+    stale = db.execute(
+        "SELECT id FROM planning_state_history ORDER BY created_at DESC LIMIT -1 OFFSET 20"
+    ).fetchall()
+    if stale:
+        db.executemany("DELETE FROM planning_state_history WHERE id=?", [(row["id"],) for row in stale])
+    return {"id": history_id, "seed": seed, "createdAt": timestamp}
+
+
+def save_planning_state(seed: dict[str, Any], expected_updated_at: str | None = None, force: bool = False) -> dict[str, Any]:
     timestamp = now_iso()
+    serialized_seed = json.dumps(seed, ensure_ascii=False)
+    with connection() as db:
+        row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+        current_updated_at = current["updatedAt"] if current else ""
+        if not force and expected_updated_at is not None and current_updated_at != expected_updated_at:
+            raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        db.execute(
+            """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
+            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
+            (serialized_seed, timestamp),
+        )
+        history_entry = _insert_planning_history(db, seed, serialized_seed, timestamp)
+    return {"seed": seed, "updatedAt": timestamp, "historyEntry": history_entry}
+
+
+def replace_planning_state_from_production(seed: dict[str, Any], source_updated_at: str, source_url: str) -> dict[str, Any]:
+    """Atomically replace staging's live state from a read-only production snapshot."""
+    timestamp = now_iso()
+    serialized_seed = json.dumps(seed, ensure_ascii=False)
     with connection() as db:
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
             ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
-            (json.dumps(seed, ensure_ascii=False), timestamp),
+            (serialized_seed, timestamp),
         )
-    return {"seed": seed, "updatedAt": timestamp}
+        history_entry = _insert_planning_history(db, seed, serialized_seed, timestamp, "production-sync")
+        _save_orders(db, list(seed.get("orders") or []), timestamp, replace=True)
+        db.execute(
+            """INSERT INTO production_sync_state(sync_key,source_updated_at,imported_at,source_url)
+            VALUES('production',?,?,?) ON CONFLICT(sync_key) DO UPDATE SET
+            source_updated_at=excluded.source_updated_at,imported_at=excluded.imported_at,source_url=excluded.source_url""",
+            (source_updated_at, timestamp, source_url),
+        )
+    planning_record = {"seed": seed, "updatedAt": timestamp}
+    return {
+        "planningState": planning_record,
+        "sourceUpdatedAt": source_updated_at,
+        "importedAt": timestamp,
+        "sourceUrl": source_url,
+        "historyEntry": history_entry,
+    }
 
 
 def demand_import_history() -> list[dict[str, Any]]:

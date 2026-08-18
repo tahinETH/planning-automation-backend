@@ -46,6 +46,12 @@ def test_delivery_plan_uses_single_category_and_template_structure():
     assert sheet["F7"].value == "=D7+E7-C7"
     assert sheet["H7"].value == "R902745116"
     assert [sheet.cell(7, column).value for column in range(9, 15)] == [1920, 1920, 0, 0, 1920, 0]
+    assert sheet["B50"].value == "Genel Toplam"
+    assert sheet["I50"].value == "=SUM(I7:I49)"
+    assert sheet["N50"].value == "=SUM(N7:N49)"
+    assert sheet["I50"].fill.fgColor.rgb == "00FFF200"
+    assert sheet["I50"].font.color.rgb == "00000000"
+    assert sheet["I50"].font.bold is True
     assert sheet["P4"].value is None
     assert not list(workbook.defined_names)
     with ZipFile(BytesIO(content)) as archive:
@@ -78,9 +84,10 @@ def test_delivery_plan_expands_when_more_than_template_rows_are_active():
     })
     sheet = load_workbook(BytesIO(content), data_only=False)["Teslimat Planı"]
     assert sheet["B56"].value == "P050"
-    assert sheet["B57"].value == "Toplam"
+    assert sheet["B57"].value == "Genel Toplam"
     assert sheet["C57"].value == "=SUM(C7:C56)"
     assert sheet["F57"].value == "=D57+E57-C57"
+    assert sheet["I57"].value == "=SUM(I7:I56)"
 
 
 def test_delivery_plan_expands_week_columns_beyond_the_original_six():
@@ -96,4 +103,5 @@ def test_delivery_plan_expands_week_columns_beyond_the_original_six():
     assert sheet["Q7"].value == 100
     assert sheet["D7"].value == "=SUM(I7:K7)"
     assert sheet["E7"].value == "=SUM(L7:Q7)"
+    assert sheet["Q50"].value == "=SUM(Q7:Q49)"
     assert sheet.auto_filter.ref == "B6:Q49"

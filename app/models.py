@@ -59,6 +59,8 @@ class RevisionPayload(BaseModel):
 
 class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
+    expectedUpdatedAt: str | None = None
+    force: bool = False
 
 
 class DemandImportHistoryPayload(BaseModel):
@@ -144,7 +146,9 @@ class ProductionArchiveExportRow(BaseModel):
     workOrder: str = Field(default="", max_length=120)
     product: str = Field(min_length=1, max_length=100)
     setupFamily: Literal["piston", "center-pin", ""] = ""
-    process: Literal["turning", "drilling", "washing", "gkm"]
+    process: Literal["turning", "drilling", "deburring", "washing", "gkm"]
+    stage: str = Field(default="", max_length=160)
+    currentOperation: str = Field(default="", max_length=80)
     completedQuantity: int = Field(ge=0)
     plannedStart: str = Field(default="", max_length=40)
     plannedEnd: str = Field(default="", max_length=40)
@@ -154,6 +158,7 @@ class ProductionArchiveExportRow(BaseModel):
 class ProductionArchiveExportPayload(BaseModel):
     generatedAt: str
     status: Literal["semi-finished", "delivered", "scrapped"]
+    eventDateLabel: str = Field(default="Tamamlanma", min_length=1, max_length=60)
     filtered: bool = False
     totalAvailable: int = Field(ge=0)
     rows: list[ProductionArchiveExportRow]

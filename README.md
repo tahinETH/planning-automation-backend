@@ -48,6 +48,10 @@ Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/env
 - staging'e özel `ADMIN_PASSWORD` ve en az 32 rastgele karakterden oluşan `APP_SESSION_SECRET`
 - kalıcı diskte staging'e özel `DATABASE_PATH` ve `UPLOAD_DIR`
 - yalnızca staging frontend adresini içeren `CORS_ORIGINS`
+- üretim API kök adresini içeren `PRODUCTION_API_URL` (ör. `https://api.planning.hfgok.com/api`)
+- üretimdeki `STAGING_PULL_TOKEN` ile eşleşen, yalnız backend'de tutulan `PRODUCTION_SYNC_TOKEN`
+
+Üretim backend'inde ayrıca uzun ve rastgele bir `STAGING_PULL_TOKEN` tanımlayın. Bu anahtar yalnızca staging'in salt okunur üretim anlık görüntüsünü almasına izin verir. Staging'in üretime yazabildiği bir endpoint yoktur; `POST /api/production-sync/pull` yalnız `APP_ENV=staging` ortamında çalışır ve staging verisini üretim kopyasıyla atomik olarak değiştirir.
 
 `APP_ENV=staging` veya `production` iken örnek/güvensiz parola değerleri uygulamanın başlamasını engeller.
 
@@ -112,4 +116,9 @@ Then verify it started correctly:
 
 ```bash
 systemctl status planning-automation-backend --no-pager
+```
+
+Staging
+```bash
+sudo systemctl restart planning-automation-backend-staging
 ```

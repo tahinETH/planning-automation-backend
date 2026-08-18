@@ -175,11 +175,26 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
                 font.color = "C15B26"
             value_cell.font = font
 
-    sheet.cell(total_row, 2).value = "Toplam"
+    sheet.cell(total_row, 2).value = "Genel Toplam"
     sheet.cell(total_row, 3).value = f"=SUM(C7:C{total_row - 1})"
     sheet.cell(total_row, 4).value = f"=SUM(D7:D{total_row - 1})"
     sheet.cell(total_row, 5).value = f"=SUM(E7:E{total_row - 1})"
     sheet.cell(total_row, 6).value = f"=D{total_row}+E{total_row}-C{total_row}"
+    general_total_fill = PatternFill("solid", fgColor="FFF200")
+    for column in range(9, weekly_end_column + 1):
+        cell = sheet.cell(total_row, column)
+        column_letter = get_column_letter(column)
+        cell.value = f"=SUM({column_letter}7:{column_letter}{total_row - 1})"
+        cell.fill = general_total_fill
+        font = copy(cell.font)
+        font.color = "000000"
+        font.bold = True
+        cell.font = font
+    sheet.cell(total_row, 2).fill = general_total_fill
+    total_label_font = copy(sheet.cell(total_row, 2).font)
+    total_label_font.color = "000000"
+    total_label_font.bold = True
+    sheet.cell(total_row, 2).font = total_label_font
 
     sheet.cell(summary_header_row, 3).value = "Sipariş"
     sheet.cell(summary_header_row, 4).value = "Teslimat"

@@ -17,6 +17,7 @@ def archive_payload():
     return {
         "generatedAt": "2026-08-07T09:00:00Z",
         "status": "semi-finished",
+        "eventDateLabel": "Tamamlanma",
         "filtered": True,
         "totalAvailable": 4,
         "rows": [
@@ -29,6 +30,8 @@ def archive_payload():
                 "product": "R902740",
                 "setupFamily": "piston",
                 "process": "turning",
+                "stage": "Delme bekliyor",
+                "currentOperation": "Delme",
                 "completedQuantity": 1920,
                 "plannedStart": "2026-08-01",
                 "plannedEnd": "2026-08-05",
@@ -43,6 +46,8 @@ def archive_payload():
                 "product": "R902741",
                 "setupFamily": "center-pin",
                 "process": "drilling",
+                "stage": "GKM bekliyor",
+                "currentOperation": "GKM",
                 "completedQuantity": 960,
                 "plannedStart": "2026-08-05",
                 "plannedEnd": "2026-08-07",
@@ -63,7 +68,11 @@ def test_production_archive_workbook_contains_visible_rows_and_summary():
     assert sheet["E10"].value == "R902740"
     assert sheet["F10"].value == "Piston"
     assert sheet["G11"].value == "Delme"
-    assert sheet.auto_filter.ref == "A9:K11"
+    assert sheet["H10"].value == "Delme bekliyor"
+    assert sheet["I10"].value == "Delme"
+    assert sheet["J10"].value == 1920
+    assert sheet["A9"].value == "Tamamlanma"
+    assert sheet.auto_filter.ref == "A9:M11"
     assert sheet.freeze_panes == "A9"
 
 

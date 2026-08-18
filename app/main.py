@@ -8,19 +8,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
+from .database import PlanningStateConflict, all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 from .production_archive_export import build_production_archive_workbook
+from .production_sync import production_snapshot, production_sync_status_payload, pull_production_state
 
 
 @asynccontextmanager
@@ -155,9 +156,34 @@ def get_planning_state(_: CurrentUser = Depends(current_user)):
     return planning_state()
 
 
+@app.get("/api/planning-state/history")
+def get_planning_state_history(_: CurrentUser = Depends(current_user)):
+    return planning_state_history()
+
+
+@app.get("/api/production-snapshot")
+def get_production_snapshot(
+    staging_pull_token: str | None = Header(default=None, alias="X-Staging-Pull-Token"),
+):
+    return production_snapshot(staging_pull_token)
+
+
+@app.get("/api/production-sync/status")
+def get_production_sync_status(_: CurrentUser = Depends(current_user)):
+    return production_sync_status_payload()
+
+
+@app.post("/api/production-sync/pull")
+def post_production_sync(_: CurrentUser = Depends(current_user)):
+    return pull_production_state()
+
+
 @app.put("/api/planning-state")
 def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(current_user)):
-    return save_planning_state(payload.seed)
+    try:
+        return save_planning_state(payload.seed, payload.expectedUpdatedAt, payload.force)
+    except PlanningStateConflict as error:
+        raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
 
 
 @app.get("/api/scenarios")

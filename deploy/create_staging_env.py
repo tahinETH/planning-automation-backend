@@ -29,6 +29,8 @@ def main() -> None:
         "ADMIN_PASSWORD": existing.get("ADMIN_PASSWORD", production["ADMIN_PASSWORD"]),
         "APP_SESSION_SECRET": existing.get("APP_SESSION_SECRET", secrets.token_urlsafe(48)),
         "SESSION_DAYS": "7",
+        "PRODUCTION_API_URL": existing.get("PRODUCTION_API_URL", "https://api.planning.hfgok.com/api"),
+        "PRODUCTION_SYNC_TOKEN": existing.get("PRODUCTION_SYNC_TOKEN", production.get("STAGING_PULL_TOKEN", "")),
     }
     STAGING_ENV.write_text("".join(f"{key}={value}\n" for key, value in staging.items()))
     STAGING_ENV.chmod(0o600)

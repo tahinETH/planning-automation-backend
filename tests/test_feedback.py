@@ -73,5 +73,20 @@ def test_feedback_lifecycle():
         saved_state = client.put("/api/planning-state", headers=headers, json={"seed": seed})
         assert saved_state.status_code == 200
         assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
+        first_history = saved_state.json()["historyEntry"]
+        assert first_history["seed"] == seed
+        history = client.get("/api/planning-state/history", headers=headers)
+        assert history.status_code == 200
+        assert history.json()[0] == first_history
         loaded_state = client.get("/api/planning-state", headers=headers)
         assert loaded_state.json()["seed"] == seed
+        first_version = saved_state.json()["updatedAt"]
+        newer_seed = {**seed, "machines": [{"id": "C-02", "active": True}]}
+        newer_state = client.put("/api/planning-state", headers=headers, json={"seed": newer_seed, "expectedUpdatedAt": first_version})
+        assert newer_state.status_code == 200
+        assert client.get("/api/planning-state/history", headers=headers).json()[0]["seed"] == newer_seed
+        conflict = client.put("/api/planning-state", headers=headers, json={"seed": seed, "expectedUpdatedAt": first_version})
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"]["current"]["seed"] == newer_seed
+        forced = client.put("/api/planning-state", headers=headers, json={"seed": seed, "force": True})
+        assert forced.status_code == 200
