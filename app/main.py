@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -21,6 +21,7 @@ from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPl
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 from .production_archive_export import build_production_archive_workbook
+from .production_sync import SYNC_HEADER, production_snapshot
 
 
 @asynccontextmanager
@@ -153,6 +154,13 @@ async def import_data_package(scope: str, file: UploadFile = File(...), _: Curre
 @app.get("/api/planning-state")
 def get_planning_state(_: CurrentUser = Depends(current_user)):
     return planning_state()
+
+
+@app.get("/api/production-snapshot")
+def get_production_snapshot(
+    staging_pull_token: str | None = Header(default=None, alias=SYNC_HEADER),
+):
+    return production_snapshot(staging_pull_token)
 
 
 @app.put("/api/planning-state")

@@ -29,6 +29,7 @@ class Settings:
     admin_password: str = os.getenv("ADMIN_PASSWORD", "vardiya")
     session_secret: str = os.getenv("APP_SESSION_SECRET", "development-only-change-me")
     session_days: int = int(os.getenv("SESSION_DAYS", "30"))
+    staging_pull_token: str = os.getenv("STAGING_PULL_TOKEN", "").strip()
 
 
 settings = Settings()
