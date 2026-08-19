@@ -231,7 +231,12 @@ def save_planning_state(seed: dict[str, Any], expected_updated_at: str | None = 
     return {"seed": seed, "updatedAt": timestamp, "historyEntry": history_entry}
 
 
-def replace_planning_state_from_production(seed: dict[str, Any], source_updated_at: str, source_url: str) -> dict[str, Any]:
+def replace_planning_state_from_production(
+    seed: dict[str, Any],
+    source_updated_at: str,
+    source_url: str,
+    scenario_records: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Atomically replace staging's live state from a read-only production snapshot."""
     timestamp = now_iso()
     serialized_seed = json.dumps(seed, ensure_ascii=False)
@@ -243,6 +248,19 @@ def replace_planning_state_from_production(seed: dict[str, Any], source_updated_
         )
         history_entry = _insert_planning_history(db, seed, serialized_seed, timestamp, "production-sync")
         _save_orders(db, list(seed.get("orders") or []), timestamp, replace=True)
+        db.execute("DELETE FROM scenarios")
+        db.executemany(
+            """INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json)
+            VALUES(?,?,?,?,?,?)""",
+            [(
+                scenario["id"],
+                scenario["name"],
+                scenario["createdAt"],
+                scenario["notes"],
+                json.dumps(scenario["seed"], ensure_ascii=False),
+                json.dumps(scenario["result"], ensure_ascii=False),
+            ) for scenario in scenario_records],
+        )
         db.execute(
             """INSERT INTO production_sync_state(sync_key,source_updated_at,imported_at,source_url)
             VALUES('production',?,?,?) ON CONFLICT(sync_key) DO UPDATE SET
@@ -256,6 +274,7 @@ def replace_planning_state_from_production(seed: dict[str, Any], source_updated_
         "importedAt": timestamp,
         "sourceUrl": source_url,
         "historyEntry": history_entry,
+        "scenarios": scenario_records,
     }
 
 

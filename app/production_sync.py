@@ -7,7 +7,7 @@ import httpx
 from fastapi import HTTPException
 
 from .config import settings
-from .database import planning_state, production_sync_status, replace_planning_state_from_production
+from .database import planning_state, production_sync_status, replace_planning_state_from_production, scenarios
 
 
 SYNC_HEADER = "X-Staging-Pull-Token"
@@ -34,6 +34,20 @@ def _is_planning_seed(value: Any) -> bool:
     )
 
 
+def _is_scenario_list(value: Any) -> bool:
+    if not isinstance(value, list):
+        return False
+    return all(
+        isinstance(item, dict)
+        and all(isinstance(item.get(key), str) for key in ("id", "name", "createdAt", "notes"))
+        and bool(item["id"].strip())
+        and bool(item["name"].strip())
+        and isinstance(item.get("seed"), dict)
+        and isinstance(item.get("result"), dict)
+        for item in value
+    )
+
+
 def production_snapshot(token: str | None) -> dict[str, Any]:
     if settings.app_env.lower() != "production":
         raise HTTPException(status_code=404, detail="Üretim anlık görüntüsü bu ortamda sunulmuyor.")
@@ -44,7 +58,7 @@ def production_snapshot(token: str | None) -> dict[str, Any]:
     state = planning_state()
     if state is None or not _is_planning_seed(state.get("seed")):
         raise HTTPException(status_code=404, detail="Üretimde kopyalanacak planlama durumu bulunamadı.")
-    return {"planningState": state}
+    return {"planningState": state, "scenarios": scenarios()}
 
 
 def production_sync_status_payload() -> dict[str, Any]:
@@ -84,9 +98,10 @@ def pull_production_state() -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="Üretim ortamı geçerli veri döndürmedi; staging değiştirilmedi.") from error
 
     record = payload.get("planningState") if isinstance(payload, dict) else None
+    scenario_records = payload.get("scenarios") if isinstance(payload, dict) else None
     seed = record.get("seed") if isinstance(record, dict) else None
     source_updated_at = record.get("updatedAt") if isinstance(record, dict) else None
-    if not _is_planning_seed(seed) or not isinstance(source_updated_at, str) or not source_updated_at:
+    if not _is_planning_seed(seed) or not isinstance(source_updated_at, str) or not source_updated_at or not _is_scenario_list(scenario_records):
         raise HTTPException(status_code=502, detail="Üretim planlama kaydı eksik; staging değiştirilmedi.")
 
-    return replace_planning_state_from_production(seed, source_updated_at, settings.production_api_url)
+    return replace_planning_state_from_production(seed, source_updated_at, settings.production_api_url, scenario_records)

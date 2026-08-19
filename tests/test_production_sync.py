@@ -12,6 +12,7 @@ os.environ.setdefault("APP_SESSION_SECRET", "test-session-secret-that-is-long-en
 from fastapi.testclient import TestClient
 
 from app.config import settings
+from app.database import connection
 from app.main import app
 
 
@@ -50,6 +51,14 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
         "orders": [{"id": "PROD-ORDER", "dueDate": "2026-08-31"}],
     }
     source_updated_at = "2026-08-17T12:00:00+00:00"
+    production_scenarios = [{
+        "id": "prod-scenario-1",
+        "name": "Prod senaryosu",
+        "createdAt": "2026-08-17T11:00:00+00:00",
+        "notes": "Production kaynaklı",
+        "seed": production_seed,
+        "result": {"state": "planned", "batches": []},
+    }]
 
     try:
         with TestClient(app) as client:
@@ -64,11 +73,17 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
 
             saved = client.put("/api/planning-state", headers=auth_headers, json={"seed": local_seed})
             assert saved.status_code == 200
+            with connection() as db:
+                db.execute(
+                    """INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json)
+                    VALUES(?,?,?,?,?,?)""",
+                    ("staging-only", "Staging senaryosu", "2026-08-17T10:00:00+00:00", "Silinmeli", "{}", "{}"),
+                )
 
             upstream_request = httpx.Request("GET", "https://api.planning.hfgok.com/api/production-snapshot")
             upstream_response = httpx.Response(
                 200,
-                json={"planningState": {"seed": production_seed, "updatedAt": source_updated_at}},
+                json={"planningState": {"seed": production_seed, "updatedAt": source_updated_at}, "scenarios": production_scenarios},
                 request=upstream_request,
             )
             with patch("app.production_sync.httpx.get", return_value=upstream_response) as upstream_get:
@@ -78,6 +93,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             assert pulled.json()["planningState"]["seed"] == production_seed
             assert pulled.json()["sourceUpdatedAt"] == source_updated_at
             assert pulled.json()["sourceUrl"] == "https://api.planning.hfgok.com/api"
+            assert pulled.json()["scenarios"] == production_scenarios
             upstream_get.assert_called_once_with(
                 "https://api.planning.hfgok.com/api/production-snapshot",
                 headers={"X-Staging-Pull-Token": "shared-read-token"},
@@ -86,6 +102,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             )
 
             assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/scenarios", headers=auth_headers).json() == production_scenarios
             assert client.get("/api/orders", headers=auth_headers).json() == [{
                 "id": "PROD-ORDER",
                 "dueDate": "2026-08-31",
@@ -104,6 +121,16 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             assert rejected.status_code == 502
             assert "staging değiştirilmedi" in rejected.json()["detail"]
             assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+
+            missing_scenarios_response = httpx.Response(
+                200,
+                json={"planningState": {"seed": production_seed, "updatedAt": source_updated_at}},
+                request=upstream_request,
+            )
+            with patch("app.production_sync.httpx.get", return_value=missing_scenarios_response):
+                missing_scenarios = client.post("/api/production-sync/pull", headers=auth_headers)
+            assert missing_scenarios.status_code == 502
+            assert client.get("/api/scenarios", headers=auth_headers).json() == production_scenarios
 
             malformed_order_seed = {**production_seed, "orders": [{"dueDate": "2026-09-01"}]}
             malformed_order_response = httpx.Response(
@@ -148,6 +175,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             snapshot = client.get("/api/production-snapshot", headers={"X-Staging-Pull-Token": "shared-read-token"})
             assert snapshot.status_code == 200
             assert snapshot.json()["planningState"]["seed"] == production_seed
+            assert snapshot.json()["scenarios"] == production_scenarios
             _set_setting("staging_pull_token", "")
             assert client.get("/api/production-snapshot", headers={"X-Staging-Pull-Token": "shared-read-token"}).status_code == 503
     finally:
