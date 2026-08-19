@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.database import save_planning_state
+from app.database import connection, save_planning_state
 from app.main import app
 
 
@@ -34,6 +34,19 @@ def test_production_snapshot_is_read_only_and_token_gated(tmp_path: Path):
 
         with TestClient(app) as client:
             save_planning_state(seed)
+            with connection() as db:
+                db.execute(
+                    """INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json)
+                    VALUES(?,?,?,?,?,?)""",
+                    (
+                        "scenario-production-1",
+                        "Production senaryosu",
+                        "2026-08-19T08:00:00+00:00",
+                        "Prod kayıtlı senaryo",
+                        '{"source":"production"}',
+                        '{"state":"planned"}',
+                    ),
+                )
 
             assert client.get("/api/production-snapshot").status_code == 401
             assert client.get(
@@ -47,6 +60,14 @@ def test_production_snapshot_is_read_only_and_token_gated(tmp_path: Path):
             )
             assert response.status_code == 200
             assert response.json()["planningState"]["seed"] == seed
+            assert response.json()["scenarios"] == [{
+                "id": "scenario-production-1",
+                "name": "Production senaryosu",
+                "createdAt": "2026-08-19T08:00:00+00:00",
+                "notes": "Prod kayıtlı senaryo",
+                "seed": {"source": "production"},
+                "result": {"state": "planned"},
+            }]
 
             assert client.post(
                 "/api/production-snapshot",

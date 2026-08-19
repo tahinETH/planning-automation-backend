@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .config import settings
-from .database import planning_state
+from .database import planning_state, scenarios
 
 
 SYNC_HEADER = "X-Staging-Pull-Token"
@@ -44,4 +44,4 @@ def production_snapshot(token: str | None) -> dict[str, Any]:
     state = planning_state()
     if state is None or not _is_planning_seed(state.get("seed")):
         raise HTTPException(status_code=404, detail="Üretimde kopyalanacak planlama durumu bulunamadı.")
-    return {"planningState": state}
+    return {"planningState": state, "scenarios": scenarios()}
