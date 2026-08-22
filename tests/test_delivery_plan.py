@@ -42,7 +42,7 @@ def test_delivery_plan_uses_single_category_and_template_structure():
     assert sheet["B7"].value == "R902745116"
     assert sheet["C7"].value == 5760
     assert sheet["D7"].value == "=SUM(I7:K7)"
-    assert sheet["E7"].value == "=SUM(L7:N7)"
+    assert sheet["E7"].value == "=SUM(M7:N7)"
     assert sheet["F7"].value == "=D7+E7-C7"
     assert sheet["H7"].value == "R902745116"
     assert [sheet.cell(7, column).value for column in range(9, 15)] == [1920, 1920, 0, 0, 1920, 0]
@@ -102,6 +102,6 @@ def test_delivery_plan_expands_week_columns_beyond_the_original_six():
     assert sheet["Q6"].value == "KW37\nPlan"
     assert sheet["Q7"].value == 100
     assert sheet["D7"].value == "=SUM(I7:K7)"
-    assert sheet["E7"].value == "=SUM(L7:Q7)"
+    assert sheet["E7"].value == "=SUM(M7:Q7)"
     assert sheet["Q50"].value == "=SUM(Q7:Q49)"
     assert sheet.auto_filter.ref == "B6:Q49"

@@ -108,7 +108,7 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
     weekly_end_column = 8 + len(weeks)
     weekly_end_letter = get_column_letter(weekly_end_column)
     actual_columns = [9 + offset for offset, week in enumerate(weeks) if week.get("kind") == "actual"]
-    planned_columns = [9 + offset for offset, week in enumerate(weeks) if week.get("kind") in {"carryover", "plan"}]
+    planned_columns = [9 + offset for offset, week in enumerate(weeks) if week.get("kind") == "plan"]
 
     sheet["C1"] = datetime.combine(datetime.now(ZoneInfo("Europe/Istanbul")).date(), datetime.min.time())
     sheet["H1"] = "Başlangıç T.:"

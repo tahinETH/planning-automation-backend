@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -56,7 +57,7 @@ def init_database() -> None:
               state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS planning_state_history (
-              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, created_at TEXT NOT NULL
+              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, state_hash TEXT NOT NULL, created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS production_sync_state (
               sync_key TEXT PRIMARY KEY, source_updated_at TEXT NOT NULL,
@@ -116,6 +117,20 @@ def init_database() -> None:
         order_columns = {row["name"] for row in db.execute("PRAGMA table_info(customer_orders)").fetchall()}
         if "delivery_milestones_json" not in order_columns:
             db.execute("ALTER TABLE customer_orders ADD COLUMN delivery_milestones_json TEXT NOT NULL DEFAULT '[]'")
+        history_columns = {row["name"] for row in db.execute("PRAGMA table_info(planning_state_history)").fetchall()}
+        if "state_hash" not in history_columns:
+            db.execute("ALTER TABLE planning_state_history ADD COLUMN state_hash TEXT NOT NULL DEFAULT ''")
+        history_without_hash = db.execute(
+            "SELECT id, seed_json FROM planning_state_history WHERE state_hash=''"
+        ).fetchall()
+        if history_without_hash:
+            db.executemany(
+                "UPDATE planning_state_history SET state_hash=? WHERE id=?",
+                [
+                    (hashlib.sha256(row["seed_json"].encode("utf-8")).hexdigest(), row["id"])
+                    for row in history_without_hash
+                ],
+            )
 
 
 def _loads(value: str) -> Any:
@@ -201,9 +216,10 @@ class PlanningStateConflict(RuntimeError):
 
 def _insert_planning_history(db: sqlite3.Connection, seed: dict[str, Any], serialized_seed: str, timestamp: str, prefix: str = "planning") -> dict[str, Any]:
     history_id = f"{prefix}-{uuid.uuid4()}"
+    state_hash = hashlib.sha256(serialized_seed.encode("utf-8")).hexdigest()
     db.execute(
-        "INSERT INTO planning_state_history(id,seed_json,created_at) VALUES(?,?,?)",
-        (history_id, serialized_seed, timestamp),
+        "INSERT INTO planning_state_history(id,seed_json,state_hash,created_at) VALUES(?,?,?,?)",
+        (history_id, serialized_seed, state_hash, timestamp),
     )
     stale = db.execute(
         "SELECT id FROM planning_state_history ORDER BY created_at DESC LIMIT -1 OFFSET 20"

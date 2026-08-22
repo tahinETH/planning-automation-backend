@@ -8,6 +8,7 @@ os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 
 from fastapi.testclient import TestClient
 
+from app.database import connection
 from app.main import app
 
 
@@ -73,6 +74,12 @@ def test_feedback_lifecycle():
         saved_state = client.put("/api/planning-state", headers=headers, json={"seed": seed})
         assert saved_state.status_code == 200
         assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
+        with connection() as db:
+            saved_hash = db.execute(
+                "SELECT state_hash FROM planning_state_history WHERE id=?",
+                (saved_state.json()["historyEntry"]["id"],),
+            ).fetchone()["state_hash"]
+        assert len(saved_hash) == 64
         first_history = saved_state.json()["historyEntry"]
         assert first_history["seed"] == seed
         history = client.get("/api/planning-state/history", headers=headers)
