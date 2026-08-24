@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -19,6 +21,8 @@ def connection() -> Iterator[sqlite3.Connection]:
     db = sqlite3.connect(settings.database_path)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
+    db.execute("PRAGMA busy_timeout = 5000")
+    db.execute("PRAGMA synchronous = FULL")
     try:
         yield db
         db.commit()
@@ -54,6 +58,10 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS planning_state (
               state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS production_archive_snapshots (
+              id TEXT PRIMARY KEY, archive_json TEXT NOT NULL, archive_hash TEXT NOT NULL,
+              planning_updated_at TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS demand_import_history (
               id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, source_file TEXT NOT NULL,
               snapshot_date TEXT NOT NULL, dataset_json TEXT NOT NULL, summary_json TEXT NOT NULL,
@@ -81,6 +89,7 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedback_comments_feedback_idx ON feedback_comments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS demand_import_history_imported_idx ON demand_import_history(imported_at DESC);
+            CREATE INDEX IF NOT EXISTS production_archive_snapshots_created_idx ON production_archive_snapshots(created_at DESC);
             """
         )
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
@@ -107,6 +116,16 @@ def init_database() -> None:
         order_columns = {row["name"] for row in db.execute("PRAGMA table_info(customer_orders)").fetchall()}
         if "delivery_milestones_json" not in order_columns:
             db.execute("ALTER TABLE customer_orders ADD COLUMN delivery_milestones_json TEXT NOT NULL DEFAULT '[]'")
+        current_state = db.execute(
+            "SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'"
+        ).fetchone()
+        if current_state is not None:
+            _insert_production_archive_snapshot(
+                db,
+                _loads(current_state["seed_json"]),
+                current_state["updated_at"],
+                "database-init",
+            )
 
 
 def _loads(value: str) -> Any:
@@ -156,15 +175,90 @@ def planning_state() -> dict[str, Any] | None:
     return {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
 
 
-def save_planning_state(seed: dict[str, Any]) -> dict[str, Any]:
+class PlanningStateConflict(RuntimeError):
+    def __init__(self, current: dict[str, Any]):
+        super().__init__("Planning state was updated by another session.")
+        self.current = current
+
+
+def _preserve_production_archive(incoming: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
+    if current is None:
+        return incoming
+    merged = json.loads(json.dumps(incoming, ensure_ascii=False))
+    merged["productionHistory"] = current.get("productionHistory", [])
+    return merged
+
+
+def _insert_production_archive_snapshot(
+    db: sqlite3.Connection,
+    seed: dict[str, Any],
+    planning_updated_at: str,
+    source: str,
+) -> dict[str, Any] | None:
+    archive = seed.get("productionHistory")
+    if not isinstance(archive, list):
+        archive = []
+    serialized = json.dumps(archive, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    archive_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    latest = db.execute(
+        "SELECT archive_hash FROM production_archive_snapshots ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    if latest is not None and latest["archive_hash"] == archive_hash:
+        return None
+    snapshot_id = f"archive-{uuid.uuid4()}"
+    created_at = now_iso()
+    db.execute(
+        """INSERT INTO production_archive_snapshots
+        (id,archive_json,archive_hash,planning_updated_at,source,created_at)
+        VALUES(?,?,?,?,?,?)""",
+        (snapshot_id, serialized, archive_hash, planning_updated_at, source, created_at),
+    )
+    return {
+        "id": snapshot_id,
+        "productionHistory": archive,
+        "archiveHash": archive_hash,
+        "planningUpdatedAt": planning_updated_at,
+        "source": source,
+        "createdAt": created_at,
+    }
+
+
+def production_archive_history() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute(
+            """SELECT id, archive_json, archive_hash, planning_updated_at, source, created_at
+            FROM production_archive_snapshots ORDER BY created_at DESC"""
+        ).fetchall()
+    return [{
+        "id": row["id"],
+        "productionHistory": _loads(row["archive_json"]),
+        "archiveHash": row["archive_hash"],
+        "planningUpdatedAt": row["planning_updated_at"],
+        "source": row["source"],
+        "createdAt": row["created_at"],
+    } for row in rows]
+
+
+def save_planning_state(
+    seed: dict[str, Any],
+    expected_updated_at: str | None = None,
+    mode: str = "planning",
+) -> dict[str, Any]:
     timestamp = now_iso()
     with connection() as db:
+        row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+        current_updated_at = current["updatedAt"] if current else ""
+        if expected_updated_at is not None and current_updated_at != expected_updated_at:
+            raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        saved_seed = _preserve_production_archive(seed, current["seed"] if current else None) if mode == "planning" else seed
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
             ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
-            (json.dumps(seed, ensure_ascii=False), timestamp),
+            (json.dumps(saved_seed, ensure_ascii=False), timestamp),
         )
-    return {"seed": seed, "updatedAt": timestamp}
+        archive_snapshot = _insert_production_archive_snapshot(db, saved_seed, timestamp, mode)
+    return {"seed": saved_seed, "updatedAt": timestamp, "archiveSnapshot": archive_snapshot}
 
 
 def demand_import_history() -> list[dict[str, Any]]:

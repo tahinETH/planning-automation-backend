@@ -75,3 +75,49 @@ def test_feedback_lifecycle():
         assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
         loaded_state = client.get("/api/planning-state", headers=headers)
         assert loaded_state.json()["seed"] == seed
+
+        live_archive = [{
+            "id": "delivered-743-7477",
+            "workOrder": "743/7477",
+            "completedQuantity": 31_000,
+            "inventoryStatus": "delivered",
+        }]
+        operational_seed = {**seed, "productionHistory": live_archive}
+        operational = client.put(
+            "/api/planning-state",
+            headers=headers,
+            json={
+                "seed": operational_seed,
+                "expectedUpdatedAt": saved_state.json()["updatedAt"],
+                "mode": "operational",
+            },
+        )
+        assert operational.status_code == 200
+
+        protected = client.put(
+            "/api/planning-state",
+            headers=headers,
+            json={
+                "seed": {**seed, "productionHistory": []},
+                "expectedUpdatedAt": operational.json()["updatedAt"],
+                "mode": "planning",
+            },
+        )
+        assert protected.status_code == 200
+        assert protected.json()["seed"]["productionHistory"] == live_archive
+
+        stale = client.put(
+            "/api/planning-state",
+            headers=headers,
+            json={
+                "seed": {**seed, "productionHistory": []},
+                "expectedUpdatedAt": operational.json()["updatedAt"],
+                "mode": "operational",
+            },
+        )
+        assert stale.status_code == 409
+        assert stale.json()["detail"]["current"]["seed"]["productionHistory"] == live_archive
+
+        archive_history = client.get("/api/production-archive/history", headers=headers)
+        assert archive_history.status_code == 200
+        assert archive_history.json()[0]["productionHistory"] == live_archive

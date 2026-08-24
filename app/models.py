@@ -59,6 +59,8 @@ class RevisionPayload(BaseModel):
 
 class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
+    expectedUpdatedAt: str | None = None
+    mode: Literal["planning", "operational"] = "planning"
 
 
 class DemandImportHistoryPayload(BaseModel):

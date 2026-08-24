@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
+from .database import PlanningStateConflict, all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
@@ -156,6 +156,11 @@ def get_planning_state(_: CurrentUser = Depends(current_user)):
     return planning_state()
 
 
+@app.get("/api/production-archive/history")
+def get_production_archive_history(_: CurrentUser = Depends(current_user)):
+    return production_archive_history()
+
+
 @app.get("/api/production-snapshot")
 def get_production_snapshot(
     staging_pull_token: str | None = Header(default=None, alias=SYNC_HEADER),
@@ -165,7 +170,10 @@ def get_production_snapshot(
 
 @app.put("/api/planning-state")
 def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(current_user)):
-    return save_planning_state(payload.seed)
+    try:
+        return save_planning_state(payload.seed, payload.expectedUpdatedAt, payload.mode)
+    except PlanningStateConflict as error:
+        raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
 
 
 @app.get("/api/scenarios")
