@@ -42,6 +42,7 @@ def init_database() -> None:
               id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
               notes TEXT NOT NULL DEFAULT '', inputs_json TEXT NOT NULL, result_json TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS scenarios_created_at_idx ON scenarios(created_at DESC, id DESC);
             CREATE TABLE IF NOT EXISTS customer_orders (
               order_id TEXT PRIMARY KEY, customer TEXT NOT NULL DEFAULT '', customer_order_no TEXT NOT NULL DEFAULT '',
               due_date TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 3,
@@ -454,6 +455,41 @@ def scenarios() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute("SELECT * FROM scenarios ORDER BY created_at DESC").fetchall()
     return [{"id": row["id"], "name": row["name"], "createdAt": row["created_at"], "notes": row["notes"], "seed": _loads(row["inputs_json"]), "result": _loads(row["result_json"])} for row in rows]
+
+
+def scenario_summaries(limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    safe_limit = max(1, min(100, int(limit)))
+    safe_offset = max(0, int(offset))
+    with connection() as db:
+        total = int(db.execute("SELECT COUNT(*) FROM scenarios").fetchone()[0])
+        rows = db.execute(
+            """SELECT id,name,created_at,notes,
+            COALESCE(json_extract(result_json, '$.summary.plannedBatchCount'), 0) AS planned_batch_count,
+            json_extract(result_json, '$.planRun') AS result_plan_run,
+            json_extract(inputs_json, '$.activePlanRun') AS seed_plan_run
+            FROM scenarios ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?""",
+            (safe_limit, safe_offset),
+        ).fetchall()
+    items = []
+    for row in rows:
+        raw_plan_run = row["result_plan_run"] or row["seed_plan_run"]
+        items.append({
+            "id": row["id"],
+            "name": row["name"],
+            "createdAt": row["created_at"],
+            "notes": row["notes"],
+            "plannedBatchCount": max(0, int(row["planned_batch_count"] or 0)),
+            "planRun": _loads(raw_plan_run) if raw_plan_run else None,
+        })
+    return {"items": items, "total": total, "limit": safe_limit, "offset": safe_offset, "hasMore": safe_offset + len(items) < total}
+
+
+def scenario_record(scenario_id: str) -> dict[str, Any] | None:
+    with connection() as db:
+        row = db.execute("SELECT * FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+    if row is None:
+        return None
+    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"], "notes": row["notes"], "seed": _loads(row["inputs_json"]), "result": _loads(row["result_json"])}
 
 
 def revisions() -> list[dict[str, Any]]:

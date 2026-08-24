@@ -8,13 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
+from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .models import AppUpdateCreate, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
@@ -140,7 +140,7 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
 @app.post("/api/general-overview/export")
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
-    filename = f"Genel_Bakis_{datetime.now().date().isoformat()}.xlsx"
+    filename = f"Genel_Plan_Operasyonlar_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -151,7 +151,7 @@ def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Dep
 @app.post("/api/production-archive/export")
 def export_production_archive(payload: ProductionArchiveExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_production_archive_workbook(payload.model_dump())
-    filename = f"Uretim_Arsivi_{payload.status}_{datetime.now().date().isoformat()}.xlsx"
+    filename = f"Uretim_Arsivi_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -227,6 +227,23 @@ def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(c
 @app.get("/api/scenarios")
 def get_scenarios(_: CurrentUser = Depends(current_user)):
     return scenarios()
+
+
+@app.get("/api/scenarios/list")
+def get_scenario_summaries(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: CurrentUser = Depends(current_user),
+):
+    return scenario_summaries(limit, offset)
+
+
+@app.get("/api/scenarios/{scenario_id}")
+def get_scenario(scenario_id: str, _: CurrentUser = Depends(current_user)):
+    value = scenario_record(scenario_id)
+    if value is None:
+        raise HTTPException(status_code=404, detail="Senaryo bulunamadı")
+    return value
 
 
 @app.post("/api/scenarios", status_code=201)

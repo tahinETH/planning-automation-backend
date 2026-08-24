@@ -59,8 +59,8 @@ def archive_payload():
 
 def test_production_archive_workbook_contains_visible_rows_and_summary():
     workbook = load_workbook(BytesIO(build_production_archive_workbook(archive_payload())))
-    sheet = workbook["Üretim Arşivi"]
-    assert sheet["A1"].value == "SELSA  ·  ÜRETİM ARŞİVİ"
+    sheet = workbook["WIP - Yarı Mamul"]
+    assert sheet["A1"].value == "SELSA  ·  ÜRETİM ARŞİVİ  ·  YARI MAMULLER"
     assert sheet["A6"].value == 2
     assert sheet["C6"].value == 2880
     assert sheet["G6"].value == "Filtreli"
@@ -70,10 +70,34 @@ def test_production_archive_workbook_contains_visible_rows_and_summary():
     assert sheet["G11"].value == "Delme"
     assert sheet["H10"].value == "Delme bekliyor"
     assert sheet["I10"].value == "Delme"
-    assert sheet["J10"].value == 1920
+    assert sheet["K10"].value == 1920
     assert sheet["A9"].value == "Tamamlanma"
-    assert sheet.auto_filter.ref == "A9:M11"
+    assert sheet.auto_filter.ref == "A9:N11"
     assert sheet.freeze_panes == "A9"
+
+
+def test_production_archive_workbook_separates_wip_delivery_and_scrap():
+    base = archive_payload()
+    wip_rows = [{**base["rows"][0], "availableQuantity": 1500, "nextOperation": "Çapak alma"}]
+    delivered_rows = [{**base["rows"][1], "completedQuantity": 700, "deliveryDate": "2026-08-09"}]
+    scrap_rows = [{**base["rows"][1], "completedQuantity": 260, "deliveryDate": ""}]
+    payload = {
+        "generatedAt": base["generatedAt"],
+        "filtered": False,
+        "sections": [
+            {"status": "semi-finished", "eventDateLabel": "Tamamlanma", "totalAvailable": 1, "rows": wip_rows},
+            {"status": "delivered", "eventDateLabel": "Teslim tarihi", "totalAvailable": 1, "rows": delivered_rows},
+            {"status": "scrapped", "eventDateLabel": "Iskarta tarihi", "totalAvailable": 1, "rows": scrap_rows},
+        ],
+    }
+
+    workbook = load_workbook(BytesIO(build_production_archive_workbook(payload)))
+
+    assert workbook.sheetnames == ["WIP - Yarı Mamul", "Teslim Edilen", "Iskarta"]
+    assert workbook["WIP - Yarı Mamul"]["K10"].value == 1500
+    assert workbook["WIP - Yarı Mamul"]["J10"].value == "Çapak alma"
+    assert workbook["Teslim Edilen"]["K10"].value == 700
+    assert workbook["Iskarta"]["K10"].value == 260
 
 
 def test_production_archive_endpoint_is_authenticated_and_returns_excel():
@@ -85,5 +109,5 @@ def test_production_archive_endpoint_is_authenticated_and_returns_excel():
         response = client.post("/api/production-archive/export", headers=headers, json=payload)
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        assert "Uretim_Arsivi_semi-finished" in response.headers["content-disposition"]
+        assert "Uretim_Arsivi_" in response.headers["content-disposition"]
         assert response.content.startswith(b"PK")

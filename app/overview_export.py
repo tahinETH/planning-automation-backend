@@ -190,6 +190,81 @@ def _audit_sheet(workbook: Workbook, findings: list[dict[str, Any]]) -> None:
     sheet.auto_filter.ref = f"A4:D{sheet.max_row}"
 
 
+def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str) -> None:
+    label = str(plan.get("label") or "Operasyon")
+    sheet = workbook.create_sheet(f"{label} Planı"[:31])
+    sheet.sheet_view.showGridLines = False
+    sheet.freeze_panes = "A6"
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_title_rows = "1:5"
+
+    _merge_value(
+        sheet,
+        "A1:I2",
+        f"SELSA  ·  {label.upper()} GENEL PLANI",
+        fill=NAVY,
+        font=Font(name="Aptos Display", size=18, color=WHITE, bold=True),
+        alignment=Alignment(vertical="center"),
+    )
+    _merge_value(
+        sheet,
+        "A3:D3",
+        f"{plan.get('totalJobCount', 0)} iş  ·  {plan.get('totalQuantity', 0):,.0f} adet",
+        fill=WHITE,
+        font=Font(name="Aptos", size=9, color=GREEN, bold=True),
+        alignment=Alignment(vertical="center"),
+    )
+    _merge_value(
+        sheet,
+        "E3:I3",
+        f"Oluşturulma: {generated_at}",
+        fill=WHITE,
+        font=Font(name="Aptos", size=8, color=MUTED),
+        alignment=Alignment(horizontal="right", vertical="center"),
+    )
+
+    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş"]
+    widths = [14, 25, 14, 9, 21, 20, 14, 16, 16]
+    for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
+        cell = sheet.cell(5, column, heading)
+        cell.fill = _fill(PEACH)
+        cell.font = Font(name="Aptos", size=8, color="56301E", bold=True)
+        cell.alignment = Alignment(horizontal="right" if column == 7 else "left", vertical="center")
+        cell.border = Border(bottom=THIN_LINE)
+        sheet.column_dimensions[get_column_letter(column)].width = width
+
+    row_number = 6
+    for resource in plan.get("resources", []):
+        resource_rows = resource.get("rows", [])
+        if not resource_rows:
+            values = [resource.get("id", ""), resource.get("name", ""), "Planlı iş yok", "", "", "", 0, "", ""]
+            resource_rows = [None]
+        for index, item in enumerate(resource_rows):
+            if item is not None:
+                values = [
+                    resource.get("id", ""), resource.get("name", ""),
+                    "Üretimde" if item.get("status") == "current" else "Planlı",
+                    item.get("position", index + 1), item.get("product", ""), item.get("workOrder", ""),
+                    max(0, int(item.get("quantity", 0))), item.get("startDate", ""), item.get("endDate", ""),
+                ]
+            background = GREEN_LIGHT if item is not None and item.get("status") == "current" else (WHITE if row_number % 2 == 0 else PAPER)
+            for column, value in enumerate(values, 1):
+                cell = sheet.cell(row_number, column, value)
+                cell.fill = _fill(background)
+                cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {1, 3, 5})
+                cell.alignment = Alignment(horizontal="right" if column == 7 else "left", vertical="center")
+                cell.border = Border(bottom=THIN_LINE)
+                if column == 7:
+                    cell.number_format = "#,##0"
+            row_number += 1
+
+    last_row = max(6, row_number - 1)
+    sheet.auto_filter.ref = f"A5:I{last_row}"
+    sheet.print_area = f"A1:I{last_row}"
+
+
 def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
@@ -244,6 +319,8 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
 
     sheet.print_area = f"A1:O{max(10, current_row - 2)}"
     sheet.auto_filter.ref = None
+    for plan in payload.get("operationPlans", []):
+        _operation_plan_sheet(workbook, plan, generated)
     _audit_sheet(workbook, payload.get("findings", []))
 
     output = BytesIO()

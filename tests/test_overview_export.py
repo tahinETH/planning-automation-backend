@@ -42,11 +42,32 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
                     "rows": [{"kind": "planned", "position": 1, "product": "R902690", "diameter": "20", "quantity": 350, "endDate": "2026-08-06", "workOrder": ""}],
                 },
             ],
+            "operationPlans": [
+                {
+                    "process": "turning",
+                    "label": "Torna",
+                    "totalQuantity": 850,
+                    "totalJobCount": 3,
+                    "resources": [
+                        {
+                            "id": "C-01",
+                            "name": "CITIZEN 1",
+                            "rows": [
+                                {"status": "current", "position": 1, "product": "R902740", "workOrder": "320-1", "quantity": 350, "setupKey": "23", "startDate": "2026-07-29", "endDate": "2026-08-01"},
+                                {"status": "planned", "position": 2, "product": "R902121", "workOrder": "", "quantity": 500, "setupKey": "23", "startDate": "2026-08-01", "endDate": "2026-08-04"},
+                            ],
+                        }
+                    ],
+                },
+                {"process": "drilling", "label": "Delme", "totalQuantity": 500, "totalJobCount": 1, "resources": [{"id": "D-01", "name": "Delme", "rows": [{"status": "planned", "position": 1, "product": "R902121", "workOrder": "", "quantity": 500, "setupKey": "4.2", "startDate": "2026-08-04", "endDate": "2026-08-05"}]}]},
+                {"process": "deburring", "label": "Çapak Alma", "totalQuantity": 0, "totalJobCount": 0, "resources": []},
+                {"process": "gkm", "label": "GKM", "totalQuantity": 0, "totalJobCount": 0, "resources": []},
+            ],
             "findings": [{"severity": "critical", "title": "Eksik üretim", "detail": "150 adet eksik.", "target": "Siparişler"}],
     }
 
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
-    assert workbook.sheetnames == ["Genel Bakış", "Plan Kontrolü"]
+    assert workbook.sheetnames == ["Genel Bakış", "Torna Planı", "Delme Planı", "Çapak Alma Planı", "GKM Planı", "Plan Kontrolü"]
     sheet = workbook["Genel Bakış"]
     assert sheet["A1"].value == "SELSA  ·  ÜRETİM GENEL BAKIŞ"
     assert sheet["A6"].value == 1000
@@ -55,3 +76,6 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
     assert sheet["A13"].value == "Üretimde"
     assert sheet["A13"].fill.fgColor.rgb.endswith("E4F5E4")
     assert workbook["Plan Kontrolü"]["A5"].value == "Kritik"
+    assert workbook["Torna Planı"]["A1"].value == "SELSA  ·  TORNA GENEL PLANI"
+    assert workbook["Torna Planı"]["G6"].value == 350
+    assert workbook["Delme Planı"]["A6"].value == "D-01"

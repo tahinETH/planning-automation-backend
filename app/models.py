@@ -134,6 +134,31 @@ class OverviewFinding(BaseModel):
     target: str = Field(default="", max_length=200)
 
 
+class OverviewOperationRow(BaseModel):
+    status: Literal["current", "planned"]
+    position: int = Field(ge=0)
+    product: str = Field(max_length=100)
+    workOrder: str = Field(default="", max_length=120)
+    quantity: int = Field(ge=0)
+    setupKey: str = Field(default="", max_length=80)
+    startDate: str = Field(default="", max_length=40)
+    endDate: str = Field(default="", max_length=40)
+
+
+class OverviewOperationResource(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(default="", max_length=160)
+    rows: list[OverviewOperationRow]
+
+
+class OverviewOperationPlan(BaseModel):
+    process: Literal["turning", "drilling", "deburring", "gkm"]
+    label: str = Field(max_length=60)
+    totalQuantity: int = Field(ge=0)
+    totalJobCount: int = Field(ge=0)
+    resources: list[OverviewOperationResource]
+
+
 class OverviewExportPayload(BaseModel):
     generatedAt: str
     createdAt: str = ""
@@ -141,6 +166,7 @@ class OverviewExportPayload(BaseModel):
     dirty: bool
     summary: OverviewSummary
     machines: list[OverviewMachine]
+    operationPlans: list[OverviewOperationPlan] = Field(default_factory=list)
     findings: list[OverviewFinding] = []
 
 
@@ -155,16 +181,27 @@ class ProductionArchiveExportRow(BaseModel):
     process: Literal["turning", "drilling", "deburring", "washing", "gkm"]
     stage: str = Field(default="", max_length=160)
     currentOperation: str = Field(default="", max_length=80)
+    nextOperation: str = Field(default="", max_length=80)
     completedQuantity: int = Field(ge=0)
+    availableQuantity: int | None = Field(default=None, ge=0)
     plannedStart: str = Field(default="", max_length=40)
     plannedEnd: str = Field(default="", max_length=40)
     deliveryDate: str = Field(default="", max_length=40)
 
 
-class ProductionArchiveExportPayload(BaseModel):
-    generatedAt: str
+class ProductionArchiveExportSection(BaseModel):
     status: Literal["semi-finished", "delivered", "scrapped"]
     eventDateLabel: str = Field(default="Tamamlanma", min_length=1, max_length=60)
-    filtered: bool = False
     totalAvailable: int = Field(ge=0)
     rows: list[ProductionArchiveExportRow]
+
+
+class ProductionArchiveExportPayload(BaseModel):
+    generatedAt: str
+    filtered: bool = False
+    sections: list[ProductionArchiveExportSection] = Field(default_factory=list)
+    # Legacy single-sheet payload remains accepted for older deployed frontends.
+    status: Literal["semi-finished", "delivered", "scrapped"] = "semi-finished"
+    eventDateLabel: str = Field(default="Tamamlanma", min_length=1, max_length=60)
+    totalAvailable: int = Field(default=0, ge=0)
+    rows: list[ProductionArchiveExportRow] = Field(default_factory=list)
