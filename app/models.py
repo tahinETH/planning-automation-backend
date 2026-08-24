@@ -29,6 +29,11 @@ class CommentUpdate(BaseModel):
     body: str = Field(min_length=1, max_length=10_000)
 
 
+class AppUpdateCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=180)
+    bullets: list[str] = Field(min_length=1, max_length=12)
+
+
 class ScenarioPayload(BaseModel):
     id: str
     name: str

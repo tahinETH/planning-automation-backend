@@ -68,6 +68,10 @@ def init_database() -> None:
               snapshot_date TEXT NOT NULL, dataset_json TEXT NOT NULL, summary_json TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS app_updates (
+              id TEXT PRIMARY KEY, title TEXT NOT NULL, bullets_json TEXT NOT NULL,
+              created_at TEXT NOT NULL, seen_at TEXT
+            );
             CREATE TABLE IF NOT EXISTS feedbacks (
               id TEXT PRIMARY KEY, author_id TEXT NOT NULL, author_name TEXT NOT NULL,
               page_path TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
@@ -91,6 +95,7 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS feedback_attachments_feedback_idx ON feedback_attachments(feedback_id, created_at);
             CREATE INDEX IF NOT EXISTS demand_import_history_imported_idx ON demand_import_history(imported_at DESC);
             CREATE INDEX IF NOT EXISTS planning_state_history_created_idx ON planning_state_history(created_at DESC);
+            CREATE INDEX IF NOT EXISTS app_updates_created_idx ON app_updates(created_at DESC);
             """
         )
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
@@ -342,6 +347,25 @@ def revisions() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute("SELECT * FROM order_revisions ORDER BY approved_at DESC").fetchall()
     return [{"id": row["id"], "orderId": row["order_id"], "product": row["product"], "status": row["status"], "createdAt": row["created_at"], "approvedAt": row["approved_at"], "original": _loads(row["original_json"]), "requested": _loads(row["request_json"]), "impact": _loads(row["impact_json"]), "seed": _loads(row["seed_json"]), "result": _loads(row["result_json"])} for row in rows]
+
+
+def app_update_record(db: sqlite3.Connection, update_id: str) -> dict[str, Any] | None:
+    row = db.execute("SELECT * FROM app_updates WHERE id=?", (update_id,)).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "bullets": _loads(row["bullets_json"]),
+        "created_at": row["created_at"],
+        "seen_at": row["seen_at"],
+    }
+
+
+def all_app_updates() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute("SELECT id FROM app_updates ORDER BY created_at DESC").fetchall()
+        return [record for row in rows if (record := app_update_record(db, row["id"])) is not None]
 
 
 def feedback_record(db: sqlite3.Connection, feedback_id: str) -> dict[str, Any] | None:

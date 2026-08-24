@@ -20,6 +20,19 @@ def test_feedback_lifecycle():
         assert login.status_code == 200
         headers = {"Authorization": f"Bearer {login.json()['token']}"}
         assert client.get("/api/feedbacks").status_code == 401
+        assert client.get("/api/app-updates").status_code == 401
+
+        update = client.post(
+            "/api/app-updates",
+            headers=headers,
+            json={"title": "Plan ekranı güncellendi", "bullets": ["Termin filtresi eklendi", "Tezgah sıralaması hızlandırıldı"]},
+        )
+        assert update.status_code == 201
+        assert update.json()["seen_at"] is None
+        assert client.get("/api/app-updates", headers=headers).json()[0]["bullets"][0] == "Termin filtresi eklendi"
+        seen = client.post(f"/api/app-updates/{update.json()['id']}/seen", headers=headers)
+        assert seen.status_code == 200
+        assert seen.json()["seen_at"] is not None
 
         created = client.post("/api/feedbacks", headers=headers, json={"body": "C-08 planı kontrol edilmeli", "page_path": "Tezgahlar / C-08", "priority": 1})
         assert created.status_code == 201

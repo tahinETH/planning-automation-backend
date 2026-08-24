@@ -14,10 +14,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import PlanningStateConflict, all_feedback, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
+from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
+from .models import AppUpdateCreate, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 from .production_archive_export import build_production_archive_workbook
@@ -54,6 +54,39 @@ def login(payload: LoginRequest):
 @app.get("/api/me")
 def me(user: CurrentUser = Depends(current_user)):
     return {"id": user.id, "name": user.name}
+
+
+@app.get("/api/app-updates")
+def get_app_updates(_: CurrentUser = Depends(current_user)):
+    return all_app_updates()
+
+
+@app.post("/api/app-updates", status_code=201)
+def create_app_update(payload: AppUpdateCreate, _: CurrentUser = Depends(current_user)):
+    title = payload.title.strip()
+    bullets = [bullet.strip() for bullet in payload.bullets if bullet.strip()]
+    if not title or not bullets:
+        raise HTTPException(status_code=422, detail="Başlık ve en az bir değişiklik maddesi gerekli")
+    if any(len(bullet) > 500 for bullet in bullets):
+        raise HTTPException(status_code=422, detail="Değişiklik maddeleri 500 karakteri geçemez")
+    update_id, timestamp = str(uuid.uuid4()), now_iso()
+    with connection() as db:
+        db.execute(
+            "INSERT INTO app_updates(id,title,bullets_json,created_at,seen_at) VALUES(?,?,?,?,NULL)",
+            (update_id, title, json.dumps(bullets, ensure_ascii=False), timestamp),
+        )
+        return app_update_record(db, update_id)
+
+
+@app.post("/api/app-updates/{update_id}/seen")
+def mark_app_update_seen(update_id: str, _: CurrentUser = Depends(current_user)):
+    with connection() as db:
+        record = app_update_record(db, update_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
+        if record["seen_at"] is None:
+            db.execute("UPDATE app_updates SET seen_at=? WHERE id=?", (now_iso(), update_id))
+        return app_update_record(db, update_id)
 
 
 @app.get("/api/orders")
