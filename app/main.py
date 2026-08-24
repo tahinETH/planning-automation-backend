@@ -140,7 +140,8 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
 @app.post("/api/general-overview/export")
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
-    filename = f"Genel_Plan_Operasyonlar_{datetime.now().date().isoformat()}.xlsx"
+    process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM"}.get(payload.selectedProcess or "")
+    filename = f"{process_name}_Genel_Plani_{datetime.now().date().isoformat()}.xlsx" if process_name else f"Genel_Plan_Operasyonlar_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

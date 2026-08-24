@@ -164,6 +164,7 @@ class OverviewExportPayload(BaseModel):
     createdAt: str = ""
     planState: Literal["planned", "empty"]
     dirty: bool
+    selectedProcess: Literal["turning", "drilling", "deburring", "gkm"] | None = None
     summary: OverviewSummary
     machines: list[OverviewMachine]
     operationPlans: list[OverviewOperationPlan] = Field(default_factory=list)

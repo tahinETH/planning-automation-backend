@@ -79,3 +79,8 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
     assert workbook["Torna Planı"]["A1"].value == "SELSA  ·  TORNA GENEL PLANI"
     assert workbook["Torna Planı"]["G6"].value == 350
     assert workbook["Delme Planı"]["A6"].value == "D-01"
+
+    drilling_payload = {**payload, "selectedProcess": "drilling", "operationPlans": [payload["operationPlans"][1]]}
+    drilling_workbook = load_workbook(BytesIO(build_overview_workbook(drilling_payload)))
+    assert drilling_workbook.sheetnames == ["Delme Planı"]
+    assert drilling_workbook["Delme Planı"]["A1"].value == "SELSA  ·  DELME GENEL PLANI"

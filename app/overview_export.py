@@ -267,6 +267,21 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
 
 def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     workbook = Workbook()
+    selected_process = payload.get("selectedProcess")
+    if selected_process:
+        empty_sheet = workbook.active
+        generated = payload.get("generatedAt") or datetime.now(timezone.utc).isoformat()
+        selected_plan = next((plan for plan in payload.get("operationPlans", []) if plan.get("process") == selected_process), None)
+        if selected_plan is not None:
+            _operation_plan_sheet(workbook, selected_plan, generated)
+        else:
+            fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
+            _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated)
+        workbook.remove(empty_sheet)
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
     sheet = workbook.active
     sheet.title = "Genel Bakış"
     sheet.sheet_view.showGridLines = False

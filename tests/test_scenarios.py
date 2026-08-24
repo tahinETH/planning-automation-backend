@@ -1,7 +1,7 @@
 import os
 
-os.environ["DATABASE_PATH"] = "/tmp/selsa-planlama-scenarios-test.sqlite"
-os.environ["UPLOAD_DIR"] = "/tmp/selsa-planlama-scenarios-uploads"
+os.environ["DATABASE_PATH"] = "/tmp/selsa-planlama-feedback-test.sqlite"
+os.environ["UPLOAD_DIR"] = "/tmp/selsa-planlama-feedback-uploads"
 os.environ["ADMIN_PASSWORD"] = "test-password"
 os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 
