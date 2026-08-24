@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_session, current_user
 from .config import settings
-from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
+from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .models import AppUpdateCreate, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
@@ -194,6 +194,11 @@ def get_planning_state_history(_: CurrentUser = Depends(current_user)):
     return planning_state_history()
 
 
+@app.get("/api/production-archive/history")
+def get_production_archive_history(_: CurrentUser = Depends(current_user)):
+    return production_archive_history()
+
+
 @app.get("/api/production-snapshot")
 def get_production_snapshot(
     staging_pull_token: str | None = Header(default=None, alias="X-Staging-Pull-Token"),
@@ -214,7 +219,7 @@ def post_production_sync(_: CurrentUser = Depends(current_user)):
 @app.put("/api/planning-state")
 def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(current_user)):
     try:
-        return save_planning_state(payload.seed, payload.expectedUpdatedAt, payload.force)
+        return save_planning_state(payload.seed, payload.expectedUpdatedAt, payload.force, payload.mode)
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
 

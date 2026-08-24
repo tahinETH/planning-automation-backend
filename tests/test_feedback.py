@@ -110,3 +110,59 @@ def test_feedback_lifecycle():
         assert conflict.json()["detail"]["current"]["seed"] == newer_seed
         forced = client.put("/api/planning-state", headers=headers, json={"seed": seed, "force": True})
         assert forced.status_code == 200
+
+        # Planning-only writes (including Clear plan and loading a saved
+        # scenario) must never be able to replace live production truth.
+        live_archive = [{
+            "id": "delivered-743-7477",
+            "workOrder": "743/7477",
+            "product": "R902745121",
+            "completedQuantity": 31_000,
+            "inventoryStatus": "delivered",
+        }]
+        operational_seed = {
+            **seed,
+            "productionHistory": live_archive,
+            "wipLots": [{"id": "live-wip"}],
+            "wipMovements": [{"id": "live-movement"}],
+            "planningEvents": [{"id": "live-event"}],
+            "processCurrentJobs": [{"resourceId": "D-01"}],
+            "machines": [{
+                "id": "C-01",
+                "active": True,
+                "operationalAvailableStart": 123,
+                "currentJob": {"workOrder": "LIVE"},
+            }],
+        }
+        operational = client.put(
+            "/api/planning-state",
+            headers=headers,
+            json={"seed": operational_seed, "expectedUpdatedAt": forced.json()["updatedAt"], "mode": "operational"},
+        )
+        assert operational.status_code == 200
+
+        stale_planning_seed = {
+            **seed,
+            "productionHistory": [],
+            "wipLots": [],
+            "wipMovements": [],
+            "planningEvents": [],
+            "processCurrentJobs": [],
+            "machines": [{"id": "C-01", "active": False, "currentJob": {"workOrder": "STALE"}}],
+        }
+        protected = client.put(
+            "/api/planning-state",
+            headers=headers,
+            json={"seed": stale_planning_seed, "expectedUpdatedAt": operational.json()["updatedAt"], "mode": "planning"},
+        )
+        assert protected.status_code == 200
+        assert protected.json()["seed"]["productionHistory"] == live_archive
+        assert protected.json()["seed"]["wipLots"] == [{"id": "live-wip"}]
+        assert protected.json()["seed"]["machines"][0]["active"] is False
+        assert protected.json()["seed"]["machines"][0]["currentJob"] == {"workOrder": "LIVE"}
+        assert protected.json()["seed"]["machines"][0]["operationalAvailableStart"] == 123
+
+        archive_history = client.get("/api/production-archive/history", headers=headers)
+        assert archive_history.status_code == 200
+        assert archive_history.json()[0]["productionHistory"] == live_archive
+        assert archive_history.json()[0]["source"] == "operational"
