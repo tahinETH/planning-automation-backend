@@ -5,6 +5,7 @@ from io import BytesIO
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.worksheet.pagebreak import Break
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -190,7 +191,142 @@ def _audit_sheet(workbook: Workbook, findings: list[dict[str, Any]]) -> None:
     sheet.auto_filter.ref = f"A4:D{sheet.max_row}"
 
 
-def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str) -> None:
+def _shop_floor_header(sheet, label: str, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any], last_column: str) -> None:
+    _merge_value(sheet, f"A1:{last_column}2", f"SELSA  ·  {label.upper()} SAHA PLANI", fill=NAVY, font=Font(name="Aptos Display", size=18, color=WHITE, bold=True), alignment=Alignment(vertical="center"))
+    scope_label = "Her tezgâh için sıradaki en fazla 10 iş" if print_range.get("mode") == "next-jobs" else f"{print_range.get('startDate', '')} – {print_range.get('endDate', '')}  ·  {print_range.get('dayCount', 0)} gün"
+    _merge_value(sheet, "A3:D3", scope_label, fill=WHITE, font=Font(name="Aptos", size=10, color=GREEN, bold=True), alignment=Alignment(vertical="center"))
+    _merge_value(sheet, f"E3:{last_column}3", f"Oluşturulma: {generated_at}", fill=WHITE, font=Font(name="Aptos", size=8, color=MUTED), alignment=Alignment(horizontal="right", vertical="center"))
+    omitted = int(plan.get("omittedJobCount", 0) or 0)
+    note = f"{plan.get('totalJobCount', 0)} iş  ·  {plan.get('totalQuantity', 0):,.0f} adet"
+    if omitted:
+        note += f"  ·  {omitted} iş yazdırma sınırı dışında"
+    _merge_value(sheet, f"A4:{last_column}4", note, fill=AMBER_LIGHT if omitted else NAVY_LIGHT, font=Font(name="Aptos", size=8, color=AMBER if omitted else NAVY, bold=True), alignment=Alignment(vertical="center"))
+
+
+def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, start_col: int, row_limit: int, end_col: int) -> None:
+    first = get_column_letter(start_col)
+    last = get_column_letter(end_col)
+    _merge_value(sheet, f"{first}{start_row}:{last}{start_row}", f"{resource.get('id', '')}  ·  {resource.get('name', '')}", fill=NAVY, font=Font(name="Aptos Display", size=10, color=WHITE, bold=True), alignment=Alignment(vertical="center"))
+    headings = ["Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Durum"]
+    widths = [7, 17, 19, 10, 12, 12, 11]
+    for offset, heading in enumerate(headings):
+        cell = sheet.cell(start_row + 1, start_col + offset, heading)
+        cell.fill = _fill(PEACH)
+        cell.font = Font(name="Aptos", size=7, color="56301E", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = Border(bottom=THIN_LINE)
+        sheet.column_dimensions[get_column_letter(start_col + offset)].width = widths[offset]
+    rows = list(resource.get("rows", []))[:row_limit]
+    for index in range(row_limit):
+        item = rows[index] if index < len(rows) else None
+        values = [
+            "Üretimde" if item and item.get("status") == "current" else (item.get("position", index + 1) if item else ""),
+            item.get("product", "") if item else "",
+            item.get("workOrder", "") if item else "",
+            item.get("quantity", 0) if item else "",
+            item.get("startDate", "") if item else "",
+            item.get("endDate", "") if item else "",
+            ("Mevcut" if item.get("status") == "current" else "Planlı") if item else "",
+        ]
+        background = GREEN_LIGHT if item and item.get("status") == "current" else (WHITE if index % 2 == 0 else PAPER)
+        for offset, value in enumerate(values):
+            cell = sheet.cell(start_row + 2 + index, start_col + offset, value)
+            cell.fill = _fill(background)
+            cell.font = Font(name="Aptos", size=7, color=INK, bold=offset in {1, 6})
+            cell.alignment = Alignment(horizontal="center" if offset in {0, 3, 4, 5, 6} else "left", vertical="center", shrink_to_fit=True)
+            cell.border = Border(bottom=THIN_LINE)
+            if offset == 3 and isinstance(value, (int, float)):
+                cell.number_format = "#,##0"
+    footer_row = start_row + 2 + row_limit
+    _merge_value(sheet, f"{first}{footer_row}:{last}{footer_row}", f"{len(rows)} iş  ·  {sum(int(row.get('quantity', 0) or 0) for row in rows):,.0f} adet", fill=NAVY_LIGHT, font=Font(name="Aptos", size=7, color=NAVY, bold=True), alignment=Alignment(horizontal="right", vertical="center"))
+
+
+def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
+    process = str(plan.get("process") or "")
+    label = str(plan.get("label") or "Operasyon")
+    sheet = workbook.create_sheet(f"{label} Saha Planı"[:31])
+    sheet.sheet_view.showGridLines = False
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_title_rows = "1:4"
+    resources = list(plan.get("resources", []))
+    if process == "turning":
+        _shop_floor_header(sheet, label, plan, generated_at, print_range, "O")
+        for index, resource in enumerate(resources[:16]):
+            page = index // 8
+            slot = index % 8
+            start_row = 6 + page * 58 + (slot // 2) * 14
+            start_col, end_col = (1, 7) if slot % 2 == 0 else (9, 15)
+            _shop_floor_resource_block(sheet, resource, start_row, start_col, 10, end_col)
+        if len(resources) > 8:
+            sheet.row_breaks.append(Break(id=62))
+        last_row = 61 if len(resources) <= 8 else 119
+        sheet.print_area = f"A1:O{last_row}"
+    else:
+        _shop_floor_header(sheet, label, plan, generated_at, print_range, "I")
+        for index, resource in enumerate(resources[:2]):
+            _shop_floor_resource_block(sheet, resource, 6 + index * 18, 1, 6, 7)
+            for row in range(8 + index * 18, 14 + index * 18):
+                sheet.row_dimensions[row].height = 24
+        sheet.print_area = "A1:I39"
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+
+
+def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
+    label = str(plan.get("label") or "Operasyon")
+    sheet = workbook.create_sheet(f"{label} Saha Planı"[:31])
+    sheet.sheet_view.showGridLines = False
+    sheet.freeze_panes = "A6"
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_title_rows = "1:5"
+    _shop_floor_header(sheet, label, plan, generated_at, print_range, "I")
+    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş"]
+    widths = [14, 24, 12, 8, 20, 20, 12, 14, 14]
+    for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
+        cell = sheet.cell(5, column, heading)
+        cell.fill = _fill(PEACH)
+        cell.font = Font(name="Aptos", size=8, color="56301E", bold=True)
+        cell.border = Border(bottom=THIN_LINE)
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    row_number = 6
+    written = 0
+    for resource in plan.get("resources", []):
+        for item in resource.get("rows", []):
+            values = [resource.get("id", ""), resource.get("name", ""), "Üretimde" if item.get("status") == "current" else "Planlı", item.get("position", ""), item.get("product", ""), item.get("workOrder", ""), item.get("quantity", 0), item.get("startDate", ""), item.get("endDate", "")]
+            background = GREEN_LIGHT if item.get("status") == "current" else (WHITE if written % 2 == 0 else PAPER)
+            for column, value in enumerate(values, 1):
+                cell = sheet.cell(row_number, column, value)
+                cell.fill = _fill(background)
+                cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {1, 3, 5})
+                cell.alignment = Alignment(vertical="center", shrink_to_fit=True)
+                cell.border = Border(bottom=THIN_LINE)
+                if column == 7:
+                    cell.number_format = "#,##0"
+            row_number += 1
+            written += 1
+            if written == 31:
+                sheet.row_breaks.append(Break(id=row_number - 1))
+    sheet.print_area = f"A1:I{max(36, row_number - 1)}"
+
+
+def _shop_floor_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
+    if plan.get("process") in {"turning", "drilling"}:
+        _resource_shop_floor_sheet(workbook, plan, generated_at, print_range)
+    else:
+        _long_shop_floor_sheet(workbook, plan, generated_at, print_range)
+
+
+def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any] | None = None) -> None:
+    if print_range:
+        _shop_floor_plan_sheet(workbook, plan, generated_at, print_range)
+        return
     label = str(plan.get("label") or "Operasyon")
     sheet = workbook.create_sheet(f"{label} Planı"[:31])
     sheet.sheet_view.showGridLines = False
@@ -273,10 +409,10 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
         generated = payload.get("generatedAt") or datetime.now(timezone.utc).isoformat()
         selected_plan = next((plan for plan in payload.get("operationPlans", []) if plan.get("process") == selected_process), None)
         if selected_plan is not None:
-            _operation_plan_sheet(workbook, selected_plan, generated)
+            _operation_plan_sheet(workbook, selected_plan, generated, payload.get("printRange"))
         else:
             fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
-            _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated)
+            _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated, payload.get("printRange"))
         workbook.remove(empty_sheet)
         output = BytesIO()
         workbook.save(output)

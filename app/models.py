@@ -156,7 +156,15 @@ class OverviewOperationPlan(BaseModel):
     label: str = Field(max_length=60)
     totalQuantity: int = Field(ge=0)
     totalJobCount: int = Field(ge=0)
+    omittedJobCount: int = Field(default=0, ge=0)
     resources: list[OverviewOperationResource]
+
+
+class OverviewPrintRange(BaseModel):
+    mode: Literal["date-range", "next-jobs"] = "date-range"
+    startDate: str = Field(default="", max_length=40)
+    endDate: str = Field(default="", max_length=40)
+    dayCount: int = Field(default=0, ge=0, le=15)
 
 
 class OverviewExportPayload(BaseModel):
@@ -165,6 +173,7 @@ class OverviewExportPayload(BaseModel):
     planState: Literal["planned", "empty"]
     dirty: bool
     selectedProcess: Literal["turning", "drilling", "deburring", "gkm"] | None = None
+    printRange: OverviewPrintRange | None = None
     summary: OverviewSummary
     machines: list[OverviewMachine]
     operationPlans: list[OverviewOperationPlan] = Field(default_factory=list)

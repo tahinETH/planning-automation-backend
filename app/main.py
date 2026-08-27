@@ -141,7 +141,10 @@ def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
     process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM"}.get(payload.selectedProcess or "")
-    filename = f"{process_name}_Genel_Plani_{datetime.now().date().isoformat()}.xlsx" if process_name else f"Genel_Plan_Operasyonlar_{datetime.now().date().isoformat()}.xlsx"
+    if process_name and payload.printRange:
+        filename = f"{process_name}_Saha_Plani_Siradaki_10_Is.xlsx" if payload.printRange.mode == "next-jobs" else f"{process_name}_Saha_Plani_{payload.printRange.startDate}_{payload.printRange.endDate}.xlsx"
+    else:
+        filename = f"{process_name}_Genel_Plani_{datetime.now().date().isoformat()}.xlsx" if process_name else f"Genel_Plan_Operasyonlar_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

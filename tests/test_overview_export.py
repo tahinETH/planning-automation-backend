@@ -84,3 +84,61 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
     drilling_workbook = load_workbook(BytesIO(build_overview_workbook(drilling_payload)))
     assert drilling_workbook.sheetnames == ["Delme Planı"]
     assert drilling_workbook["Delme Planı"]["A1"].value == "SELSA  ·  DELME GENEL PLANI"
+
+
+def test_15_day_shop_floor_export_uses_factory_page_limits():
+    rows = [
+        {"status": "planned", "position": index + 1, "product": f"R{index:03}", "workOrder": f"320-{index}", "quantity": 100, "setupKey": "23", "startDate": "2026-08-20", "endDate": "2026-08-21"}
+        for index in range(12)
+    ]
+    turning_plan = {
+        "process": "turning", "label": "Torna", "totalQuantity": 9000, "totalJobCount": 90, "omittedJobCount": 18,
+        "resources": [{"id": f"C-{index:02}", "name": f"Torna {index}", "rows": rows} for index in range(1, 10)],
+    }
+    payload = {
+        "generatedAt": "2026-08-27T10:00:00Z", "createdAt": "", "planState": "planned", "dirty": False,
+        "selectedProcess": "turning", "printRange": {"startDate": "2026-08-20", "endDate": "2026-09-03", "dayCount": 15},
+        "summary": {}, "machines": [], "operationPlans": [turning_plan], "findings": [],
+    }
+
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
+    sheet = workbook["Torna Saha Planı"]
+
+    assert workbook.sheetnames == ["Torna Saha Planı"]
+    assert sheet["A1"].value == "SELSA  ·  TORNA SAHA PLANI"
+    assert sheet["A3"].value.startswith("2026-08-20 – 2026-09-03")
+    assert sheet["A64"].value.startswith("C-09")
+    assert len(sheet.row_breaks.brk) == 1
+    assert sheet.print_area == "'Torna Saha Planı'!$A$1:$O$119"
+
+
+def test_deburring_shop_floor_export_breaks_after_31_rows():
+    rows = [
+        {"status": "planned", "position": index + 1, "product": f"R{index:03}", "workOrder": f"320-{index}", "quantity": 100, "setupKey": "P", "startDate": "2026-08-20", "endDate": "2026-08-21"}
+        for index in range(40)
+    ]
+    payload = {
+        "generatedAt": "2026-08-27T10:00:00Z", "createdAt": "", "planState": "planned", "dirty": False,
+        "selectedProcess": "deburring", "printRange": {"startDate": "2026-08-20", "endDate": "2026-09-03", "dayCount": 15},
+        "summary": {}, "machines": [],
+        "operationPlans": [{"process": "deburring", "label": "Çapak Alma", "totalQuantity": 4000, "totalJobCount": 40, "omittedJobCount": 0, "resources": [{"id": "B-01", "name": "Çapak", "rows": rows}]}],
+        "findings": [],
+    }
+
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
+    sheet = workbook["Çapak Alma Saha Planı"]
+    assert len(sheet.row_breaks.brk) == 1
+    assert sheet.row_breaks.brk[0].id == 36
+
+
+def test_turning_next_jobs_export_has_no_date_limit_in_header():
+    payload = {
+        "generatedAt": "2026-08-27T10:00:00Z", "createdAt": "", "planState": "planned", "dirty": False,
+        "selectedProcess": "turning", "printRange": {"mode": "next-jobs", "startDate": "", "endDate": "", "dayCount": 0},
+        "summary": {}, "machines": [],
+        "operationPlans": [{"process": "turning", "label": "Torna", "totalQuantity": 100, "totalJobCount": 1, "omittedJobCount": 0, "resources": [{"id": "C-01", "name": "Torna", "rows": [{"status": "planned", "position": 1, "product": "R001", "workOrder": "320-1", "quantity": 100, "setupKey": "23", "startDate": "2026-10-01", "endDate": "2026-10-02"}]}]}],
+        "findings": [],
+    }
+
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
+    assert workbook["Torna Saha Planı"]["A3"].value == "Her tezgâh için sıradaki en fazla 10 iş"
