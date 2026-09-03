@@ -81,6 +81,11 @@ def init_database() -> None:
               id TEXT PRIMARY KEY, title TEXT NOT NULL, bullets_json TEXT NOT NULL,
               created_at TEXT NOT NULL, seen_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS app_user_roles (
+              email TEXT PRIMARY KEY COLLATE NOCASE,
+              role TEXT NOT NULL CHECK(role IN ('admin','user')),
+              updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS feedbacks (
               id TEXT PRIMARY KEY, author_id TEXT NOT NULL, author_name TEXT NOT NULL,
               page_path TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
@@ -571,6 +576,15 @@ def all_app_updates() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute("SELECT id FROM app_updates ORDER BY created_at DESC").fetchall()
         return [record for row in rows if (record := app_update_record(db, row["id"])) is not None]
+
+
+def app_user_role(email: str) -> str | None:
+    normalized = email.strip().lower()
+    if not normalized:
+        return None
+    with connection() as db:
+        row = db.execute("SELECT role FROM app_user_roles WHERE email=?", (normalized,)).fetchone()
+    return str(row["role"]) if row else None
 
 
 def feedback_record(db: sqlite3.Connection, feedback_id: str) -> dict[str, Any] | None:

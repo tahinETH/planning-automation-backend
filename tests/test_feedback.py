@@ -188,3 +188,22 @@ def test_feedback_lifecycle():
         assert archive_history.status_code == 200
         assert archive_history.json()[0]["productionHistory"] == live_archive
         assert archive_history.json()[0]["source"] == "operational"
+
+
+def test_database_role_can_promote_an_authenticated_user():
+    Path(os.environ["DATABASE_PATH"]).unlink(missing_ok=True)
+    with TestClient(app) as client:
+        user_headers = {"Authorization": f"Bearer {create_test_session('test-password', 'user')}"}
+        assert client.get("/api/me", headers=user_headers).json()["role"] == "user"
+        with connection() as db:
+            db.execute(
+                "INSERT INTO app_user_roles(email,role,updated_at) VALUES(?,?,datetime('now'))",
+                ("user@example.com", "admin"),
+            )
+        assert client.get("/api/me", headers=user_headers).json()["role"] == "admin"
+        published = client.post(
+            "/api/app-updates",
+            headers=user_headers,
+            json={"title": "Yetkili yayın", "bullets": ["Veritabanı rolü uygulandı"]},
+        )
+        assert published.status_code == 201

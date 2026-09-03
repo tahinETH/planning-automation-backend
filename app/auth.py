@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
 from .config import settings
+from .database import app_user_role
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -114,10 +115,10 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     user_id = _claim_text(claims, "sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Oturum geçersiz")
-    metadata = claims.get("metadata") if isinstance(claims.get("metadata"), dict) else {}
-    claimed_role = metadata.get("role")
-    role: AppRole = "admin" if claimed_role == "admin" or user_id in settings.clerk_admin_user_ids else "user"
+    metadata_candidates = (claims.get("metadata"), claims.get("public_metadata"), claims.get("publicMetadata"))
+    claimed_role = next((metadata.get("role") for metadata in metadata_candidates if isinstance(metadata, dict) and metadata.get("role")), None)
     email = _claim_text(claims, "primaryEmail") or _claim_text(claims, "email")
+    role: AppRole = "admin" if claimed_role == "admin" or user_id in settings.clerk_admin_user_ids or app_user_role(email) == "admin" else "user"
     name = _claim_text(claims, "fullName") or _claim_text(claims, "name") or email or "Selsa Kullanıcısı"
     return CurrentUser(id=user_id, name=name, email=email, role=role)
 
