@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+import logging
 from typing import Any, Literal
 
 import jwt
@@ -14,6 +15,7 @@ from .config import settings
 
 
 bearer = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 TEST_ISSUER = "selsa-planlama-test"
 TEST_AUDIENCE = "selsa-planlama-frontend"
 AppRole = Literal["admin", "user"]
@@ -70,9 +72,15 @@ def _decode_clerk_token(token: str) -> dict[str, Any]:
             options={"verify_aud": False, "require": ["exp", "iat", "iss", "sub"]},
         )
     except (jwt.PyJWTError, ValueError) as exc:
+        logger.warning("Clerk session token rejected (%s): %s", type(exc).__name__, exc)
         raise HTTPException(status_code=401, detail="Oturum geçersiz veya süresi dolmuş") from exc
     authorized_party = claims.get("azp")
     if authorized_party and authorized_party not in settings.clerk_authorized_parties:
+        logger.warning(
+            "Clerk session token authorized party rejected: %s (allowed: %s)",
+            authorized_party,
+            ", ".join(settings.clerk_authorized_parties),
+        )
         raise HTTPException(status_code=401, detail="Oturum bu uygulama için oluşturulmamış")
     if claims.get("sts") == "pending":
         raise HTTPException(status_code=403, detail="Hesap kurulumu henüz tamamlanmamış")

@@ -366,9 +366,9 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
     with connection() as db:
         require_feedback(db, feedback_id)
     for upload in files:
-        content_type = upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "application/octet-stream"
+        content_type = (upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "application/octet-stream").lower()
         suffix = Path(upload.filename or "").suffix.lower()
-        document_suffixes = {".doc", ".docx", ".pdf", ".rtf", ".txt", ".odt"}
+        document_suffixes = {".doc", ".docx", ".pdf", ".rtf", ".txt", ".odt", ".xls", ".xlsx", ".xlsm", ".xlsb"}
         document_types = {
             "application/msword",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -377,11 +377,15 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
             "text/rtf",
             "text/plain",
             "application/vnd.oasis.opendocument.text",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel.sheet.macroenabled.12",
+            "application/vnd.ms-excel.sheet.binary.macroenabled.12",
             "application/octet-stream",
         }
         kind = "image" if content_type.startswith("image/") else "voice" if content_type.startswith("audio/") else "document" if suffix in document_suffixes and content_type in document_types else None
         if kind is None:
-            raise HTTPException(status_code=415, detail="Yalnızca görüntü, ses, Word, PDF, RTF, ODT veya metin belgesi yüklenebilir")
+            raise HTTPException(status_code=415, detail="Yalnızca görüntü, ses, Excel, Word, PDF, RTF, ODT veya metin belgesi yüklenebilir")
         content = await upload.read()
         limit = 50 * 1024 * 1024 if kind == "voice" else 25 * 1024 * 1024 if kind == "document" else 20 * 1024 * 1024
         if not content or len(content) > limit:

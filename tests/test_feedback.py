@@ -74,6 +74,14 @@ def test_feedback_lifecycle():
         assert documented.status_code == 201
         assert {item["kind"] for item in documented.json()["attachments"]} == {"image", "voice", "document"}
 
+        spreadsheet = client.post(
+            f"/api/feedbacks/{feedback_id}/attachments",
+            headers=headers,
+            files=[("files", ("kapasite-plani.xlsx", b"excel-data", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
+        )
+        assert spreadsheet.status_code == 201
+        assert any(item["original_name"] == "kapasite-plani.xlsx" and item["kind"] == "document" for item in spreadsheet.json()["attachments"])
+
         unsupported = client.post(
             f"/api/feedbacks/{feedback_id}/attachments",
             headers=headers,
