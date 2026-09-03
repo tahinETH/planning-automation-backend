@@ -12,12 +12,13 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
-from .auth import CurrentUser, create_session, current_user
+from .auth import CurrentUser, create_test_session, current_user, require_admin
 from .config import settings
-from .database import PlanningStateConflict, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
+from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
-from .models import AppUpdateCreate, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
+from .models import AppUpdateCreate, CalendarEventExportPayload, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
+from .calendar_export import build_calendar_event_workbook
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 from .production_archive_export import build_production_archive_workbook
@@ -46,14 +47,15 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/auth/login")
-def login(payload: LoginRequest):
-    return {"token": create_session(payload.password), "name": "Planlama Yöneticisi"}
+if settings.app_env == "test" and settings.auth_test_mode:
+    @app.post("/api/auth/login")
+    def login(payload: LoginRequest):
+        return {"token": create_test_session(payload.password), "name": "Test Yöneticisi"}
 
 
 @app.get("/api/me")
 def me(user: CurrentUser = Depends(current_user)):
-    return {"id": user.id, "name": user.name}
+    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role}
 
 
 @app.get("/api/app-updates")
@@ -62,7 +64,7 @@ def get_app_updates(_: CurrentUser = Depends(current_user)):
 
 
 @app.post("/api/app-updates", status_code=201)
-def create_app_update(payload: AppUpdateCreate, _: CurrentUser = Depends(current_user)):
+def create_app_update(payload: AppUpdateCreate, _: CurrentUser = Depends(require_admin)):
     title = payload.title.strip()
     bullets = [bullet.strip() for bullet in payload.bullets if bullet.strip()]
     if not title or not bullets:
@@ -152,6 +154,17 @@ def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Dep
     )
 
 
+@app.post("/api/calendar-events/export")
+def export_calendar_events(payload: CalendarEventExportPayload, _: CurrentUser = Depends(current_user)):
+    content = build_calendar_event_workbook(payload.model_dump())
+    filename = f"Bakim_Mesai_Vardiya_Detayi_{datetime.now().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/api/production-archive/export")
 def export_production_archive(payload: ProductionArchiveExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_production_archive_workbook(payload.model_dump())
@@ -164,7 +177,9 @@ def export_production_archive(payload: ProductionArchiveExportPayload, _: Curren
 
 
 @app.post("/api/data-packages/export")
-def export_data_package(payload: DataPackagePayload, _: CurrentUser = Depends(current_user)):
+def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends(current_user)):
+    if payload.scope == "settings" and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Ayarlar paketlerine yalnızca yöneticiler erişebilir")
     content = build_data_package(payload.scope, payload.data)
     filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
@@ -175,9 +190,11 @@ def export_data_package(payload: DataPackagePayload, _: CurrentUser = Depends(cu
 
 
 @app.post("/api/data-packages/{scope}/import")
-async def import_data_package(scope: str, file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
+async def import_data_package(scope: str, file: UploadFile = File(...), user: CurrentUser = Depends(current_user)):
     if scope not in SCOPE_LABELS:
         raise HTTPException(status_code=404, detail="Veri paketi kapsamı bulunamadı.")
+    if scope == "settings" and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Ayarlar paketlerini yalnızca yöneticiler içe aktarabilir")
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
     content = await file.read(MAX_DATA_PACKAGE_BYTES + 1)
@@ -216,16 +233,26 @@ def get_production_sync_status(_: CurrentUser = Depends(current_user)):
 
 
 @app.post("/api/production-sync/pull")
-def post_production_sync(_: CurrentUser = Depends(current_user)):
+def post_production_sync(_: CurrentUser = Depends(require_admin)):
     return pull_production_state()
 
 
 @app.put("/api/planning-state")
-def put_planning_state(payload: PlanningStatePayload, _: CurrentUser = Depends(current_user)):
+def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depends(current_user)):
     try:
-        return save_planning_state(payload.seed, payload.expectedUpdatedAt, payload.force, payload.mode)
+        return save_planning_state(
+            payload.seed,
+            payload.expectedUpdatedAt,
+            payload.force,
+            payload.mode,
+            actor_id=user.id,
+            actor_name=user.name,
+            can_manage_settings=user.is_admin,
+        )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
+    except ProtectedSettingsChange as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @app.get("/api/scenarios")

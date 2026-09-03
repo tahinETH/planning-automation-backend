@@ -180,6 +180,24 @@ class OverviewExportPayload(BaseModel):
     findings: list[OverviewFinding] = []
 
 
+class CalendarEventExportRow(BaseModel):
+    eventType: Literal["maintenance", "overtime", "shift-change"]
+    process: Literal["turning", "drilling", "deburring", "gkm"]
+    workCenterId: str = Field(min_length=1, max_length=40)
+    workCenterName: str = Field(default="", max_length=160)
+    name: str = Field(default="", max_length=300)
+    startDate: str = Field(max_length=40)
+    endDate: str = Field(max_length=40)
+    shiftCount: int = Field(default=0, ge=0, le=3)
+    status: Literal["active", "completed"]
+    completedAt: str = Field(default="", max_length=80)
+
+
+class CalendarEventExportPayload(BaseModel):
+    generatedAt: str
+    rows: list[CalendarEventExportRow]
+
+
 class ProductionArchiveExportRow(BaseModel):
     completedAt: str = Field(max_length=40)
     archivedAt: str = Field(default="", max_length=80)

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import secrets
 from pathlib import Path
 
 
@@ -26,12 +25,15 @@ def main() -> None:
         "DATABASE_PATH": "/root/planning-automation-backend-staging/data/staging.sqlite",
         "UPLOAD_DIR": "/root/planning-automation-backend-staging/data/uploads",
         "CORS_ORIGINS": "https://staging.planning.hfgok.com",
-        "ADMIN_PASSWORD": existing.get("ADMIN_PASSWORD", production["ADMIN_PASSWORD"]),
-        "APP_SESSION_SECRET": existing.get("APP_SESSION_SECRET", secrets.token_urlsafe(48)),
-        "SESSION_DAYS": "7",
+        "CLERK_ISSUER": existing.get("CLERK_ISSUER", production.get("CLERK_ISSUER", "")),
+        "CLERK_JWT_KEY": existing.get("CLERK_JWT_KEY", production.get("CLERK_JWT_KEY", "")),
+        "CLERK_AUTHORIZED_PARTIES": "https://staging.planning.hfgok.com",
+        "CLERK_ADMIN_USER_IDS": existing.get("CLERK_ADMIN_USER_IDS", production.get("CLERK_ADMIN_USER_IDS", "")),
         "PRODUCTION_API_URL": existing.get("PRODUCTION_API_URL", "https://api.planning.hfgok.com/api"),
         "PRODUCTION_SYNC_TOKEN": existing.get("PRODUCTION_SYNC_TOKEN", production.get("STAGING_PULL_TOKEN", "")),
     }
+    if not staging["CLERK_ISSUER"]:
+        raise RuntimeError("CLERK_ISSUER must be configured in production or the existing staging environment")
     STAGING_ENV.write_text("".join(f"{key}={value}\n" for key, value in staging.items()))
     STAGING_ENV.chmod(0o600)
     print(f"Wrote isolated staging environment to {STAGING_ENV}")

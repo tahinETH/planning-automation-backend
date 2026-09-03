@@ -3,7 +3,7 @@
 Proje artık iki bağımsız uygulamadan oluşur:
 
 - `frontend/`: Next.js üretim planlama arayüzü ve ortak geri bildirim sayfası
-- `backend/`: FastAPI, paylaşılan şifre girişi, SQLite verisi, görseller ve sesli notlar
+- `backend/`: FastAPI, Clerk oturum doğrulaması, rol yetkilendirmesi, SQLite verisi, görseller ve sesli notlar
 
 Excel kaynak dosyası proje kökünde salt okunur kaynak olarak tutulur.
 
@@ -45,7 +45,7 @@ Frontend ayrı terminalde `npm run dev:staging` ile `http://localhost:3001` adre
 Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/environment ayarlarında tanımlayın:
 
 - `APP_ENV=staging`
-- staging'e özel `ADMIN_PASSWORD` ve en az 32 rastgele karakterden oluşan `APP_SESSION_SECRET`
+- staging Clerk uygulamasının `CLERK_ISSUER`, `CLERK_AUTHORIZED_PARTIES` ve tercihen `CLERK_JWT_KEY` değerleri
 - kalıcı diskte staging'e özel `DATABASE_PATH` ve `UPLOAD_DIR`
 - yalnızca staging frontend adresini içeren `CORS_ORIGINS`
 - üretim API kök adresini içeren `PRODUCTION_API_URL` (ör. `https://api.planning.hfgok.com/api`)
@@ -53,11 +53,11 @@ Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/env
 
 Üretim backend'inde ayrıca uzun ve rastgele bir `STAGING_PULL_TOKEN` tanımlayın. Bu anahtar yalnızca staging'in salt okunur üretim anlık görüntüsünü almasına izin verir. Staging'in üretime yazabildiği bir endpoint yoktur; `POST /api/production-sync/pull` yalnız `APP_ENV=staging` ortamında çalışır ve staging verisini üretim kopyasıyla atomik olarak değiştirir.
 
-`APP_ENV=staging` veya `production` iken örnek/güvensiz parola değerleri uygulamanın başlamasını engeller.
+`APP_ENV=staging` veya `production` iken `CLERK_ISSUER` eksikse uygulama başlamaz.
 
 Hetzner staging dağıtımı için repodaki `deploy/` şablonları staging backend'i `/root/planning-automation-backend-staging` altında, `8003` iç portunda ve `api-staging.planning.hfgok.com` alan adında üretim servisinden ayrı çalıştırır.
 
-`backend/.env` içindeki `ADMIN_PASSWORD` giriş şifresidir. `APP_SESSION_SECRET` için uzun ve rastgele bir değer kullanın. Giriş yapan kişi uygulamada `Planlama Yöneticisi` olarak görünür.
+Frontend ve backend aynı Clerk instance'ını kullanmalıdır. Backend Clerk'in RS256 oturum jetonunu `CLERK_JWT_KEY` ile ağ erişimi olmadan veya instance JWKS adresinden doğrular. `CLERK_AUTHORIZED_PARTIES` yalnız gerçek frontend adreslerini içermelidir.
 
 ## Geri bildirim akışı
 
@@ -74,18 +74,11 @@ Hetzner staging dağıtımı için repodaki `deploy/` şablonları staging backe
 
 Ayrıntılı davranış: [`../frontend/docs/feedback-workflow.md`](../frontend/docs/feedback-workflow.md).
 
-## Şifreli erişim
+## Clerk erişimi ve roller
 
-Backend `POST /api/auth/login` üzerinden şifreyi doğrular ve süreli, imzalı bir oturum jetonu üretir. Frontend bu jetonu tarayıcıda saklar ve API isteklerine ekler. Şifrenin kendisi tarayıcıda saklanmaz.
+Clerk Dashboard'da uygulamayı **Invite-only** moda alın ve kullanıcıları şirket e-posta adresleriyle davet edin. Session token'a `fullName`, `primaryEmail` ve `metadata` taleplerini ekleyin; tam örnek frontend README dosyasındadır.
 
-Kurulum sırasında:
-
-1. `ADMIN_PASSWORD` değerini planlama yöneticisiyle paylaşacağınız şifre yapın;
-2. `APP_SESSION_SECRET` için uzun ve tahmin edilemez ayrı bir değer üretin;
-3. `SESSION_DAYS` ile cihazın kaç gün giriş yapmış kalacağını belirleyin;
-4. frontend ve backend ortamlarında CORS/API adreslerini gerçek alan adlarıyla değiştirin.
-
-Bu sistem tek bir özel kullanıcı için tasarlanmıştır; kullanıcı rolleri veya ayrı hesaplar içermez.
+Her kullanıcı varsayılan olarak `user` rolündedir. Yönetici hesabının Clerk public metadata alanına `{ "role": "admin" }` yazılır. İlk yönetici ayrıca geçici olarak `CLERK_ADMIN_USER_IDS` ile atanabilir. Backend imzalı talepten rolü okur; frontend kontrolünden bağımsız olarak Ayarlar değişikliklerini, ayar paketi işlemlerini, uygulama güncellemesi yayınlamayı ve staging üretim senkronizasyonunu yalnız yöneticilere açar.
 
 ## Dağıtım notu
 

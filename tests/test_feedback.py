@@ -8,6 +8,7 @@ os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 
 from fastapi.testclient import TestClient
 
+from app.auth import create_test_session
 from app.database import connection
 from app.main import app
 
@@ -19,8 +20,14 @@ def test_feedback_lifecycle():
         login = client.post("/api/auth/login", json={"password": "test-password"})
         assert login.status_code == 200
         headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        user_headers = {"Authorization": f"Bearer {create_test_session('test-password', 'user')}"}
         assert client.get("/api/feedbacks").status_code == 401
         assert client.get("/api/app-updates").status_code == 401
+        assert client.get("/api/me", headers=headers).json()["role"] == "admin"
+        assert client.get("/api/me", headers=user_headers).json()["role"] == "user"
+        assert client.post("/api/app-updates", headers=user_headers, json={"title": "Yetkisiz", "bullets": ["Yayınlanmamalı"]}).status_code == 403
+        assert client.post("/api/production-sync/pull", headers=user_headers).status_code == 403
+        assert client.post("/api/data-packages/export", headers=user_headers, json={"scope": "settings", "data": {}}).status_code == 403
 
         update = client.post(
             "/api/app-updates",
@@ -87,6 +94,13 @@ def test_feedback_lifecycle():
         saved_state = client.put("/api/planning-state", headers=headers, json={"seed": seed})
         assert saved_state.status_code == 200
         assert saved_state.json()["seed"]["machines"][0]["id"] == "C-01"
+        assert saved_state.json()["updatedBy"]["id"] == "test-admin"
+        forbidden_settings = client.put(
+            "/api/planning-state",
+            headers=user_headers,
+            json={"seed": {**seed, "holidays": [{"name": "Test", "serial": 46000, "workingShifts": 0}]}, "expectedUpdatedAt": saved_state.json()["updatedAt"]},
+        )
+        assert forbidden_settings.status_code == 403
         with connection() as db:
             saved_hash = db.execute(
                 "SELECT state_hash FROM planning_state_history WHERE id=?",

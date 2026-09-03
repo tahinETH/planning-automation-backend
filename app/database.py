@@ -57,10 +57,12 @@ def init_database() -> None:
               request_json TEXT NOT NULL, impact_json TEXT NOT NULL, seed_json TEXT NOT NULL, result_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS planning_state (
-              state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL
+              state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+              updated_by_id TEXT NOT NULL DEFAULT '', updated_by_name TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS planning_state_history (
-              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, state_hash TEXT NOT NULL, created_at TEXT NOT NULL
+              id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, state_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+              created_by_id TEXT NOT NULL DEFAULT '', created_by_name TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS production_sync_state (
               sync_key TEXT PRIMARY KEY, source_updated_at TEXT NOT NULL,
@@ -144,6 +146,15 @@ def init_database() -> None:
                     for row in history_without_hash
                 ],
             )
+        if "created_by_id" not in history_columns:
+            db.execute("ALTER TABLE planning_state_history ADD COLUMN created_by_id TEXT NOT NULL DEFAULT ''")
+        if "created_by_name" not in history_columns:
+            db.execute("ALTER TABLE planning_state_history ADD COLUMN created_by_name TEXT NOT NULL DEFAULT ''")
+        state_columns = {row["name"] for row in db.execute("PRAGMA table_info(planning_state)").fetchall()}
+        if "updated_by_id" not in state_columns:
+            db.execute("ALTER TABLE planning_state ADD COLUMN updated_by_id TEXT NOT NULL DEFAULT ''")
+        if "updated_by_name" not in state_columns:
+            db.execute("ALTER TABLE planning_state ADD COLUMN updated_by_name TEXT NOT NULL DEFAULT ''")
         current_state = db.execute(
             "SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'"
         ).fetchone()
@@ -203,18 +214,27 @@ def _save_orders(db: sqlite3.Connection, orders: list[dict[str, Any]], timestamp
 
 def planning_state() -> dict[str, Any] | None:
     with connection() as db:
-        row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        row = db.execute("SELECT seed_json, updated_at, updated_by_id, updated_by_name FROM planning_state WHERE state_key='default'").fetchone()
     if row is None:
         return None
-    return {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+    return {
+        "seed": _loads(row["seed_json"]),
+        "updatedAt": row["updated_at"],
+        "updatedBy": {"id": row["updated_by_id"], "name": row["updated_by_name"]},
+    }
 
 
 def planning_state_history() -> list[dict[str, Any]]:
     with connection() as db:
         rows = db.execute(
-            "SELECT id, seed_json, created_at FROM planning_state_history ORDER BY created_at DESC LIMIT 20"
+            "SELECT id, seed_json, created_at, created_by_id, created_by_name FROM planning_state_history ORDER BY created_at DESC LIMIT 20"
         ).fetchall()
-    return [{"id": row["id"], "seed": _loads(row["seed_json"]), "createdAt": row["created_at"]} for row in rows]
+    return [{
+        "id": row["id"],
+        "seed": _loads(row["seed_json"]),
+        "createdAt": row["created_at"],
+        "createdBy": {"id": row["created_by_id"], "name": row["created_by_name"]},
+    } for row in rows]
 
 
 def production_archive_history() -> list[dict[str, Any]]:
@@ -254,19 +274,40 @@ class PlanningStateConflict(RuntimeError):
         self.current = current
 
 
-def _insert_planning_history(db: sqlite3.Connection, seed: dict[str, Any], serialized_seed: str, timestamp: str, prefix: str = "planning") -> dict[str, Any]:
+class ProtectedSettingsChange(RuntimeError):
+    pass
+
+
+PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings")
+
+
+def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
+    if current is None:
+        return any(incoming.get(field) not in (None, [], {}) for field in PROTECTED_SETTINGS_FIELDS)
+    return any(incoming.get(field) != current.get(field) for field in PROTECTED_SETTINGS_FIELDS)
+
+
+def _insert_planning_history(
+    db: sqlite3.Connection,
+    seed: dict[str, Any],
+    serialized_seed: str,
+    timestamp: str,
+    prefix: str = "planning",
+    actor_id: str = "",
+    actor_name: str = "",
+) -> dict[str, Any]:
     history_id = f"{prefix}-{uuid.uuid4()}"
     state_hash = hashlib.sha256(serialized_seed.encode("utf-8")).hexdigest()
     db.execute(
-        "INSERT INTO planning_state_history(id,seed_json,state_hash,created_at) VALUES(?,?,?,?)",
-        (history_id, serialized_seed, state_hash, timestamp),
+        "INSERT INTO planning_state_history(id,seed_json,state_hash,created_at,created_by_id,created_by_name) VALUES(?,?,?,?,?,?)",
+        (history_id, serialized_seed, state_hash, timestamp, actor_id, actor_name),
     )
     stale = db.execute(
         "SELECT id FROM planning_state_history ORDER BY created_at DESC LIMIT -1 OFFSET 20"
     ).fetchall()
     if stale:
         db.executemany("DELETE FROM planning_state_history WHERE id=?", [(row["id"],) for row in stale])
-    return {"id": history_id, "seed": seed, "createdAt": timestamp}
+    return {"id": history_id, "seed": seed, "createdAt": timestamp, "createdBy": {"id": actor_id, "name": actor_name}}
 
 
 OPERATIONAL_ROOT_FIELDS = (
@@ -344,6 +385,9 @@ def save_planning_state(
     expected_updated_at: str | None = None,
     force: bool = False,
     mode: str = "planning",
+    actor_id: str = "",
+    actor_name: str = "",
+    can_manage_settings: bool = False,
 ) -> dict[str, Any]:
     timestamp = now_iso()
     with connection() as db:
@@ -352,16 +396,19 @@ def save_planning_state(
         current_updated_at = current["updatedAt"] if current else ""
         if not force and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
+            raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
-            """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
-            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
-            (serialized_seed, timestamp),
+            """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)
+            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at,
+            updated_by_id=excluded.updated_by_id,updated_by_name=excluded.updated_by_name""",
+            (serialized_seed, timestamp, actor_id, actor_name),
         )
-        history_entry = _insert_planning_history(db, saved_seed, serialized_seed, timestamp)
+        history_entry = _insert_planning_history(db, saved_seed, serialized_seed, timestamp, actor_id=actor_id, actor_name=actor_name)
         archive_snapshot = _insert_production_archive_snapshot(db, saved_seed, timestamp, mode)
-    return {"seed": saved_seed, "updatedAt": timestamp, "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
+    return {"seed": saved_seed, "updatedAt": timestamp, "updatedBy": {"id": actor_id, "name": actor_name}, "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
 
 
 def replace_planning_state_from_production(
@@ -375,11 +422,20 @@ def replace_planning_state_from_production(
     serialized_seed = json.dumps(seed, ensure_ascii=False)
     with connection() as db:
         db.execute(
-            """INSERT INTO planning_state(state_key,seed_json,updated_at) VALUES('default',?,?)
-            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at""",
-            (serialized_seed, timestamp),
+            """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)
+            ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at,
+            updated_by_id=excluded.updated_by_id,updated_by_name=excluded.updated_by_name""",
+            (serialized_seed, timestamp, "system:production-sync", "Üretim senkronizasyonu"),
         )
-        history_entry = _insert_planning_history(db, seed, serialized_seed, timestamp, "production-sync")
+        history_entry = _insert_planning_history(
+            db,
+            seed,
+            serialized_seed,
+            timestamp,
+            "production-sync",
+            "system:production-sync",
+            "Üretim senkronizasyonu",
+        )
         archive_snapshot = _insert_production_archive_snapshot(db, seed, timestamp, "production-sync")
         _save_orders(db, list(seed.get("orders") or []), timestamp, replace=True)
         db.execute("DELETE FROM scenarios")
