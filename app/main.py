@@ -23,6 +23,7 @@ from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
 from .production_archive_export import build_production_archive_workbook
 from .production_sync import production_snapshot, production_sync_status_payload, pull_production_state
+from .ravi.routes import router as ravi_router
 
 
 @asynccontextmanager
@@ -32,6 +33,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Selsa Planlama API", version="1.0.0", lifespan=lifespan)
+app.include_router(ravi_router)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 

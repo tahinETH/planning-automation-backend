@@ -115,3 +115,7 @@ Staging
 ```bash
 sudo systemctl restart planning-automation-backend-staging
 ```
+
+## Ravi
+
+Ravi setup, tools, source-map maintenance and validation: [workspace guide](../docs/ravi.md).
