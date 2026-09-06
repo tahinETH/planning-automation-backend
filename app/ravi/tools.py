@@ -29,6 +29,7 @@ class Inspect(Arguments):
     collection: Literal["summary", "orders", "products", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "overrides"]
     query: str = Field(default="", max_length=100)
     offset: int = Field(default=0, ge=0, le=100000)
+    week_offset: int = Field(default=0, ge=0, le=1000)
 
 
 class Navigate(Arguments):
@@ -37,10 +38,10 @@ class Navigate(Arguments):
 
 DEFINITIONS = {
     "search_knowledge": (Search, "Find app screens, workflows and calculation explanations. Turkish informal queries supported."),
-    "read_knowledge": (Topic, "Read a complete app knowledge topic with implementing source references."),
+    "read_knowledge": (Topic, "Read a user-facing explanation anchored to Excel headers and visible UI labels."),
     "search_source": (Search, "Find packaged frontend/backend modules and symbols by file/function name. Use before reading unfamiliar implementation."),
-    "read_source": (Source, "Read exact shipped source lines to verify a formula, fallback or behavior; never execute source."),
-    "inspect_state": (Inspect, "Read persisted planning data, with snapshot timestamp. Query filters product, ID, machine or work order. This is NOT the user's unsaved browser state. Paginated, at most 12 rows."),
+    "read_source": (Source, "Privately verify exact shipped behavior; translate findings into Excel/UI business language in the answer. Never execute source."),
+    "inspect_state": (Inspect, "Read persisted planning data, not unsaved browser state. Query filters product/ID. customer_demand returns imported Excel headers/balances and file/date, NOT live workbook access. Paginated: offset for product rows, week_offset for 20-week windows; check nextOffset/nextWeekOffset."),
     "propose_navigation": (Navigate, "Offer a registered navigation button for the user to click. This does not navigate or modify anything now."),
 }
 
@@ -93,13 +94,29 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
         str(row.get(key, "")) for key in ("id", "product", "machineId", "resourceId", "workOrder", "sourceBatchId", "name")))]
     selected = []
     for row in rows[args.offset:args.offset + 12]:
-        projected = bounded(row)
+        if args.collection == "customer_demand":
+            demand = seed.get("customerDemand") or {}
+            weeks = row.get("weeklyDemands", [])
+            window = weeks[args.week_offset:args.week_offset + 20]
+            projected = {"Material": row.get("product"), "Unit": row.get("unit"),
+                         "Available quantity": row.get("availableQuantity"),
+                         demand.get("baselineLabel") or "< CW …": row.get("baselineBalance"),
+                         "weeks": [{"column": week.get("label") or week.get("weekId"), "balance": week.get("balance")} for week in window],
+                         "nextWeekOffset": args.week_offset + len(window) if args.week_offset + len(window) < len(weeks) else None}
+        else:
+            projected = bounded(row)
         if len(json.dumps([*selected, projected], ensure_ascii=False)) > 18000:
             if not selected:
                 selected.append({**{key: bounded(value) for key, value in row.items() if not isinstance(value, (dict, list))}, "_truncated": "İç ayrıntılar araç boyut sınırı nedeniyle çıkarıldı."})
             break
         selected.append(projected)
     next_offset = args.offset + len(selected)
+    if args.collection == "customer_demand":
+        demand = seed.get("customerDemand") or {}
+        meta["userSource"] = {"sourceFile": demand.get("sourceFile"), "sheet": "3. Overview (confirmed)",
+                              "Date": demand.get("snapshotDate"), "baselineColumn": demand.get("baselineLabel"),
+                              "selectedScope": demand.get("activeScope"),
+                              "note": "İçe aktarılmış Balance (confirmed) değerleri; dosya canlı açılmadı. Kullanıcı düzeltmeleri ayrıca overrides koleksiyonundadır."}
     return {**meta, "collection": args.collection, "total": len(rows), "rows": selected,
             "nextOffset": next_offset if next_offset < len(rows) else None,
             "note": "İç listeler en fazla 40 kayıt; truncated işaretlerini kontrol et." if any(isinstance(value, dict) and value.get("truncated") for row in selected for value in row.values()) else "Miktarlar adet; sayısal tarihler Excel serial günleridir."}
@@ -128,11 +145,11 @@ class ToolSession:
                 topics = knowledge.search_topics(args.query)
                 for topic in topics:
                     self.cite(topic)
-                return topics
+                return [knowledge.for_model(topic) for topic in topics]
             if name == "read_knowledge":
                 topic = knowledge.read_topic(args.topic_id)
                 self.cite(topic)
-                return topic
+                return knowledge.for_model(topic)
             if name == "search_source":
                 return knowledge.search_source(args.query)
             if name == "read_source":

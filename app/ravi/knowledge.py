@@ -48,6 +48,11 @@ def read_topic(topic_id: str) -> dict:
     return topic
 
 
+def for_model(topic: dict) -> dict:
+    """Teach in the user's vocabulary; implementation notes stay in the maintenance catalog."""
+    return {key: topic[key] for key in ("id", "title", "body", "userSources") if key in topic}
+
+
 def navigation_targets(is_admin: bool) -> list[dict]:
     return [target for target in catalog()["navigation"] if is_admin or not target.get("adminOnly")]
 

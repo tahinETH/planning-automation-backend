@@ -191,3 +191,117 @@ def test_packaged_backend_sources_are_current_even_in_backend_only_checkout():
     assert set(current) == {name for name in packaged if name.startswith("backend/")}
     for name, path in current.items():
         assert packaged[name]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest(), f"Stale Ravi source: {name}"
+
+
+def test_knowledge_is_user_facing_and_excel_inspection_uses_visible_headers():
+    session = ToolSession(None, False)
+    topic = session.execute('read_knowledge', '{"topic_id":"weekly-demand"}')
+    assert 'implementationNotes' not in topic and 'sources' not in topic
+    assert 'Material' in topic['body'] and 'Available quantity' in topic['body']
+    assert 'Cumartesi' in topic['body'] and '−150' in topic['body']
+    assert 'baselineBalance' not in topic['body']
+    assert topic['userSources'] and session.references
+    for item in knowledge.catalog()['topics']:
+        assert item['userSources'] and item['implementationNotes']
+        assert 'implementationNotes' not in knowledge.for_model(item)
+    demand = {'sourceFile': 'test.xlsx', 'snapshotDate': '2026-09-06', 'baselineLabel': '< CW 30.2026',
+              'products': [{'product': 'R01', 'unit': 'PC', 'availableQuantity': 10, 'baselineBalance': -100,
+                            'weeklyDemands': [{'label': f'CW {i}.2026', 'balance': -150} for i in range(30, 55)]}]}
+    snapshot = {'updatedAt': 'saved-time', 'seed': {'customerDemand': demand}}
+    first = inspect_state(snapshot, Inspect(collection='customer_demand', query='R01'))
+    assert first['userSource']['sheet'] == '3. Overview (confirmed)'
+    assert first['userSource']['sourceFile'] == 'test.xlsx'
+    assert first['rows'][0]['Material'] == 'R01'
+    assert first['rows'][0]['< CW 30.2026'] == -100
+    assert first['rows'][0]['nextWeekOffset'] == 20
+    last = inspect_state(snapshot, Inspect(collection='customer_demand', query='R01', week_offset=20))
+    assert len(last['rows'][0]['weeks']) == 5 and last['rows'][0]['nextWeekOffset'] is None
+
+
+def test_stream_endpoint_progress_deltas_tools_and_private_reasoning(client, monkeypatch):
+    seen = []
+    async def streamed(_client, messages, allow_tools):
+        seen.append(copy.deepcopy(messages))
+        if len(seen) == 1:
+            yield {'type': 'message', 'message': {'role': 'assistant', 'reasoning_content': 'private-reasoning',
+                'tool_calls': [tool('read_knowledge', {'topic_id': 'weekly-demand'}), tool('propose_navigation', {'target_id': 'orders'}, 'nav')]}}
+        else:
+            yield {'type': 'delta', 'text': '**Material** satırındaki '}
+            yield {'type': 'delta', 'text': 'CW bakiyesine bakıyoruz.'}
+            yield {'type': 'message', 'message': {'role': 'assistant', 'content': '**Material** satırındaki CW bakiyesine bakıyoruz.'}}
+    monkeypatch.setattr(service, 'provider_stream', streamed)
+    response = client.post('/api/ravi/chat/stream', json=request('Termin nasıl hesaplanıyor?'))
+    assert response.headers['content-type'].startswith('text/event-stream')
+    assert response.headers['x-accel-buffering'] == 'no'
+    events = [json.loads(frame[6:]) for frame in response.text.strip().split('\n\n')]
+    assert events[0] == {'type': 'status', 'text': 'Bir bakalım…'}
+    assert sum(event['type'] == 'delta' for event in events) == 2
+    assert events[-1]['type'] == 'done' and events[-1]['response']['actions'][0]['id'] == 'orders'
+    assert 'private-reasoning' not in response.text and 'test-provider-secret' not in response.text
+    assert 'implementationNotes' not in seen[0][0]['content']
+    assert not service._active
+
+
+def test_stream_failures_auth_missing_key_and_disconnect_cleanup(client, monkeypatch):
+    async def broken(*_args):
+        yield {'type': 'delta', 'text': 'Yarım cevap'}
+        raise httpx.ReadError('test-provider-secret')
+    monkeypatch.setattr(service, 'provider_stream', broken)
+    response = client.post('/api/ravi/chat/stream', json=request())
+    assert '"type": "error"' in response.text and '"type": "done"' not in response.text
+    assert 'test-provider-secret' not in response.text and not service._active
+    async def cancel():
+        stream = service.stream_chat(ChatRequest.model_validate(request()), CurrentUser('cancel-user', '', '', 'user'))
+        await anext(stream)
+        assert 'cancel-user' in service._active
+        await stream.aclose()
+        assert 'cancel-user' not in service._active
+    asyncio.run(cancel())
+    monkeypatch.setitem(settings.__dict__, 'deepseek_api_key', '')
+    assert client.post('/api/ravi/chat/stream', json=request()).status_code == 503
+    app.dependency_overrides.pop(current_user)
+    assert client.post('/api/ravi/chat/stream', json=request()).status_code == 401
+
+
+def test_provider_stream_assembles_fragmented_tools_and_requires_completion(monkeypatch):
+    from app.ravi.provider_stream import provider_stream
+    monkeypatch.setitem(settings.__dict__, 'deepseek_api_key', 'test-provider-secret')
+    def sse(delta, finish=None):
+        return 'data: ' + json.dumps({'choices': [{'delta': delta, 'finish_reason': finish}]}) + '\n\n'
+    async def exercise():
+        async def handle(req):
+            assert json.loads(req.content)['stream'] is True
+            data = sse({'reasoning_content': 'private-reasoning', 'tool_calls': [{'index': 0, 'id': 'call-1', 'function': {'name': 'read_knowledge', 'arguments': '{"topic_'}}]})
+            data += sse({'tool_calls': [{'index': 0, 'function': {'arguments': 'id":"weekly-demand"}'}}]}, 'tool_calls') + 'data: [DONE]\n\n'
+            return httpx.Response(200, text=data)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            events = [event async for event in provider_stream(http, [], True)]
+            assert len(events) == 1
+            assert events[0]['message']['tool_calls'][0]['function']['arguments'] == '{"topic_id":"weekly-demand"}'
+        for ending in ['', sse({}, 'length') + 'data: [DONE]\n\n']:
+            async def incomplete(_req):
+                return httpx.Response(200, text=sse({'content': 'Yarım'}) + ending)
+            async with httpx.AsyncClient(transport=httpx.MockTransport(incomplete)) as http:
+                with pytest.raises(ValueError):
+                    _ = [event async for event in provider_stream(http, [], False)]
+    asyncio.run(exercise())
+
+
+def test_mid_stream_cancellation_closes_provider_and_releases_user(client, monkeypatch):
+    closed = []
+    async def ongoing(*_args):
+        try:
+            yield {'type': 'delta', 'text': 'Başlangıç'}
+            await asyncio.sleep(60)
+        finally:
+            closed.append(True)
+    monkeypatch.setattr(service, 'provider_stream', ongoing)
+    async def cancel():
+        stream = service.stream_chat(ChatRequest.model_validate(request()), CurrentUser('mid-stream-user', '', '', 'user'))
+        while True:
+            event = await anext(stream)
+            if '"type": "delta"' in event:
+                break
+        await stream.aclose()
+        assert closed and 'mid-stream-user' not in service._active
+    asyncio.run(cancel())
