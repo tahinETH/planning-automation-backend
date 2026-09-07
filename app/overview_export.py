@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
@@ -269,9 +271,12 @@ def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generat
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
 
 
-def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
+def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any], resource_id: str | None = None) -> None:
     label = str(plan.get("label") or "Operasyon")
-    sheet = workbook.create_sheet(f"{label} Saha Planı"[:31])
+    title = f"{label} {resource_id}" if resource_id is not None else f"{label} Saha Planı"
+    sheet = workbook.create_sheet(re.sub(r"[\[\]:*?/\\]", "-", title)[:31])
+    if resource_id is not None:
+        label = f"{label} · {resource_id}"
     sheet.sheet_view.showGridLines = False
     sheet.freeze_panes = "A6"
     sheet.page_setup.orientation = "landscape"
@@ -318,6 +323,9 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
             written += 1
             if written % 31 == 0:
                 sheet.row_breaks.append(Break(id=row_number - 1))
+    if resource_id is not None and not written:
+        _merge_value(sheet, f"A6:{last_column}6", "Seçilen tarih aralığında planlı iş yok", fill=PAPER,
+                     font=Font(name="Aptos", size=10, color=MUTED), alignment=Alignment(vertical="center"))
     if sheet.row_breaks.brk and sheet.row_breaks.brk[-1].id == row_number - 1:
         sheet.row_breaks.brk.pop()
     sheet.print_area = f"A1:{last_column}{max(6, row_number - 1)}"
@@ -326,6 +334,14 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
 def _shop_floor_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
     if plan.get("process") == "turning":
         _resource_shop_floor_sheet(workbook, plan, generated_at, print_range)
+    elif plan.get("process") in {"deburring", "gkm"} and plan.get("resources"):
+        # Each station is a separately printable machine plan, including idle stations.
+        for resource in plan["resources"]:
+            rows = resource.get("rows", [])
+            resource_plan = {**plan, "resources": [resource], "totalJobCount": len(rows),
+                             "totalQuantity": sum(int(row.get("quantity", 0) or 0) for row in rows),
+                             "omittedJobCount": 0}
+            _long_shop_floor_sheet(workbook, resource_plan, generated_at, print_range, str(resource.get("id") or "İstasyon"))
     else:
         _long_shop_floor_sheet(workbook, plan, generated_at, print_range)
 

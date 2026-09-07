@@ -128,7 +128,7 @@ def test_deburring_shop_floor_export_breaks_after_31_rows():
     }
 
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
-    sheet = workbook["Çapak Alma Saha Planı"]
+    sheet = workbook["Çapak Alma B-01"]
     assert len(sheet.row_breaks.brk) == 1
     assert sheet.row_breaks.brk[0].id == 36
 
@@ -169,16 +169,19 @@ def test_downstream_export_keeps_all_rows_across_pages(process, label, count):
                "operationPlans": [{"process": process, "label": label, "totalJobCount": count, "totalQuantity": count * 100,
                                    "resources": [{"id": f"M-{index}", "rows": rows[index * 30:(index + 1) * 30]}
                                                  for index in range((count + 29) // 30)]}]}
-    sheet = load_workbook(BytesIO(build_overview_workbook(payload))).worksheets[0]
-    assert [sheet.cell(index + 6, 5).value for index in range(count)] == [row["product"] for row in rows]
-    assert sheet["A3"].value == "2026-09-07 – 2026-09-21  ·  15 gün"
-    assert [page.id for page in sheet.row_breaks.brk] == [36, 67]
-    assert sheet.print_title_rows == "$1:$5"
-    last_column = "I" if process == "drilling" else "J"
-    assert sheet.print_area == f"'{label} Saha Planı'!$A$1:${last_column}${count + 5}"
-    assert ("Çap" in [cell.value for cell in sheet[5]]) == (process != "drilling")
-    if process == "drilling":
-        assert not any(cell.value == "25,5" for row in sheet for cell in row)
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
+    exported = [sheet.cell(index, 5).value for sheet in workbook for index in range(6, sheet.max_row + 1)]
+    assert exported == [row["product"] for row in rows]
+    assert len(workbook.worksheets) == (1 if process == "drilling" else (count + 29) // 30)
+    for sheet in workbook:
+        assert sheet["A3"].value == "2026-09-07 – 2026-09-21  ·  15 gün"
+        assert [page.id for page in sheet.row_breaks.brk] == ([36, 67] if process == "drilling" else [])
+        assert sheet.print_title_rows == "$1:$5"
+        last_column = "I" if process == "drilling" else "J"
+        assert sheet.print_area == f"'{sheet.title}'!$A$1:${last_column}${sheet.max_row}"
+        assert ("Çap" in [cell.value for cell in sheet[5]]) == (process != "drilling")
+        if process == "drilling":
+            assert not any(cell.value == "25,5" for row in sheet for cell in row)
 
 
 def test_legacy_drilling_export_also_omits_diameter():
@@ -187,3 +190,27 @@ def test_legacy_drilling_export_also_omits_diameter():
     sheet = load_workbook(BytesIO(build_overview_workbook(payload))).worksheets[0]
     assert sheet.max_column == 9
     assert not any(cell.value in {"Çap", "25,5"} for row in sheet for cell in row)
+
+
+@pytest.mark.parametrize("process,label,ids", [
+    ("deburring", "Çapak Alma", ["B-01-S1", "B-01-S2", "B-02"]),
+    ("gkm", "GKM", ["V-01", "V-02", "V-03"]),
+])
+def test_station_exports_have_separate_pages_totals_and_empty_station(process, label, ids):
+    resources = [{"id": station, "name": f"İstasyon {station}",
+                  "rows": [{"product": f"{station}-{index}", "quantity": 10, "position": index + 1}
+                           for index in range(count)]} for station, count in zip(ids, [63, 2, 0])]
+    payload = {"selectedProcess": process, "generatedAt": "2026-09-07", "printRange": {"dayCount": 15},
+               "operationPlans": [{"process": process, "label": label, "totalJobCount": 65,
+                                   "totalQuantity": 650, "resources": resources}]}
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
+    assert workbook.sheetnames == [f"{label} {station}" for station in ids]
+    for sheet, station, count in zip(workbook, ids, [63, 2, 0]):
+        assert station in sheet["A1"].value
+        assert sheet["A4"].value == f"{count} iş  ·  {count * 10:,.0f} adet"
+        assert [page.id for page in sheet.row_breaks.brk] == ([36, 67] if count == 63 else [])
+        if count:
+            assert {sheet.cell(row, 1).value for row in range(6, count + 6)} == {station}
+            assert sheet.cell(count + 5, 5).value == f"{station}-{count - 1}"
+        else:
+            assert sheet["A6"].value == "Seçilen tarih aralığında planlı iş yok"
