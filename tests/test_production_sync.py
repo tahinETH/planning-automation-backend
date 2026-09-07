@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.database import connection
 from app.main import app
+from app.production_merge import merge_production_refresh
 
 
 def _set_setting(name: str, value) -> None:
@@ -50,6 +51,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
         "preferences": [],
         "orders": [{"id": "PROD-ORDER", "dueDate": "2026-08-31"}],
     }
+    expected_seed = merge_production_refresh(production_seed, local_seed, None)
     source_updated_at = "2026-08-17T12:00:00+00:00"
     production_scenarios = [{
         "id": "prod-scenario-1",
@@ -90,10 +92,10 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
                 pulled = client.post("/api/production-sync/pull", headers=auth_headers)
 
             assert pulled.status_code == 200
-            assert pulled.json()["planningState"]["seed"] == production_seed
+            assert pulled.json()["planningState"]["seed"] == expected_seed
             assert pulled.json()["sourceUpdatedAt"] == source_updated_at
             assert pulled.json()["sourceUrl"] == "https://api.planning.hfgok.com/api"
-            assert pulled.json()["scenarios"] == production_scenarios
+            assert {s["id"] for s in pulled.json()["scenarios"]} == {"staging-only", "prod-scenario-1"}
             upstream_get.assert_called_once_with(
                 "https://api.planning.hfgok.com/api/production-snapshot",
                 headers={"X-Staging-Pull-Token": "shared-read-token"},
@@ -101,11 +103,11 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
                 follow_redirects=False,
             )
 
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
-            assert client.get("/api/scenarios", headers=auth_headers).json() == production_scenarios
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
+            assert {s["id"] for s in client.get("/api/scenarios", headers=auth_headers).json()} == {"staging-only", "prod-scenario-1"}
             assert client.get("/api/orders", headers=auth_headers).json() == [{
-                "id": "PROD-ORDER",
-                "dueDate": "2026-08-31",
+                "id": "STAGING-ORDER",
+                "dueDate": "2026-08-20",
                 "allowPartial": False,
                 "partialDeliveryQuantity": 0,
                 "partialDeliveryDate": "",
@@ -120,7 +122,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
                 rejected = client.post("/api/production-sync/pull", headers=auth_headers)
             assert rejected.status_code == 502
             assert "staging değiştirilmedi" in rejected.json()["detail"]
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
 
             missing_scenarios_response = httpx.Response(
                 200,
@@ -130,7 +132,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             with patch("app.production_sync.httpx.get", return_value=missing_scenarios_response):
                 missing_scenarios = client.post("/api/production-sync/pull", headers=auth_headers)
             assert missing_scenarios.status_code == 502
-            assert client.get("/api/scenarios", headers=auth_headers).json() == production_scenarios
+            assert {s["id"] for s in client.get("/api/scenarios", headers=auth_headers).json()} == {"staging-only", "prod-scenario-1"}
 
             malformed_order_seed = {**production_seed, "orders": [{"dueDate": "2026-09-01"}]}
             malformed_order_response = httpx.Response(
@@ -141,32 +143,32 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             with patch("app.production_sync.httpx.get", return_value=malformed_order_response):
                 malformed_order = client.post("/api/production-sync/pull", headers=auth_headers)
             assert malformed_order.status_code == 502
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
 
             with patch("app.production_sync.httpx.get", side_effect=httpx.ConnectError("offline", request=upstream_request)):
                 unreachable = client.post("/api/production-sync/pull", headers=auth_headers)
             assert unreachable.status_code == 502
             assert "bağlanılamadı" in unreachable.json()["detail"]
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
 
             denied_response = httpx.Response(401, json={"detail": "denied"}, request=upstream_request)
             with patch("app.production_sync.httpx.get", return_value=denied_response):
                 denied = client.post("/api/production-sync/pull", headers=auth_headers)
             assert denied.status_code == 502
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
 
             invalid_json_response = httpx.Response(200, content=b"not-json", request=upstream_request)
             with patch("app.production_sync.httpx.get", return_value=invalid_json_response):
                 invalid_json = client.post("/api/production-sync/pull", headers=auth_headers)
             assert invalid_json.status_code == 502
             assert "geçerli veri" in invalid_json.json()["detail"]
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
 
             _set_setting("production_sync_token", "")
             disabled = client.get("/api/production-sync/status", headers=auth_headers)
             assert disabled.json()["enabled"] is False
             assert client.post("/api/production-sync/pull", headers=auth_headers).status_code == 503
-            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == production_seed
+            assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == expected_seed
             _set_setting("production_sync_token", "shared-read-token")
 
             _set_setting("app_env", "production")
@@ -174,10 +176,31 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             assert client.get("/api/production-snapshot", headers={"X-Staging-Pull-Token": "wrong"}).status_code == 401
             snapshot = client.get("/api/production-snapshot", headers={"X-Staging-Pull-Token": "shared-read-token"})
             assert snapshot.status_code == 200
-            assert snapshot.json()["planningState"]["seed"] == production_seed
-            assert snapshot.json()["scenarios"] == production_scenarios
+            assert snapshot.json()["planningState"]["seed"] == expected_seed
+            assert {s["id"] for s in snapshot.json()["scenarios"]} == {"staging-only", "prod-scenario-1"}
             _set_setting("staging_pull_token", "")
             assert client.get("/api/production-snapshot", headers={"X-Staging-Pull-Token": "shared-read-token"}).status_code == 503
     finally:
         for name, value in originals.items():
             _set_setting(name, value)
+
+
+def test_refresh_preserves_partial_work_deletions_and_updates_clean_inputs():
+    from copy import deepcopy
+    base = {"products": [{"product": "A", "rate": 1}], "machines": [{"id": "C1"}],
+            "wipLots": [{"id": "lot", "quantity": 100}], "processCurrentJobs": [{"id": "job"}],
+            "manualBatches": [{"id": "batch"}], "orders": [{"id": "order"}]}
+    local = deepcopy(base)
+    local["wipLots"] = [{"id": "lot", "quantity": 40}, {"id": "part", "quantity": 60, "stage": "delivered"}]
+    local["processCurrentJobs"] = []
+    local["manualBatches"] = []
+    source = deepcopy(base)
+    source["products"][0]["rate"] = 2
+    merged = merge_production_refresh(source, local, base)
+    assert merged["products"] == source["products"]
+    assert merged["wipLots"] == local["wipLots"]
+    assert merged["processCurrentJobs"] == []
+    assert merged["manualBatches"] == []
+    assert merge_production_refresh(source, merged, source) == merged
+    assert merge_production_refresh(source, None, None) == source
+    assert merge_production_refresh(source, local, None)["wipLots"] == local["wipLots"]

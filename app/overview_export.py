@@ -207,8 +207,8 @@ def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, 
     first = get_column_letter(start_col)
     last = get_column_letter(end_col)
     _merge_value(sheet, f"{first}{start_row}:{last}{start_row}", f"{resource.get('id', '')}  ·  {resource.get('name', '')}", fill=NAVY, font=Font(name="Aptos Display", size=10, color=WHITE, bold=True), alignment=Alignment(vertical="center"))
-    headings = ["Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Durum"]
-    widths = [7, 17, 19, 10, 12, 12, 11]
+    headings = ["Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Durum", "Çap"]
+    widths = [7, 17, 19, 10, 12, 12, 11, 8]
     for offset, heading in enumerate(headings):
         cell = sheet.cell(start_row + 1, start_col + offset, heading)
         cell.fill = _fill(PEACH)
@@ -227,6 +227,7 @@ def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, 
             item.get("startDate", "") if item else "",
             item.get("endDate", "") if item else "",
             ("Mevcut" if item.get("status") == "current" else "Planlı") if item else "",
+            (item.get("diameter") or "—") if item else "",
         ]
         background = GREEN_LIGHT if item and item.get("status") == "current" else (WHITE if index % 2 == 0 else PAPER)
         for offset, value in enumerate(values):
@@ -254,21 +255,21 @@ def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generat
     sheet.print_title_rows = "1:4"
     resources = list(plan.get("resources", []))
     if process == "turning":
-        _shop_floor_header(sheet, label, plan, generated_at, print_range, "O")
+        _shop_floor_header(sheet, label, plan, generated_at, print_range, "Q")
         for index, resource in enumerate(resources[:16]):
             page = index // 8
             slot = index % 8
             start_row = 6 + page * 58 + (slot // 2) * 14
-            start_col, end_col = (1, 7) if slot % 2 == 0 else (9, 15)
+            start_col, end_col = (1, 8) if slot % 2 == 0 else (10, 17)
             _shop_floor_resource_block(sheet, resource, start_row, start_col, 10, end_col)
         if len(resources) > 8:
             sheet.row_breaks.append(Break(id=62))
         last_row = 61 if len(resources) <= 8 else 119
-        sheet.print_area = f"A1:O{last_row}"
+        sheet.print_area = f"A1:Q{last_row}"
     else:
         _shop_floor_header(sheet, label, plan, generated_at, print_range, "I")
         for index, resource in enumerate(resources[:2]):
-            _shop_floor_resource_block(sheet, resource, 6 + index * 18, 1, 6, 7)
+            _shop_floor_resource_block(sheet, resource, 6 + index * 18, 1, 6, 8)
             for row in range(8 + index * 18, 14 + index * 18):
                 sheet.row_dimensions[row].height = 24
         sheet.print_area = "A1:I39"
@@ -286,9 +287,9 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.print_title_rows = "1:5"
-    _shop_floor_header(sheet, label, plan, generated_at, print_range, "I")
-    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş"]
-    widths = [14, 24, 12, 8, 20, 20, 12, 14, 14]
+    _shop_floor_header(sheet, label, plan, generated_at, print_range, "J")
+    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Çap"]
+    widths = [14, 24, 12, 8, 20, 20, 12, 14, 14, 10]
     for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
         cell = sheet.cell(5, column, heading)
         cell.fill = _fill(PEACH)
@@ -299,7 +300,7 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
     written = 0
     for resource in plan.get("resources", []):
         for item in resource.get("rows", []):
-            values = [resource.get("id", ""), resource.get("name", ""), "Üretimde" if item.get("status") == "current" else "Planlı", item.get("position", ""), item.get("product", ""), item.get("workOrder", ""), item.get("quantity", 0), item.get("startDate", ""), item.get("endDate", "")]
+            values = [resource.get("id", ""), resource.get("name", ""), "Üretimde" if item.get("status") == "current" else "Planlı", item.get("position", ""), item.get("product", ""), item.get("workOrder", ""), item.get("quantity", 0), item.get("startDate", ""), item.get("endDate", ""), item.get("diameter") or "—"]
             background = GREEN_LIGHT if item.get("status") == "current" else (WHITE if written % 2 == 0 else PAPER)
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_number, column, value)
@@ -313,7 +314,7 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
             written += 1
             if written == 31:
                 sheet.row_breaks.append(Break(id=row_number - 1))
-    sheet.print_area = f"A1:I{max(36, row_number - 1)}"
+    sheet.print_area = f"A1:J{max(36, row_number - 1)}"
 
 
 def _shop_floor_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
@@ -338,7 +339,7 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
 
     _merge_value(
         sheet,
-        "A1:I2",
+        "A1:J2",
         f"SELSA  ·  {label.upper()} GENEL PLANI",
         fill=NAVY,
         font=Font(name="Aptos Display", size=18, color=WHITE, bold=True),
@@ -354,15 +355,15 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     )
     _merge_value(
         sheet,
-        "E3:I3",
+        "E3:J3",
         f"Oluşturulma: {generated_at}",
         fill=WHITE,
         font=Font(name="Aptos", size=8, color=MUTED),
         alignment=Alignment(horizontal="right", vertical="center"),
     )
 
-    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş"]
-    widths = [14, 25, 14, 9, 21, 20, 14, 16, 16]
+    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Çap"]
+    widths = [14, 25, 14, 9, 21, 20, 14, 16, 16, 10]
     for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
         cell = sheet.cell(5, column, heading)
         cell.fill = _fill(PEACH)
@@ -375,7 +376,7 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     for resource in plan.get("resources", []):
         resource_rows = resource.get("rows", [])
         if not resource_rows:
-            values = [resource.get("id", ""), resource.get("name", ""), "Planlı iş yok", "", "", "", 0, "", ""]
+            values = [resource.get("id", ""), resource.get("name", ""), "Planlı iş yok", "", "", "", 0, "", "", ""]
             resource_rows = [None]
         for index, item in enumerate(resource_rows):
             if item is not None:
@@ -383,7 +384,7 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
                     resource.get("id", ""), resource.get("name", ""),
                     "Üretimde" if item.get("status") == "current" else "Planlı",
                     item.get("position", index + 1), item.get("product", ""), item.get("workOrder", ""),
-                    max(0, int(item.get("quantity", 0))), item.get("startDate", ""), item.get("endDate", ""),
+                    max(0, int(item.get("quantity", 0))), item.get("startDate", ""), item.get("endDate", ""), item.get("diameter") or "—",
                 ]
             background = GREEN_LIGHT if item is not None and item.get("status") == "current" else (WHITE if row_number % 2 == 0 else PAPER)
             for column, value in enumerate(values, 1):
@@ -397,8 +398,8 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
             row_number += 1
 
     last_row = max(6, row_number - 1)
-    sheet.auto_filter.ref = f"A5:I{last_row}"
-    sheet.print_area = f"A1:I{last_row}"
+    sheet.auto_filter.ref = f"A5:J{last_row}"
+    sheet.print_area = f"A1:J{last_row}"
 
 
 def build_overview_workbook(payload: dict[str, Any]) -> bytes:

@@ -109,7 +109,7 @@ def test_15_day_shop_floor_export_uses_factory_page_limits():
     assert sheet["A3"].value.startswith("2026-08-20 – 2026-09-03")
     assert sheet["A64"].value.startswith("C-09")
     assert len(sheet.row_breaks.brk) == 1
-    assert sheet.print_area == "'Torna Saha Planı'!$A$1:$O$119"
+    assert sheet.print_area == "'Torna Saha Planı'!$A$1:$Q$119"
 
 
 def test_deburring_shop_floor_export_breaks_after_31_rows():
@@ -142,3 +142,15 @@ def test_turning_next_jobs_export_has_no_date_limit_in_header():
 
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
     assert workbook["Torna Saha Planı"]["A3"].value == "Her tezgâh için sıradaki en fazla 10 iş"
+
+
+def test_shop_floor_exports_include_diameter_without_reusing_drill_setup():
+    for process, label in [("turning", "Torna"), ("drilling", "Delme"), ("deburring", "Çapak Alma")]:
+        row = {"status": "current", "position": 1, "product": "R1", "quantity": 100,
+               "diameter": "25,5", "setupKey": "4.2", "workOrder": "WO", "startDate": "2026-09-07", "endDate": "2026-09-08"}
+        payload = {"selectedProcess": process, "generatedAt": "2026-09-07", "printRange": {"mode": "next-jobs"},
+                   "operationPlans": [{"process": process, "label": label, "resources": [{"id": "M1", "rows": [row]}]}]}
+        sheet = load_workbook(BytesIO(build_overview_workbook(payload))).worksheets[0]
+        assert any(c.value == "Çap" for cells in sheet for c in cells)
+        assert any(c.value == "25,5" for cells in sheet for c in cells)
+        assert not any(c.value == "4.2" for cells in sheet for c in cells)

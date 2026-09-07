@@ -139,6 +139,7 @@ class OverviewFinding(BaseModel):
 
 
 class OverviewOperationRow(BaseModel):
+    diameter: str = Field(default="", max_length=80)
     status: Literal["current", "planned"]
     position: int = Field(ge=0)
     product: str = Field(max_length=100)

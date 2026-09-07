@@ -51,7 +51,7 @@ Dağıtılmış staging ortamında aşağıdaki değerleri platformun secret/env
 - üretim API kök adresini içeren `PRODUCTION_API_URL` (ör. `https://api.planning.hfgok.com/api`)
 - üretimdeki `STAGING_PULL_TOKEN` ile eşleşen, yalnız backend'de tutulan `PRODUCTION_SYNC_TOKEN`
 
-Üretim backend'inde ayrıca uzun ve rastgele bir `STAGING_PULL_TOKEN` tanımlayın. Bu anahtar yalnızca staging'in salt okunur üretim anlık görüntüsünü almasına izin verir. Staging'in üretime yazabildiği bir endpoint yoktur; `POST /api/production-sync/pull` yalnız `APP_ENV=staging` ortamında çalışır ve staging verisini üretim kopyasıyla atomik olarak değiştirir.
+Üretim backend'inde ayrıca uzun ve rastgele bir `STAGING_PULL_TOKEN` tanımlayın. Bu anahtar yalnızca staging'in salt okunur üretim anlık görüntüsünü almasına izin verir. Staging'in üretime yazabildiği bir endpoint yoktur; `POST /api/production-sync/pull` yalnız `APP_ENV=staging` ortamında çalışır ve staging verisini son kaynak tabanıyla karşılaştırarak atomik olarak uzlaştırır; yerelde değişen operasyonel kayıtlar birlikte korunur, değişmemiş kaynak alanları yenilenir.
 
 `APP_ENV=staging` veya `production` iken `CLERK_ISSUER` eksikse uygulama başlamaz.
 
@@ -78,7 +78,7 @@ Ayrıntılı davranış: [`../frontend/docs/feedback-workflow.md`](../frontend/d
 
 Clerk Dashboard'da uygulamayı **Invite-only** moda alın ve kullanıcıları şirket e-posta adresleriyle davet edin. Session token'a `fullName`, `primaryEmail` ve `metadata` taleplerini ekleyin; tam örnek frontend README dosyasındadır.
 
-Her kullanıcı varsayılan olarak `user` rolündedir. Yönetici hesabının Clerk public metadata alanına `{ "role": "admin" }` yazılır. İlk yönetici ayrıca geçici olarak `CLERK_ADMIN_USER_IDS` ile atanabilir. Backend imzalı talepten rolü okur; frontend kontrolünden bağımsız olarak Ayarlar değişikliklerini, ayar paketi işlemlerini, uygulama güncellemesi yayınlamayı ve staging üretim senkronizasyonunu yalnız yöneticilere açar.
+Her kullanıcı varsayılan olarak `user` rolündedir. Sunucudaki e-posta rol tablosunda yönetici kaydı varsa bu da yönetici yetkisi verir; normal kullanıcı erişiminde bu kaydın bulunmadığı doğrulanmalıdır. Yönetici hesabının Clerk public metadata alanına `{ "role": "admin" }` yazılır. İlk yönetici ayrıca geçici olarak `CLERK_ADMIN_USER_IDS` ile atanabilir. Backend imzalı talepten rolü okur; frontend kontrolünden bağımsız olarak Ayarlar değişikliklerini, ayar paketi işlemlerini, uygulama güncellemesi yayınlamayı ve staging üretim senkronizasyonunu yalnız yöneticilere açar.
 
 ## Dağıtım notu
 

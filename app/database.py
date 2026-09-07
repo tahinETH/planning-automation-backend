@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .production_merge import merge_production_refresh
+
 import hashlib
 import json
 import sqlite3
@@ -63,6 +65,9 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS planning_state_history (
               id TEXT PRIMARY KEY, seed_json TEXT NOT NULL, state_hash TEXT NOT NULL, created_at TEXT NOT NULL,
               created_by_id TEXT NOT NULL DEFAULT '', created_by_name TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS production_sync_baseline (
+                state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS production_sync_state (
               sync_key TEXT PRIMARY KEY, source_updated_at TEXT NOT NULL,
@@ -422,10 +427,18 @@ def replace_planning_state_from_production(
     source_url: str,
     scenario_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Atomically replace staging's live state from a read-only production snapshot."""
+    """Atomically refresh source data while retaining local edits and operational state."""
     timestamp = now_iso()
-    serialized_seed = json.dumps(seed, ensure_ascii=False)
+    source_seed = seed
     with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        local_row = db.execute("SELECT seed_json FROM planning_state WHERE state_key='default'").fetchone()
+        base_row = db.execute("SELECT seed_json FROM production_sync_baseline WHERE state_key='production'").fetchone()
+        seed = merge_production_refresh(source_seed, _loads(local_row["seed_json"]) if local_row else None,
+                                        _loads(base_row["seed_json"]) if base_row else None)
+        serialized_seed = json.dumps(seed, ensure_ascii=False)
+        db.execute("INSERT INTO production_sync_baseline VALUES('production',?) ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json",
+                   (json.dumps(source_seed, ensure_ascii=False),))
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)
             ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json,updated_at=excluded.updated_at,
@@ -443,9 +456,8 @@ def replace_planning_state_from_production(
         )
         archive_snapshot = _insert_production_archive_snapshot(db, seed, timestamp, "production-sync")
         _save_orders(db, list(seed.get("orders") or []), timestamp, replace=True)
-        db.execute("DELETE FROM scenarios")
         db.executemany(
-            """INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json)
+            """INSERT OR IGNORE INTO scenarios(id,name,created_at,notes,inputs_json,result_json)
             VALUES(?,?,?,?,?,?)""",
             [(
                 scenario["id"],
@@ -462,6 +474,7 @@ def replace_planning_state_from_production(
             source_updated_at=excluded.source_updated_at,imported_at=excluded.imported_at,source_url=excluded.source_url""",
             (source_updated_at, timestamp, source_url),
         )
+    scenario_records = scenarios()
     planning_record = {"seed": seed, "updatedAt": timestamp}
     return {
         "planningState": planning_record,
