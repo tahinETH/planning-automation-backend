@@ -73,6 +73,10 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
 
 
 def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
+    weights = workbook.create_sheet("Ürün Ağırlıkları")
+    _append_rows(weights, ["Tip no", "Ürün adı", "Hammadde kodu", "Hammadde açıklaması", "Hammadde ağırlığı (g)"],
+                 [[row.get("product"), row.get("productName"), row.get("materialCode"), row.get("materialName"), row.get("grams")]
+                  for row in data.get("productWeights", [])])
     setup = data.get("setupSettings", {}) or {}
     setup_sheet = workbook.create_sheet("Genel Ayarlar")
     _append_rows(setup_sheet, ["Ayar", "Değer"], [

@@ -26,7 +26,7 @@ class Source(Arguments):
 
 
 class Inspect(Arguments):
-    collection: Literal["summary", "orders", "products", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "overrides"]
+    collection: Literal["summary", "orders", "products", "product_weights", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "overrides"]
     query: str = Field(default="", max_length=100)
     offset: int = Field(default=0, ge=0, le=100000)
     week_offset: int = Field(default=0, ge=0, le=1000)
@@ -81,6 +81,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 "orderImport": bounded(seed.get("orderImport")), "activePlanRun": bounded(seed.get("activePlanRun")),
                 "setupSettings": bounded(seed.get("setupSettings")), "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
     collections = {
+        "product_weights": seed.get("productWeights", []),
         "orders": seed.get("orders", []), "products": seed.get("products", []), "machines": seed.get("machines", []),
         "customer_demand": (seed.get("customerDemand") or {}).get("products", []),
         "wip": seed.get("wipLots", []), "production": seed.get("productionHistory", []),
@@ -94,7 +95,11 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
         str(row.get(key, "")) for key in ("id", "product", "machineId", "resourceId", "workOrder", "sourceBatchId", "name")))]
     selected = []
     for row in rows[args.offset:args.offset + 12]:
-        if args.collection == "customer_demand":
+        if args.collection == "product_weights":
+            projected = {"Tip no": row.get("product"), "Hammadde kodu": row.get("materialCode"),
+                         "Hammadde açıklaması": row.get("materialName"), "Hammadde ağırlığı (g)": row.get("grams"),
+                         "Birim": "Gram", "Ekran": "Ayarlar → Ürün ağırlıkları"}
+        elif args.collection == "customer_demand":
             demand = seed.get("customerDemand") or {}
             weeks = row.get("weeklyDemands", [])
             window = weeks[args.week_offset:args.week_offset + 20]
@@ -119,7 +124,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                               "note": "İçe aktarılmış Balance (confirmed) değerleri; dosya canlı açılmadı. Kullanıcı düzeltmeleri ayrıca overrides koleksiyonundadır."}
     return {**meta, "collection": args.collection, "total": len(rows), "rows": selected,
             "nextOffset": next_offset if next_offset < len(rows) else None,
-            "note": "İç listeler en fazla 40 kayıt; truncated işaretlerini kontrol et." if any(isinstance(value, dict) and value.get("truncated") for row in selected for value in row.values()) else "Miktarlar adet; sayısal tarihler Excel serial günleridir."}
+            "note": "İç listeler en fazla 40 kayıt; truncated işaretlerini kontrol et." if any(isinstance(value, dict) and value.get("truncated") for row in selected for value in row.values()) else ("Hammadde ağırlıkları gram cinsindedir; boş değer bilinmiyor demektir." if args.collection == "product_weights" else "Miktarlar adet; sayısal tarihler Excel serial günleridir.")}
 
 
 class ToolSession:

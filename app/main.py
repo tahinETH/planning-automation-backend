@@ -255,6 +255,8 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
     except ProtectedSettingsChange as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.get("/api/scenarios")

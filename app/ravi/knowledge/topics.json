@@ -68,6 +68,13 @@
       "id": "advice",
       "label": "Tavsiyeler",
       "panel": "advice"
+    },
+    {
+      "id": "product-weights",
+      "view": "settings",
+      "label": "Ürün ağırlıkları",
+      "focusId": "settings-tab-weights",
+      "adminOnly": true
     }
   ],
   "topics": [
@@ -494,7 +501,7 @@
         "ayarlar",
         "ürün ailesi"
       ],
-      "body": "Parametreler’de ürünün şarj büyüklüğü, çapı, ailesi, tezgâh tercihleri ve üretim hızları bulunur; diğer prosesler ayrı sekmelerdedir. Yeni tip eksik bilgiyle listelenebilir ama planlanamaz. Eksik/geçersiz parametreyi ekrandaki alan adıyla göster. Ayarlar yalnız yöneticilere açıktır; fabrika takvimi, vardiya, tatil ve hazırlık ayarları buradadır. Vardiya ve bakım kapasiteyi etkiler, kayıt tüm fabrika veya belirli bir tezgâha uygulanabilir. Yetkisiz kullanıcıyı Ayarlar’a yönlendirmek yerine yetkili kullanıcıdan yardım almasını söyle.",
+      "body": "Parametreler’de ürünün şarj büyüklüğü, çapı, ailesi, tezgâh tercihleri ve üretim hızları bulunur; diğer prosesler ayrı sekmelerdedir. Yeni tip eksik bilgiyle listelenebilir ama planlanamaz. Eksik/geçersiz parametreyi ekrandaki alan adıyla göster. Ayarlar yalnız yöneticilere açıktır; fabrika takvimi, vardiya, tatil ve hazırlık ayarları buradadır. Vardiya ve bakım kapasiteyi etkiler, kayıt tüm fabrika veya belirli bir tezgâha uygulanabilir. Yetkisiz kullanıcıyı Ayarlar’a yönlendirmek yerine yetkili kullanıcıdan yardım almasını söyle. Ayarlar → Ürün ağırlıkları, ürün kodu ve hammadde eşleşmesiyle gram değerini tutar. İlk aktarım Delme ve Çapak alma Parametre bilgileri (2).xlsx dosyasının ÜRÜN AĞIRLIKLARI sayfasındaki Mamül Kodu, Hammadde Kodu, Mal Adı, Miktar ve Hm. Birim sütunlarından yapılmıştır; temel ürün listesindeki 65 ürün eşleşmiştir. Kaynak değerler Gram birimindedir ve hammadde miktarıdır; bitmiş ürünün net ağırlığı olarak açıklanmaz. Yönetici arama yapabilir, ürün ekleyebilir, hammadde kodu/açıklamasını ve ağırlığı düzenleyebilir. Boş ağırlık bilinmiyor demektir; sıfır veya negatif değer kabul edilmez. Kayıtlar ortak plan verisinde saklanır; ilk değerler yalnız alan henüz yokken eklenir. Sayfa yenileme veya senaryo uygulama düzenlenmiş ağırlıkları sıfırlamaz. Ayarlar Excel yedeği ağırlıkları içerir, eski yedekte bu alan yoksa mevcut değerler korunur. Bu kayıt adımı çelik tüketimi, fire veya stok düşümü hesaplamaz.",
       "sources": [
         {
           "path": "frontend/features/planning/parameters/ParametersView.tsx"
@@ -512,12 +519,34 @@
         {
           "path": "backend/app/database.py",
           "symbol": "ProtectedSettingsChange"
+        },
+        {
+          "path": "frontend/lib/product-weights.ts"
+        },
+        {
+          "path": "frontend/features/planning/settings/ProductWeights.tsx"
+        },
+        {
+          "path": "backend/app/product_weights.py"
+        },
+        {
+          "path": "frontend/lib/data-packages.ts"
+        },
+        {
+          "path": "backend/app/data_package.py"
+        },
+        {
+          "path": "backend/app/ravi/tools.py",
+          "symbol": "inspect_state"
         }
       ],
-      "implementationNotes": "Parametreler ürünün şarj büyüklüğü, çapı, ailesi, sıralı tezgah tercihleri ve günlük hızlarını düzenler; proses parametreleri de ayrı sekmelerden yönetilir. productParametersReady/validateProductParameterDraft geçersiz veya eksik veriyi saptar. Yeni tip eksik parametreyle listede olabilir, planlanmaya hazır değildir. Ayarlar yöneticiye özeldir: fabrika takvimi, vardiyalar, tatiller, setup ve planlama girdileri. Takvim kayıtları tezgah veya fabrika kapsamına sahip olabilir; 0–3 vardiya ve bakım üretimi etkiler. ProtectedSettingsChange backend'de yetkisiz ayar değişimini de engeller. Kullanıcı admin değilse Ayarlar'a erişebileceğini söyleme; yetkili kullanıcıya başvurmasını belirt.",
+      "implementationNotes": "Parametreler ürünün şarj büyüklüğü, çapı, ailesi, sıralı tezgah tercihleri ve günlük hızlarını düzenler; proses parametreleri de ayrı sekmelerden yönetilir. productParametersReady/validateProductParameterDraft geçersiz veya eksik veriyi saptar. Yeni tip eksik parametreyle listede olabilir, planlanmaya hazır değildir. Ayarlar yöneticiye özeldir: fabrika takvimi, vardiyalar, tatiller, setup ve planlama girdileri. Takvim kayıtları tezgah veya fabrika kapsamına sahip olabilir; 0–3 vardiya ve bakım üretimi etkiler. ProtectedSettingsChange backend'de yetkisiz ayar değişimini de engeller. Kullanıcı admin değilse Ayarlar'a erişebileceğini söyleme; yetkili kullanıcıya başvurmasını belirt. productWeights is a protected settings field; init_database backfills only missing fields. Frontend migratePlanningSeed uses the identical reviewed foundation. Older-client saves preserve_missing_weights; validate_product_weights validates values on the server. mergeScenarioWithLiveOperations keeps live productWeights. Ravi product-weights screen context includes query, selected product, draft grams and source unit. inspect_state(product_weights) reads paginated persisted gram values; browser visibleWeights are bounded to 12 rows and may be unsaved. The workbook is not reopened at runtime.",
       "userSources": [
         "Parametreler: ürün ve proses sekmeleri",
-        "Ayarlar: fabrika takvimi ve planlama tercihleri"
+        "Ayarlar: fabrika takvimi ve planlama tercihleri",
+        "Ayarlar → Ürün ağırlıkları: Tip no, Hammadde kodu, Hammadde ağırlığı (g), Kaydet",
+        "ÜRÜN AĞIRLIKLARI: Mamül Kodu, Mal Adı, Hammadde Kodu, Miktar, Hm. Birim",
+        "Ayarlar Excel yedeği → Ürün Ağırlıkları"
       ]
     },
     {

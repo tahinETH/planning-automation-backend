@@ -1,0 +1,528 @@
+{
+  "sourceFile": "Delme ve Çapak alma Parametre bilgileri (2).xlsx",
+  "sourceSheet": "ÜRÜN AĞIRLIKLARI",
+  "sha256": "f62457050fd305059909aa34c0704ee7f9397f493c0a612e7d3861484c8800e9",
+  "unit": "Gram",
+  "rows": [
+    {
+      "product": "R902200287",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 74.45,
+      "sourceRow": 619
+    },
+    {
+      "product": "R902375400",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 380.63,
+      "sourceRow": 640
+    },
+    {
+      "product": "R902719052",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 74.45,
+      "sourceRow": 580
+    },
+    {
+      "product": "R902719076",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 43.15,
+      "sourceRow": 575
+    },
+    {
+      "product": "R902719738",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170008",
+      "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+      "grams": 80.45,
+      "sourceRow": 584
+    },
+    {
+      "product": "R902719739",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170009",
+      "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+      "grams": 228.91,
+      "sourceRow": 566
+    },
+    {
+      "product": "R902719740",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 402.33,
+      "sourceRow": 587
+    },
+    {
+      "product": "R902719741",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 504.17,
+      "sourceRow": 588
+    },
+    {
+      "product": "R902719742",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 697.93,
+      "sourceRow": 595
+    },
+    {
+      "product": "R902719743",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 75.13,
+      "sourceRow": 576
+    },
+    {
+      "product": "R902719762",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 71.42,
+      "sourceRow": 577
+    },
+    {
+      "product": "R902719763",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 70.35,
+      "sourceRow": 581
+    },
+    {
+      "product": "R902719764",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170008",
+      "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+      "grams": 77.95,
+      "sourceRow": 585
+    },
+    {
+      "product": "R902719765",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170009",
+      "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+      "grams": 228.91,
+      "sourceRow": 568
+    },
+    {
+      "product": "R902719766",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 378.84,
+      "sourceRow": 569
+    },
+    {
+      "product": "R902719767",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 477.84,
+      "sourceRow": 571
+    },
+    {
+      "product": "R902719768",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 662.66,
+      "sourceRow": 594
+    },
+    {
+      "product": "R902719812",
+      "productName": "PİSTON",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 37.09,
+      "sourceRow": 578
+    },
+    {
+      "product": "R902725682",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 45.13,
+      "sourceRow": 579
+    },
+    {
+      "product": "R902729695",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 402.33,
+      "sourceRow": 567
+    },
+    {
+      "product": "R902729941",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 504.17,
+      "sourceRow": 590
+    },
+    {
+      "product": "R902744004",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 697.93,
+      "sourceRow": 593
+    },
+    {
+      "product": "R902745116",
+      "productName": "PİSTON",
+      "materialCode": "Z170008",
+      "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+      "grams": 181,
+      "sourceRow": 363
+    },
+    {
+      "product": "R902745117",
+      "productName": "PİSTON",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 340,
+      "sourceRow": 366
+    },
+    {
+      "product": "R902745119",
+      "productName": "PİSTON",
+      "materialCode": "Z170009",
+      "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+      "grams": 222,
+      "sourceRow": 374
+    },
+    {
+      "product": "R902745121",
+      "productName": "PİSTON",
+      "materialCode": "Z170009",
+      "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+      "grams": 204,
+      "sourceRow": 375
+    },
+    {
+      "product": "R902745123",
+      "productName": "PİSTON",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 380,
+      "sourceRow": 376
+    },
+    {
+      "product": "R902745127",
+      "productName": "PİSTON",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 67,
+      "sourceRow": 377
+    },
+    {
+      "product": "R902745129",
+      "productName": "PİSTON",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 67,
+      "sourceRow": 379
+    },
+    {
+      "product": "R902745131",
+      "productName": "PİSTON",
+      "materialCode": "Z170007",
+      "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+      "grams": 67,
+      "sourceRow": 378
+    },
+    {
+      "product": "R902745133",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 380
+    },
+    {
+      "product": "R902745135",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 381
+    },
+    {
+      "product": "R902745138",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 382
+    },
+    {
+      "product": "R902745143",
+      "productName": "PİSTON",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 461.76,
+      "sourceRow": 383
+    },
+    {
+      "product": "R902745145",
+      "productName": "PİSTON",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 461.76,
+      "sourceRow": 384
+    },
+    {
+      "product": "R902745147",
+      "productName": "PİSTON",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 651,
+      "sourceRow": 385
+    },
+    {
+      "product": "R902745149",
+      "productName": "PİSTON",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 651,
+      "sourceRow": 386
+    },
+    {
+      "product": "R902745161",
+      "productName": "PİSTON( CLUSTER 2)",
+      "materialCode": "Z170016",
+      "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+      "grams": 266,
+      "sourceRow": 389
+    },
+    {
+      "product": "R902745163",
+      "productName": "PİSTON( CLUSTER 1)",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 360,
+      "sourceRow": 390
+    },
+    {
+      "product": "R902745165",
+      "productName": "PİSTON( CLUSTER 1)",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 360,
+      "sourceRow": 391
+    },
+    {
+      "product": "R902745167",
+      "productName": "PİSTON( CLUSTER 1)",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 360,
+      "sourceRow": 392
+    },
+    {
+      "product": "R902745169",
+      "productName": "PİSTON( CLUSTER 2)",
+      "materialCode": "Z170016",
+      "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+      "grams": 260,
+      "sourceRow": 393
+    },
+    {
+      "product": "R902747620",
+      "productName": "PİSTON( CLUSTER 2)",
+      "materialCode": "Z170016",
+      "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+      "grams": 266,
+      "sourceRow": 387
+    },
+    {
+      "product": "R902747621",
+      "productName": "PİSTON( CLUSTER 2)",
+      "materialCode": "Z170016",
+      "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+      "grams": 266,
+      "sourceRow": 388
+    },
+    {
+      "product": "R902747824",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 469,
+      "sourceRow": 565
+    },
+    {
+      "product": "R902748350",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 380.63,
+      "sourceRow": 589
+    },
+    {
+      "product": "R902970039",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 468.02,
+      "sourceRow": 570
+    },
+    {
+      "product": "R902970233",
+      "productName": "PİSTON( CLUSTER 1)",
+      "materialCode": "Z170010",
+      "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+      "grams": 360,
+      "sourceRow": 520
+    },
+    {
+      "product": "R902970275",
+      "productName": "PİSTON( CLUSTER 4)",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 461.76,
+      "sourceRow": 397
+    },
+    {
+      "product": "R902970276",
+      "productName": "PİSTON( CLUSTER 4)",
+      "materialCode": "Z170011",
+      "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+      "grams": 461.76,
+      "sourceRow": 398
+    },
+    {
+      "product": "R902970277",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 626.57,
+      "sourceRow": 591
+    },
+    {
+      "product": "R902970513",
+      "productName": "PİSTON( CLUSTER 3)",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 487
+    },
+    {
+      "product": "R902970514",
+      "productName": "PİSTON( CLUSTER 3)",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 394
+    },
+    {
+      "product": "R902970515",
+      "productName": "PİSTON( CLUSTER 3)",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 121,
+      "sourceRow": 395
+    },
+    {
+      "product": "R902970516",
+      "productName": "PİSTON( CLUSTER 3)",
+      "materialCode": "Z170008",
+      "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+      "grams": 160,
+      "sourceRow": 396
+    },
+    {
+      "product": "R902970517",
+      "productName": "PİSTON( CLUSTER 3)",
+      "materialCode": "Z170008",
+      "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+      "grams": 158.91,
+      "sourceRow": 460
+    },
+    {
+      "product": "R902970729",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170009",
+      "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+      "grams": 201.63,
+      "sourceRow": 586
+    },
+    {
+      "product": "R902970862",
+      "productName": "PİSTON ( CLUSTER 6)",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 595,
+      "sourceRow": 547
+    },
+    {
+      "product": "R902970863",
+      "productName": "PİSTON ( CLUSTER 6)",
+      "materialCode": "Z170012",
+      "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+      "grams": 595,
+      "sourceRow": 548
+    },
+    {
+      "product": "R902970964",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170018",
+      "materialName": "Ø  33,5    31 CRMOV 9V + SH + E",
+      "grams": 885.4,
+      "sourceRow": 592
+    },
+    {
+      "product": "R902972555",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 65.28,
+      "sourceRow": 572
+    },
+    {
+      "product": "R902972556",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 65.28,
+      "sourceRow": 573
+    },
+    {
+      "product": "R902972557",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 65.28,
+      "sourceRow": 622
+    },
+    {
+      "product": "R902974041",
+      "productName": "PİSTON",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 111.33,
+      "sourceRow": 582
+    },
+    {
+      "product": "R902974042",
+      "productName": "A2 CENTER PIN",
+      "materialCode": "Z170004",
+      "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+      "grams": 126.89,
+      "sourceRow": 583
+    }
+  ]
+}

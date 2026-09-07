@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .production_merge import merge_production_refresh
+from .product_weights import initial_product_weights, preserve_missing_weights, validate_product_weights
 
 import hashlib
 import json
@@ -169,6 +170,11 @@ def init_database() -> None:
             "SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'"
         ).fetchone()
         if current_state is not None:
+            initial_seed = _loads(current_state["seed_json"])
+            if "productWeights" not in initial_seed:
+                initial_seed["productWeights"] = initial_product_weights()
+                db.execute("UPDATE planning_state SET seed_json=?, updated_at=? WHERE state_key='default'",
+                           (json.dumps(initial_seed, ensure_ascii=False), now_iso()))
             _insert_production_archive_snapshot(
                 db,
                 _loads(current_state["seed_json"]),
@@ -288,7 +294,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings")
+PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -403,11 +409,14 @@ def save_planning_state(
     with connection() as db:
         row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
         current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+        seed = preserve_missing_weights(seed, current["seed"] if current else None)
         current_updated_at = current["updatedAt"] if current else ""
         if not force and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
         if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
+        if "productWeights" in seed:
+            validate_product_weights(seed["productWeights"])
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
