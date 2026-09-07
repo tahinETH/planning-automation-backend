@@ -1,5 +1,7 @@
 from io import BytesIO
 
+import pytest
+
 from openpyxl import load_workbook
 
 from app.overview_export import build_overview_workbook
@@ -145,7 +147,7 @@ def test_turning_next_jobs_export_has_no_date_limit_in_header():
 
 
 def test_shop_floor_exports_include_diameter_without_reusing_drill_setup():
-    for process, label in [("turning", "Torna"), ("drilling", "Delme"), ("deburring", "Çapak Alma")]:
+    for process, label in [("turning", "Torna"), ("deburring", "Çapak Alma"), ("gkm", "GKM")]:
         row = {"status": "current", "position": 1, "product": "R1", "quantity": 100,
                "diameter": "25,5", "setupKey": "4.2", "workOrder": "WO", "startDate": "2026-09-07", "endDate": "2026-09-08"}
         payload = {"selectedProcess": process, "generatedAt": "2026-09-07", "printRange": {"mode": "next-jobs"},
@@ -154,3 +156,34 @@ def test_shop_floor_exports_include_diameter_without_reusing_drill_setup():
         assert any(c.value == "Çap" for cells in sheet for c in cells)
         assert any(c.value == "25,5" for cells in sheet for c in cells)
         assert not any(c.value == "4.2" for cells in sheet for c in cells)
+
+
+@pytest.mark.parametrize("process,label", [("drilling", "Delme"), ("deburring", "Çapak Alma"), ("gkm", "GKM")])
+@pytest.mark.parametrize("count", [90, 93])
+def test_downstream_export_keeps_all_rows_across_pages(process, label, count):
+    rows = [{"status": "planned", "position": index + 1, "product": f"R{index:03}",
+             "workOrder": f"WO-{index}", "quantity": 100, "diameter": "25,5",
+             "startDate": "2026-09-07", "endDate": "2026-09-21"} for index in range(count)]
+    payload = {"selectedProcess": process, "generatedAt": "2026-09-07",
+               "printRange": {"mode": "date-range", "startDate": "2026-09-07", "endDate": "2026-09-21", "dayCount": 15},
+               "operationPlans": [{"process": process, "label": label, "totalJobCount": count, "totalQuantity": count * 100,
+                                   "resources": [{"id": f"M-{index}", "rows": rows[index * 30:(index + 1) * 30]}
+                                                 for index in range((count + 29) // 30)]}]}
+    sheet = load_workbook(BytesIO(build_overview_workbook(payload))).worksheets[0]
+    assert [sheet.cell(index + 6, 5).value for index in range(count)] == [row["product"] for row in rows]
+    assert sheet["A3"].value == "2026-09-07 – 2026-09-21  ·  15 gün"
+    assert [page.id for page in sheet.row_breaks.brk] == [36, 67]
+    assert sheet.print_title_rows == "$1:$5"
+    last_column = "I" if process == "drilling" else "J"
+    assert sheet.print_area == f"'{label} Saha Planı'!$A$1:${last_column}${count + 5}"
+    assert ("Çap" in [cell.value for cell in sheet[5]]) == (process != "drilling")
+    if process == "drilling":
+        assert not any(cell.value == "25,5" for row in sheet for cell in row)
+
+
+def test_legacy_drilling_export_also_omits_diameter():
+    payload = {"selectedProcess": "drilling", "operationPlans": [{"process": "drilling", "label": "Delme",
+        "resources": [{"id": "D-01", "rows": [{"product": "R1", "diameter": "25,5"}]}]}]}
+    sheet = load_workbook(BytesIO(build_overview_workbook(payload))).worksheets[0]
+    assert sheet.max_column == 9
+    assert not any(cell.value in {"Çap", "25,5"} for row in sheet for cell in row)

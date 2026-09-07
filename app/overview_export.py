@@ -266,13 +266,6 @@ def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generat
             sheet.row_breaks.append(Break(id=62))
         last_row = 61 if len(resources) <= 8 else 119
         sheet.print_area = f"A1:Q{last_row}"
-    else:
-        _shop_floor_header(sheet, label, plan, generated_at, print_range, "I")
-        for index, resource in enumerate(resources[:2]):
-            _shop_floor_resource_block(sheet, resource, 6 + index * 18, 1, 6, 8)
-            for row in range(8 + index * 18, 14 + index * 18):
-                sheet.row_dimensions[row].height = 24
-        sheet.print_area = "A1:I39"
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
 
 
@@ -287,9 +280,17 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.print_title_rows = "1:5"
-    _shop_floor_header(sheet, label, plan, generated_at, print_range, "J")
+    sheet.page_margins.left = sheet.page_margins.right = 0.3
+    sheet.page_margins.top = sheet.page_margins.bottom = 0.35
+    for header_row in range(1, 6):
+        sheet.row_dimensions[header_row].height = 18
+
+    last_column = "I" if plan.get("process") == "drilling" else "J"
+    _shop_floor_header(sheet, label, plan, generated_at, print_range, last_column)
     headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Çap"]
     widths = [14, 24, 12, 8, 20, 20, 12, 14, 14, 10]
+    if plan.get("process") == "drilling":
+        headers, widths = headers[:-1], widths[:-1]
     for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
         cell = sheet.cell(5, column, heading)
         cell.fill = _fill(PEACH)
@@ -302,23 +303,28 @@ def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_a
         for item in resource.get("rows", []):
             values = [resource.get("id", ""), resource.get("name", ""), "Üretimde" if item.get("status") == "current" else "Planlı", item.get("position", ""), item.get("product", ""), item.get("workOrder", ""), item.get("quantity", 0), item.get("startDate", ""), item.get("endDate", ""), item.get("diameter") or "—"]
             background = GREEN_LIGHT if item.get("status") == "current" else (WHITE if written % 2 == 0 else PAPER)
+            if plan.get("process") == "drilling":
+                values = values[:9]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_number, column, value)
                 cell.fill = _fill(background)
                 cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {1, 3, 5})
-                cell.alignment = Alignment(vertical="center", shrink_to_fit=True)
+                cell.alignment = Alignment(horizontal="center" if column in {3, 4, 7, 8, 9, 10} else "left", vertical="center", shrink_to_fit=True)
                 cell.border = Border(bottom=THIN_LINE)
                 if column == 7:
                     cell.number_format = "#,##0"
+            sheet.row_dimensions[row_number].height = 14
             row_number += 1
             written += 1
-            if written == 31:
+            if written % 31 == 0:
                 sheet.row_breaks.append(Break(id=row_number - 1))
-    sheet.print_area = f"A1:J{max(36, row_number - 1)}"
+    if sheet.row_breaks.brk and sheet.row_breaks.brk[-1].id == row_number - 1:
+        sheet.row_breaks.brk.pop()
+    sheet.print_area = f"A1:{last_column}{max(6, row_number - 1)}"
 
 
 def _shop_floor_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
-    if plan.get("process") in {"turning", "drilling"}:
+    if plan.get("process") == "turning":
         _resource_shop_floor_sheet(workbook, plan, generated_at, print_range)
     else:
         _long_shop_floor_sheet(workbook, plan, generated_at, print_range)
@@ -337,9 +343,10 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.print_title_rows = "1:5"
 
+    last_column = "I" if plan.get("process") == "drilling" else "J"
     _merge_value(
         sheet,
-        "A1:J2",
+        f"A1:{last_column}2",
         f"SELSA  ·  {label.upper()} GENEL PLANI",
         fill=NAVY,
         font=Font(name="Aptos Display", size=18, color=WHITE, bold=True),
@@ -355,7 +362,7 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     )
     _merge_value(
         sheet,
-        "E3:J3",
+        f"E3:{last_column}3",
         f"Oluşturulma: {generated_at}",
         fill=WHITE,
         font=Font(name="Aptos", size=8, color=MUTED),
@@ -364,6 +371,8 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
 
     headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Çap"]
     widths = [14, 25, 14, 9, 21, 20, 14, 16, 16, 10]
+    if plan.get("process") == "drilling":
+        headers, widths = headers[:-1], widths[:-1]
     for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
         cell = sheet.cell(5, column, heading)
         cell.fill = _fill(PEACH)
@@ -387,6 +396,8 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
                     max(0, int(item.get("quantity", 0))), item.get("startDate", ""), item.get("endDate", ""), item.get("diameter") or "—",
                 ]
             background = GREEN_LIGHT if item is not None and item.get("status") == "current" else (WHITE if row_number % 2 == 0 else PAPER)
+            if plan.get("process") == "drilling":
+                values = values[:9]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_number, column, value)
                 cell.fill = _fill(background)
@@ -398,8 +409,8 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
             row_number += 1
 
     last_row = max(6, row_number - 1)
-    sheet.auto_filter.ref = f"A5:J{last_row}"
-    sheet.print_area = f"A1:J{last_row}"
+    sheet.auto_filter.ref = f"A5:{last_column}{last_row}"
+    sheet.print_area = f"A1:{last_column}{last_row}"
 
 
 def build_overview_workbook(payload: dict[str, Any]) -> bytes:
