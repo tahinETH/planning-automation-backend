@@ -197,7 +197,7 @@ def _audit_sheet(workbook: Workbook, findings: list[dict[str, Any]]) -> None:
 
 def _shop_floor_header(sheet, label: str, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any], last_column: str) -> None:
     _merge_value(sheet, f"A1:{last_column}2", f"SELSA  ·  {label.upper()} SAHA PLANI", fill=NAVY, font=Font(name="Aptos Display", size=18, color=WHITE, bold=True), alignment=Alignment(vertical="center"))
-    scope_label = "Her tezgâh için sıradaki en fazla 10 iş" if print_range.get("mode") == "next-jobs" else f"{print_range.get('startDate', '')} – {print_range.get('endDate', '')}  ·  {print_range.get('dayCount', 0)} gün"
+    scope_label = "Dışa aktarılan tüm işler" if print_range.get("mode") == "all" else "Her tezgâh için sıradaki en fazla 10 iş" if print_range.get("mode") == "next-jobs" else f"{print_range.get('startDate', '')} – {print_range.get('endDate', '')}  ·  {print_range.get('dayCount', 0)} gün"
     _merge_value(sheet, "A3:D3", scope_label, fill=WHITE, font=Font(name="Aptos", size=10, color=GREEN, bold=True), alignment=Alignment(vertical="center"))
     _merge_value(sheet, f"E3:{last_column}3", f"Oluşturulma: {generated_at}", fill=WHITE, font=Font(name="Aptos", size=8, color=MUTED), alignment=Alignment(horizontal="right", vertical="center"))
     omitted = int(plan.get("omittedJobCount", 0) or 0)
@@ -207,17 +207,22 @@ def _shop_floor_header(sheet, label: str, plan: dict[str, Any], generated_at: st
     _merge_value(sheet, f"A4:{last_column}4", note, fill=AMBER_LIGHT if omitted else NAVY_LIGHT, font=Font(name="Aptos", size=8, color=AMBER if omitted else NAVY, bold=True), alignment=Alignment(vertical="center"))
 
 
-def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, start_col: int, row_limit: int, end_col: int) -> None:
+def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, start_col: int, row_limit: int, end_col: int, process: str = "turning") -> None:
     first = get_column_letter(start_col)
     last = get_column_letter(end_col)
     _merge_value(sheet, f"{first}{start_row}:{last}{start_row}", f"{resource.get('id', '')}  ·  {resource.get('name', '')}", fill=NAVY, font=Font(name="Aptos Display", size=10, color=WHITE, bold=True), alignment=Alignment(vertical="center"))
     headings = ["Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Durum", "Çap"]
-    widths = [7, 17, 19, 10, 12, 12, 11, 8]
+    widths = [6, 17, 14, 9, 11, 11, 9, 6]
+    if process == "drilling":
+        headings, widths = headings[:-1], widths[:-1]
+    if process == "turning":
+        headings += ["Hammadde kodu", "Birim ağırlık (g)", "İhtiyaç (kg)"]
+        widths += [12, 10, 11]
     for offset, heading in enumerate(headings):
         cell = sheet.cell(start_row + 1, start_col + offset, heading)
         cell.fill = _fill(PEACH)
         cell.font = Font(name="Aptos", size=7, color="56301E", bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = Border(bottom=THIN_LINE)
         sheet.column_dimensions[get_column_letter(start_col + offset)].width = widths[offset]
     rows = list(resource.get("rows", []))[:row_limit]
@@ -233,6 +238,11 @@ def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, 
             ("Mevcut" if item.get("status") == "current" else "Planlı") if item else "",
             (item.get("diameter") or "—") if item else "",
         ]
+        if process == "drilling":
+            values = values[:-1]
+        if process == "turning":
+            _, _, required = _material_amounts(item or {})
+            values += [item.get("materialCode") or "—", item.get("unitWeightGrams") if required is not None else "Eksik", float(required) if required is not None else "Eksik"] if item else ["", "", ""]
         background = GREEN_LIGHT if item and item.get("status") == "current" else (WHITE if index % 2 == 0 else PAPER)
         for offset, value in enumerate(values):
             cell = sheet.cell(start_row + 2 + index, start_col + offset, value)
@@ -242,8 +252,24 @@ def _shop_floor_resource_block(sheet, resource: dict[str, Any], start_row: int, 
             cell.border = Border(bottom=THIN_LINE)
             if offset == 3 and isinstance(value, (int, float)):
                 cell.number_format = "#,##0"
+            if process == "turning" and offset in {9, 10}:
+                cell.number_format = "#,##0.000"
+    for row_number in range(start_row, start_row + row_limit + 3):
+        sheet.row_dimensions[row_number].height = 12
+    sheet.row_dimensions[start_row + 1].height = 26
     footer_row = start_row + 2 + row_limit
-    _merge_value(sheet, f"{first}{footer_row}:{last}{footer_row}", f"{len(rows)} iş  ·  {sum(int(row.get('quantity', 0) or 0) for row in rows):,.0f} adet", fill=NAVY_LIGHT, font=Font(name="Aptos", size=7, color=NAVY, bold=True), alignment=Alignment(horizontal="right", vertical="center"))
+    note = f"{len(rows)} iş · {sum(int(row.get('quantity', 0) or 0) for row in rows):,.0f} adet"
+    if not rows:
+        note = "Seçilen kapsamda planlı iş yok"
+    if process == "turning" and rows:
+        amounts = [_material_amounts(row)[2] for row in rows]
+        missing = sum(value is None for value in amounts)
+        total = sum((value for value in amounts if value is not None), Decimal(0))
+        note += f" · {'Bilinen ara toplam' if missing else 'İhtiyaç'}: {total:,.3f} kg" if missing < len(rows) else " · Hesaplanamadı"
+        if missing:
+            note += f" · {missing} ağırlık eksik"
+    _merge_value(sheet, f"{first}{footer_row}:{last}{footer_row}", note, fill=NAVY_LIGHT, font=Font(name="Aptos", size=7, color=NAVY, bold=True), alignment=Alignment(horizontal="right", vertical="center"))
+
 
 
 def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
@@ -256,101 +282,52 @@ def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generat
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
-    sheet.print_title_rows = "1:4"
-    resources = list(plan.get("resources", []))
-    if process == "turning":
-        _shop_floor_header(sheet, label, plan, generated_at, print_range, "Q")
-        for index, resource in enumerate(resources[:16]):
-            page = index // 8
-            slot = index % 8
-            start_row = 6 + page * 58 + (slot // 2) * 14
-            start_col, end_col = (1, 8) if slot % 2 == 0 else (10, 17)
-            _shop_floor_resource_block(sheet, resource, start_row, start_col, 10, end_col)
-        if len(resources) > 8:
-            sheet.row_breaks.append(Break(id=62))
-        last_row = 61 if len(resources) <= 8 else 119
-        sheet.print_area = f"A1:Q{last_row}"
-    sheet.sheet_properties.pageSetUpPr.fitToPage = True
-
-
-def _long_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any], resource_id: str | None = None) -> None:
-    label = str(plan.get("label") or "Operasyon")
-    title = f"{label} {resource_id}" if resource_id is not None else f"{label} Saha Planı"
-    sheet = workbook.create_sheet(re.sub(r"[\[\]:*?/\\]", "-", title)[:31])
-    if resource_id is not None:
-        label = f"{label} · {resource_id}"
-    sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "A6"
-    sheet.page_setup.orientation = "landscape"
-    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
-    sheet.page_setup.fitToWidth = 1
-    sheet.page_setup.fitToHeight = 0
-    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_margins.left = sheet.page_margins.right = 0.2
+    sheet.page_margins.top = sheet.page_margins.bottom = 0.25
     sheet.print_title_rows = "1:5"
-    sheet.page_margins.left = sheet.page_margins.right = 0.3
-    sheet.page_margins.top = sheet.page_margins.bottom = 0.35
-    for header_row in range(1, 6):
-        sheet.row_dimensions[header_row].height = 18
-
-    last_column = "I" if plan.get("process") == "drilling" else "J"
+    columns = 11 if process == "turning" else (7 if process == "drilling" else 8)
+    last_column = get_column_letter(columns * 2 + 1)
+    sheet.column_dimensions[get_column_letter(columns + 1)].width = 3
     _shop_floor_header(sheet, label, plan, generated_at, print_range, last_column)
-    headers = ["İstasyon", "İstasyon adı", "Durum", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Başlangıç", "Bitiş", "Çap"]
-    widths = [14, 24, 12, 8, 20, 20, 12, 14, 14, 10]
-    if plan.get("process") == "drilling":
-        headers, widths = headers[:-1], widths[:-1]
-    for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
-        cell = sheet.cell(5, column, heading)
-        cell.fill = _fill(PEACH)
-        cell.font = Font(name="Aptos", size=8, color="56301E", bold=True)
-        cell.border = Border(bottom=THIN_LINE)
-        sheet.column_dimensions[get_column_letter(column)].width = width
-    row_number = 6
-    written = 0
-    for resource in plan.get("resources", []):
-        for item in resource.get("rows", []):
-            values = [resource.get("id", ""), resource.get("name", ""), "Üretimde" if item.get("status") == "current" else "Planlı", item.get("position", ""), item.get("product", ""), item.get("workOrder", ""), item.get("quantity", 0), item.get("startDate", ""), item.get("endDate", ""), item.get("diameter") or "—"]
-            background = GREEN_LIGHT if item.get("status") == "current" else (WHITE if written % 2 == 0 else PAPER)
-            if plan.get("process") == "drilling":
-                values = values[:9]
-            for column, value in enumerate(values, 1):
-                cell = sheet.cell(row_number, column, value)
-                cell.fill = _fill(background)
-                cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {1, 3, 5})
-                cell.alignment = Alignment(horizontal="center" if column in {3, 4, 7, 8, 9, 10} else "left", vertical="center", shrink_to_fit=True)
-                cell.border = Border(bottom=THIN_LINE)
-                if column == 7:
-                    cell.number_format = "#,##0"
-            sheet.row_dimensions[row_number].height = 14
-            row_number += 1
-            written += 1
-            if written % 31 == 0:
-                sheet.row_breaks.append(Break(id=row_number - 1))
-    if resource_id is not None and not written:
-        _merge_value(sheet, f"A6:{last_column}6", "Seçilen tarih aralığında planlı iş yok", fill=PAPER,
-                     font=Font(name="Aptos", size=10, color=MUTED), alignment=Alignment(vertical="center"))
-    if sheet.row_breaks.brk and sheet.row_breaks.brk[-1].id == row_number - 1:
-        sheet.row_breaks.brk.pop()
-    sheet.print_area = f"A1:{last_column}{max(6, row_number - 1)}"
-
-
-def _shop_floor_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any]) -> None:
-    if plan.get("process") == "turning":
-        _resource_shop_floor_sheet(workbook, plan, generated_at, print_range)
-    elif plan.get("process") in {"deburring", "gkm"} and plan.get("resources"):
-        # Each station is a separately printable machine plan, including idle stations.
-        for resource in plan["resources"]:
-            rows = resource.get("rows", [])
-            resource_plan = {**plan, "resources": [resource], "totalJobCount": len(rows),
-                             "totalQuantity": sum(int(row.get("quantity", 0) or 0) for row in rows),
-                             "omittedJobCount": 0}
-            _long_shop_floor_sheet(workbook, resource_plan, generated_at, print_range, str(resource.get("id") or "İstasyon"))
-    else:
-        _long_shop_floor_sheet(workbook, plan, generated_at, print_range)
+    if process == "turning":
+        note = "İhtiyaç (kg) = Adet × Birim ağırlık (g) × 1,02 / 1000 · %2 ıskarta dahil · Kaynak: Ayarlar → Ürün ağırlıkları"
+        if plan.get("dirty"):
+            note += " · Plan güncel değil"
+        _merge_value(sheet, f"A5:{last_column}5", note, font=Font(name="Aptos", size=8, color=MUTED), alignment=Alignment(vertical="center"))
+    resources = list(plan.get("resources", []))
+    if process == "turning" and print_range.get("mode") != "all":
+        resources = [{**resource, "rows": resource.get("rows", [])[:10]} for resource in resources[:16]]
+    # Pair distinct machines. Long queues continue in the same left/right lanes;
+    # chunking is pagination only and never drops downstream work.
+    bands = []
+    for offset in range(0, len(resources), 2):
+        pair = resources[offset:offset + 2]
+        for chunk in range(max(1, max((len(r.get("rows", [])) + 9) // 10 for r in pair))):
+            bands.append([(side, {**resource, "rows": resource.get("rows", [])[chunk * 10:(chunk + 1) * 10],
+                                      "name": str(resource.get("name", "")) + (" · devam" if chunk else "")})
+                          for side, resource in enumerate(pair) if chunk == 0 or len(resource.get("rows", [])) > chunk * 10])
+    bands_per_page = 4 if process == "turning" else 2
+    page_rows = bands_per_page * 14 + 2
+    for band, blocks in enumerate(bands):
+        page, slot = divmod(band, bands_per_page)
+        start_row = 6 + page * page_rows + slot * 14
+        for side, resource in blocks:
+            start_col = 1 if side == 0 else columns + 2
+            _shop_floor_resource_block(sheet, resource, start_row, start_col, 10, start_col + columns - 1, process)
+        if slot == 0 and page:
+            sheet.row_breaks.append(Break(id=start_row - 1))
+    last_row = 6 + ((len(bands) - 1) // bands_per_page) * page_rows + ((len(bands) - 1) % bands_per_page) * 14 + 12 if bands else 6
+    if not bands:
+        _merge_value(sheet, f"A6:{last_column}6", "Seçilen kapsamda planlı iş yok", font=Font(name="Aptos", size=10, color=MUTED))
+    sheet.print_area = f"A1:{last_column}{last_row}"
 
 
 def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str, print_range: dict[str, Any] | None = None) -> None:
     if print_range:
-        _shop_floor_plan_sheet(workbook, plan, generated_at, print_range)
+        _resource_shop_floor_sheet(workbook, plan, generated_at, print_range)
+        return
+    if plan.get("process") == "turning":
+        _resource_shop_floor_sheet(workbook, plan, generated_at, {"mode": "all"})
         return
     label = str(plan.get("label") or "Operasyon")
     sheet = workbook.create_sheet(f"{label} Planı"[:31])
@@ -431,13 +408,22 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     sheet.print_area = f"A1:{last_column}{last_row}"
 
 
+def _material_amounts(item: dict[str, Any]) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    grams = item.get("unitWeightGrams")
+    if not isinstance(grams, (int, float)) or isinstance(grams, bool) or not math.isfinite(grams) or grams <= 0:
+        return None, None, None
+    net = Decimal(max(0, int(item.get("quantity", 0)))) * Decimal(str(grams)) / 1000
+    scrap = net * Decimal("0.02")
+    return net, scrap, net + scrap
+
+
 def _material_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str,
                     print_range: dict[str, Any] | None, dirty: bool) -> None:
     """Material requirement for exported jobs only; never sums different processes."""
+    if plan.get("process") == "turning":
+        return
     resources = list(plan.get("resources", []))
-    if print_range and plan.get("process") == "turning":
-        resources = [{**resource, "rows": resource.get("rows", [])[:10]} for resource in resources[:16]]
-    # Stations remain separate in both the floor plan and its material companion.
+    # Downstream material companions retain station-specific detail.
     groups = [[resource] for resource in resources] if plan.get("process") in {"deburring", "gkm"} else [resources]
     for group in groups or [[]]:
         station = str(group[0].get("id", "")) if len(group) == 1 and plan.get("process") in {"deburring", "gkm"} else ""
@@ -475,11 +461,9 @@ def _material_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str,
             sheet.column_dimensions[get_column_letter(column)].width = width
         for index, (resource, item) in enumerate(records, 8):
             grams = item.get("unitWeightGrams")
-            known = isinstance(grams, (int, float)) and not isinstance(grams, bool) and math.isfinite(grams) and grams > 0
+            net, scrap, required = _material_amounts(item)
+            known = required is not None
             quantity = max(0, int(item.get("quantity", 0)))
-            net = Decimal(quantity) * Decimal(str(grams)) / 1000 if known else None
-            scrap = net * Decimal("0.02") if net is not None else None
-            required = net + scrap if net is not None else None
             if required is not None:
                 total += required
             else:
@@ -530,7 +514,7 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
         generated = payload.get("generatedAt") or datetime.now(timezone.utc).isoformat()
         selected_plan = next((plan for plan in payload.get("operationPlans", []) if plan.get("process") == selected_process), None)
         if selected_plan is not None:
-            _operation_plan_sheet(workbook, selected_plan, generated, payload.get("printRange"))
+            _operation_plan_sheet(workbook, {**selected_plan, "dirty": bool(payload.get("dirty"))}, generated, payload.get("printRange"))
         else:
             fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
             _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated, payload.get("printRange"))
@@ -594,7 +578,7 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     sheet.print_area = f"A1:O{max(10, current_row - 2)}"
     sheet.auto_filter.ref = None
     for plan in payload.get("operationPlans", []):
-        _operation_plan_sheet(workbook, plan, generated)
+        _operation_plan_sheet(workbook, {**plan, "dirty": bool(payload.get("dirty"))}, generated)
         _material_sheet(workbook, plan, generated, None, bool(payload.get("dirty")))
     _audit_sheet(workbook, payload.get("findings", []))
 
