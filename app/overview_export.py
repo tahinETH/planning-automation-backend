@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import math
+from decimal import Decimal
 
 from datetime import datetime, timezone
 from io import BytesIO
@@ -429,6 +431,97 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     sheet.print_area = f"A1:{last_column}{last_row}"
 
 
+def _material_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str,
+                    print_range: dict[str, Any] | None, dirty: bool) -> None:
+    """Material requirement for exported jobs only; never sums different processes."""
+    resources = list(plan.get("resources", []))
+    if print_range and plan.get("process") == "turning":
+        resources = [{**resource, "rows": resource.get("rows", [])[:10]} for resource in resources[:16]]
+    # Stations remain separate in both the floor plan and its material companion.
+    groups = [[resource] for resource in resources] if plan.get("process") in {"deburring", "gkm"} else [resources]
+    for group in groups or [[]]:
+        station = str(group[0].get("id", "")) if len(group) == 1 and plan.get("process") in {"deburring", "gkm"} else ""
+        label = str(plan.get("label") or "Operasyon")
+        title = f"{label} {station} Hammadde" if station else f"{label} Hammadde"
+        sheet = workbook.create_sheet(re.sub(r"[\[\]:*?/\\]", "-", title)[:31])
+        sheet.sheet_view.showGridLines = False
+        sheet.freeze_panes = "E8"
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.page_margins.left = sheet.page_margins.right = 0.3
+        sheet.page_margins.top = sheet.page_margins.bottom = 0.35
+        sheet.print_title_rows = "1:7"
+        _merge_value(sheet, "A1:J2", f"SELSA · {label.upper()} {station} · HAMMADDE İHTİYACI",
+                     fill=NAVY, font=Font(name="Aptos Display", size=16, color=WHITE, bold=True),
+                     alignment=Alignment(vertical="center"))
+        scope = "Saha planındaki sıradaki en fazla 10 iş / tezgâh · en fazla 16 tezgâh" if print_range and print_range.get("mode") == "next-jobs" else (
+            f"{print_range.get('startDate', '')} – {print_range.get('endDate', '')} · {print_range.get('dayCount', 0)} gün" if print_range else "Dışa aktarılan proses işlerinin tamamı")
+        for row, text in [(3, scope), (4, "İhtiyaç (kg) = Adet × Birim ağırlık (g) × 1,02 / 1000 · %2 ıskarta dahil"),
+                          (5, "Kaynak: Ayarlar → Ürün ağırlıkları · Prosesler arası toplam yapılmaz; stok düşülmez.")]:
+            _merge_value(sheet, f"A{row}:J{row}", text, font=Font(name="Aptos", size=10, color=MUTED), alignment=Alignment(vertical="center"))
+        records = [(resource, item) for resource in group for item in resource.get("rows", [])]
+        total = Decimal(0)
+        missing = 0
+        headers = ["İstasyon", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Hammadde kodu", "Birim ağırlık (g)", "Iskartasız (kg)", "%2 ıskarta (kg)", "İhtiyaç (kg)"]
+        widths = [14, 7, 20, 19, 12, 19, 18, 17, 17, 18]
+        for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
+            cell = sheet.cell(7, column, heading)
+            cell.fill = _fill(PEACH)
+            cell.font = Font(name="Aptos", size=10, bold=True, color=INK)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            sheet.column_dimensions[get_column_letter(column)].width = width
+        for index, (resource, item) in enumerate(records, 8):
+            grams = item.get("unitWeightGrams")
+            known = isinstance(grams, (int, float)) and not isinstance(grams, bool) and math.isfinite(grams) and grams > 0
+            quantity = max(0, int(item.get("quantity", 0)))
+            net = Decimal(quantity) * Decimal(str(grams)) / 1000 if known else None
+            scrap = net * Decimal("0.02") if net is not None else None
+            required = net + scrap if net is not None else None
+            if required is not None:
+                total += required
+            else:
+                missing += 1
+            values = [resource.get("id", ""), item.get("position", ""), item.get("product", ""),
+                      item.get("workOrder", ""), quantity, item.get("materialCode") or "—",
+                      grams if known else "Eksik", float(net) if known else None,
+                      float(scrap) if known else None, float(required) if known else "Eksik"]
+            for column, value in enumerate(values, 1):
+                cell = sheet.cell(index, column, value)
+                cell.fill = _fill(AMBER_LIGHT if not known else (WHITE if index % 2 == 0 else PAPER))
+                cell.font = Font(name="Aptos", size=10, color=INK, bold=column in {3, 10})
+                cell.alignment = Alignment(vertical="center", shrink_to_fit=True)
+                cell.border = Border(bottom=THIN_LINE)
+                if column >= 7:
+                    cell.number_format = "#,##0.000"
+                elif column == 5:
+                    cell.number_format = "#,##0"
+            sheet.row_dimensions[index].height = 20
+        note = f"{len(records)} iş · " + (f"EKSİK TOPLAM: {missing} işin ağırlığı bilinmiyor" if missing else "Ağırlıklar tam")
+        if dirty:
+            note += " · Girdiler değişti; plan güncel değil"
+        _merge_value(sheet, "A6:J6", note, fill=AMBER_LIGHT if missing or dirty else GREEN_LIGHT,
+                     font=Font(name="Aptos", size=10, color=AMBER if missing or dirty else GREEN, bold=True), alignment=Alignment(vertical="center"))
+        total_row = len(records) + 8
+        _merge_value(sheet, f"A{total_row}:I{total_row}", "Bilinen ihtiyaç ara toplamı (kg) — eksik ağırlıklar hariç" if missing else "Toplam hammadde ihtiyacı (kg) · %2 ıskarta dahil",
+                     fill=NAVY_LIGHT, font=Font(name="Aptos", size=10, color=NAVY, bold=True), alignment=Alignment(vertical="center"))
+        cell = sheet.cell(total_row, 10, float(total) if not missing or len(records) > missing else "Hesaplanamadı")
+        cell.number_format = "#,##0.000"
+        cell.fill = _fill(NAVY_LIGHT)
+        cell.font = Font(name="Aptos", size=10, bold=True, color=NAVY)
+        cell.alignment = Alignment(shrink_to_fit=True, vertical="center")
+        sheet.row_dimensions[total_row].height = 24
+        for row in range(1, 8):
+            sheet.row_dimensions[row].height = 24 if row != 7 else 30
+        sheet.oddFooter.center.text = "Bu prosesin iş adedine ait ihtiyaç tahminidir; fiili tüketim değildir."
+        sheet.oddFooter.right.text = "&P / &N"
+        sheet.print_area = f"A1:J{total_row}"
+        if records:
+            sheet.auto_filter.ref = f"A7:J{total_row - 1}"
+
+
 def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     workbook = Workbook()
     selected_process = payload.get("selectedProcess")
@@ -441,6 +534,8 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
         else:
             fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
             _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated, payload.get("printRange"))
+        if selected_plan is not None:
+            _material_sheet(workbook, selected_plan, generated, payload.get("printRange"), bool(payload.get("dirty")))
         workbook.remove(empty_sheet)
         output = BytesIO()
         workbook.save(output)
@@ -500,6 +595,7 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     sheet.auto_filter.ref = None
     for plan in payload.get("operationPlans", []):
         _operation_plan_sheet(workbook, plan, generated)
+        _material_sheet(workbook, plan, generated, None, bool(payload.get("dirty")))
     _audit_sheet(workbook, payload.get("findings", []))
 
     output = BytesIO()

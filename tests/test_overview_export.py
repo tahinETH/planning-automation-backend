@@ -69,7 +69,7 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
     }
 
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
-    assert workbook.sheetnames == ["Genel Bakış", "Torna Planı", "Delme Planı", "Çapak Alma Planı", "GKM Planı", "Plan Kontrolü"]
+    assert [name for name in workbook.sheetnames if "Hammadde" not in name] == ["Genel Bakış", "Torna Planı", "Delme Planı", "Çapak Alma Planı", "GKM Planı", "Plan Kontrolü"]
     sheet = workbook["Genel Bakış"]
     assert sheet["A1"].value == "SELSA  ·  ÜRETİM GENEL BAKIŞ"
     assert sheet["A6"].value == 1000
@@ -84,7 +84,7 @@ def test_general_overview_export_contains_colored_summary_and_machine_tables():
 
     drilling_payload = {**payload, "selectedProcess": "drilling", "operationPlans": [payload["operationPlans"][1]]}
     drilling_workbook = load_workbook(BytesIO(build_overview_workbook(drilling_payload)))
-    assert drilling_workbook.sheetnames == ["Delme Planı"]
+    assert drilling_workbook.sheetnames == ["Delme Planı", "Delme Hammadde"]
     assert drilling_workbook["Delme Planı"]["A1"].value == "SELSA  ·  DELME GENEL PLANI"
 
 
@@ -106,7 +106,7 @@ def test_15_day_shop_floor_export_uses_factory_page_limits():
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
     sheet = workbook["Torna Saha Planı"]
 
-    assert workbook.sheetnames == ["Torna Saha Planı"]
+    assert workbook.sheetnames == ["Torna Saha Planı", "Torna Hammadde"]
     assert sheet["A1"].value == "SELSA  ·  TORNA SAHA PLANI"
     assert sheet["A3"].value.startswith("2026-08-20 – 2026-09-03")
     assert sheet["A64"].value.startswith("C-09")
@@ -170,10 +170,11 @@ def test_downstream_export_keeps_all_rows_across_pages(process, label, count):
                                    "resources": [{"id": f"M-{index}", "rows": rows[index * 30:(index + 1) * 30]}
                                                  for index in range((count + 29) // 30)]}]}
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
-    exported = [sheet.cell(index, 5).value for sheet in workbook for index in range(6, sheet.max_row + 1)]
+    floor_sheets = [sheet for sheet in workbook if "Hammadde" not in sheet.title]
+    exported = [sheet.cell(index, 5).value for sheet in floor_sheets for index in range(6, sheet.max_row + 1)]
     assert exported == [row["product"] for row in rows]
-    assert len(workbook.worksheets) == (1 if process == "drilling" else (count + 29) // 30)
-    for sheet in workbook:
+    assert len(floor_sheets) == (1 if process == "drilling" else (count + 29) // 30)
+    for sheet in floor_sheets:
         assert sheet["A3"].value == "2026-09-07 – 2026-09-21  ·  15 gün"
         assert [page.id for page in sheet.row_breaks.brk] == ([36, 67] if process == "drilling" else [])
         assert sheet.print_title_rows == "$1:$5"
@@ -204,8 +205,9 @@ def test_station_exports_have_separate_pages_totals_and_empty_station(process, l
                "operationPlans": [{"process": process, "label": label, "totalJobCount": 65,
                                    "totalQuantity": 650, "resources": resources}]}
     workbook = load_workbook(BytesIO(build_overview_workbook(payload)))
-    assert workbook.sheetnames == [f"{label} {station}" for station in ids]
-    for sheet, station, count in zip(workbook, ids, [63, 2, 0]):
+    floor_sheets = [sheet for sheet in workbook if "Hammadde" not in sheet.title]
+    assert [sheet.title for sheet in floor_sheets] == [f"{label} {station}" for station in ids]
+    for sheet, station, count in zip(floor_sheets, ids, [63, 2, 0]):
         assert station in sheet["A1"].value
         assert sheet["A4"].value == f"{count} iş  ·  {count * 10:,.0f} adet"
         assert [page.id for page in sheet.row_breaks.brk] == ([36, 67] if count == 63 else [])
@@ -214,3 +216,59 @@ def test_station_exports_have_separate_pages_totals_and_empty_station(process, l
             assert sheet.cell(count + 5, 5).value == f"{station}-{count - 1}"
         else:
             assert sheet["A6"].value == "Seçilen tarih aralığında planlı iş yok"
+
+
+@pytest.mark.parametrize("process,label", [("turning", "Torna"), ("drilling", "Delme"), ("deburring", "Çapak Alma"), ("gkm", "GKM")])
+def test_material_requirement_uses_102_percent_and_marks_missing_weights(process, label):
+    from app.models import OverviewOperationRow
+    row = OverviewOperationRow(status="planned", position=1, product="R902745116", quantity=1980,
+                               materialCode="Z170008", unitWeightGrams=181).model_dump()
+    missing = {**row, "product": "UNKNOWN", "unitWeightGrams": None}
+    payload = {"selectedProcess": process, "dirty": True, "printRange": {"mode": "next-jobs"},
+               "operationPlans": [{"process": process, "label": label,
+                                   "resources": [{"id": "S-01", "rows": [row, missing]}]}]}
+    workbook = load_workbook(BytesIO(build_overview_workbook(payload)), data_only=True)
+    sheet = next(sheet for sheet in workbook if "Hammadde" in sheet.title)
+    assert sheet["F8"].value == "Z170008"
+    assert sheet["G8"].value == 181
+    assert sheet["H8"].value == pytest.approx(358.38)
+    assert sheet["I8"].value == pytest.approx(7.1676)
+    assert sheet["J8"].value == pytest.approx(365.5476)
+    assert sheet["J9"].value == "Eksik"
+    assert sheet["J10"].value == pytest.approx(365.5476)
+    assert "ara toplamı" in sheet["A10"].value
+    assert "1 işin ağırlığı bilinmiyor" in sheet["A6"].value
+    assert "plan güncel değil" in sheet["A6"].value
+    assert "1,02 / 1000" in sheet["A4"].value
+
+
+def test_material_totals_preserve_precision_and_station_scope():
+    resources = [{"id": station, "rows": [{"product": "R1", "position": i + 1, "quantity": 1,
+                                           "unitWeightGrams": 0.1} for i in range(count)]}
+                 for station, count in [("S-01", 10), ("S-02", 2)]]
+    workbook = load_workbook(BytesIO(build_overview_workbook({"selectedProcess": "gkm", "operationPlans": [
+        {"process": "gkm", "label": "GKM", "resources": resources}]})), data_only=True)
+    first, second = [sheet for sheet in workbook if "Hammadde" in sheet.title]
+    assert first.title == "GKM S-01 Hammadde"
+    assert second.title == "GKM S-02 Hammadde"
+    assert first["J18"].value == pytest.approx(0.00102)
+    assert second["J10"].value == pytest.approx(0.000204)
+    assert first["J8"].number_format == "#,##0.000"
+    assert "Toplam hammadde" in first["A18"].value
+
+
+def test_material_turning_scope_matches_ten_jobs_sixteen_machines():
+    resources = [{"id": f"C-{i}", "rows": [{"quantity": 1, "unitWeightGrams": 1000} for _ in range(11)]} for i in range(17)]
+    workbook = load_workbook(BytesIO(build_overview_workbook({"selectedProcess": "turning", "printRange": {"mode": "next-jobs"},
+        "operationPlans": [{"process": "turning", "label": "Torna", "resources": resources}]})), data_only=True)
+    sheet = workbook["Torna Hammadde"]
+    assert sheet.max_row == 168
+    assert sheet["J168"].value == pytest.approx(163.2)
+
+
+@pytest.mark.parametrize("grams", [0, -1, float("nan"), float("inf")])
+def test_export_rejects_invalid_unit_weight(grams):
+    from pydantic import ValidationError
+    from app.models import OverviewOperationRow
+    with pytest.raises(ValidationError):
+        OverviewOperationRow(status="planned", position=1, product="R1", quantity=1, unitWeightGrams=grams)

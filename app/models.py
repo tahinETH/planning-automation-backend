@@ -139,6 +139,8 @@ class OverviewFinding(BaseModel):
 
 
 class OverviewOperationRow(BaseModel):
+    materialCode: str = Field(default="", max_length=160)
+    unitWeightGrams: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     diameter: str = Field(default="", max_length=80)
     status: Literal["current", "planned"]
     position: int = Field(ge=0)
