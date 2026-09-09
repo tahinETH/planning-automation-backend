@@ -410,7 +410,7 @@
         "şarj nerede",
         "yıkama"
       ],
-      "body": "Şarj Yolculuğu bir şarjın torna, delme, çapak alma, yıkama/bekleme ve GKM adımlarındaki yerini gösterir; ürünün rotasında olmayan adımlar atlanır. Kuyruktaki planlı iş, gerçekten üretime başlamış iş ve tamamlanan yarı mamül farklıdır. Sıradaki işi üretime al için önceki prosesin gerçek tamamlanması ve malzemenin hazır olması gerekir; yalnız ileri tarihli plan yeterli değildir. Kısmi tamamlama yalnız tamamlanan adedi ilerletir, kalan adet önceki aşamada kalır. Bloke edilmiş miktar serbest bırakılana kadar kullanılamaz. Gerçek miktar, tarih, kaynak ve durum açıklamasını seçili şarjın görünür bilgilerine bağla; planlı işi teslim edilmiş diye anlatma. Şarj Yolculuğu’nda Mevcut proses ve Durum filtreleri vardır. Tip/adet özeti arama ve bu filtrelere uyan kayıtlar içindir: aktif şarjda kalan, arşivde sevk edilen adet sayılır; farklı durumların toplamı bekleyen stok diye anlatılmaz. Arşiv kısmi teslimatın sevk edilen kısmını da gösterir; kalanı Aktif’te kalır. Eski teslim kayıtlarında yalnız kaydedilmiş prosesler gösterilir; eksik geçmiş uyarılır, Plan kaydı yok tarihi uydurmaz. Tüm akışta gerçekleşen beklemeler sarı, planlanan Torna mavi, Delme turuncu, Çapak Alma mor, GKM mavi-yeşildir. Paketleme & Final Kontrol mevcut bir iş günlük aşamanın adıdır. Şarj listesinde adet açıklaması Aktif için “Filtrelenen kalan adet”, Arşiv için “Filtrelenen sevk adedi” olarak gösterilir.",
+      "body": "Şarj Yolculuğu bir şarjın torna, delme, çapak alma, yıkama/bekleme ve GKM adımlarındaki yerini gösterir; ürünün rotasında olmayan adımlar atlanır. Kuyruktaki planlı iş, gerçekten üretime başlamış iş ve tamamlanan yarı mamül farklıdır. Sıradaki işi üretime al için önceki prosesin gerçek tamamlanması ve malzemenin hazır olması gerekir; yalnız ileri tarihli plan yeterli değildir. Kısmi tamamlama yalnız tamamlanan adedi ilerletir, kalan adet önceki aşamada kalır. Bloke edilmiş miktar serbest bırakılana kadar kullanılamaz. Gerçek miktar, tarih, kaynak ve durum açıklamasını seçili şarjın görünür bilgilerine bağla; planlı işi teslim edilmiş diye anlatma. Şarj Yolculuğu’nda Mevcut proses ve Durum filtreleri vardır. Tip/adet özeti arama ve bu filtrelere uyan kayıtlar içindir: aktif şarjda kalan, arşivde sevk edilen adet sayılır; farklı durumların toplamı bekleyen stok diye anlatılmaz. Arşiv kısmi teslimatın sevk edilen kısmını da gösterir; kalanı Aktif’te kalır. Eski teslim kayıtlarında yalnız kaydedilmiş prosesler gösterilir; eksik geçmiş uyarılır, Plan kaydı yok tarihi uydurmaz. Tüm akışta gerçekleşen beklemeler sarı, planlanan Torna mavi, Delme turuncu, Çapak Alma mor, GKM mavi-yeşildir. Paketleme & Final Kontrol mevcut bir iş günlük aşamanın adıdır. Şarj listesinde adet açıklaması Aktif için “Filtrelenen kalan adet”, Arşiv için “Filtrelenen sevk adedi” olarak gösterilir. Şarj Yolculuğu seçili şarj başlığında ve Yarı mamül alanında Paketleme & Final Kontrol aşamasındaki pozitif kalan miktar için Teslimatı tamamla bulunur. Proses kontrol ve paketleme tamamlandı mı? sorusuna Evet, teslimatı tamamla denilince girilen adet bugünün teslimatı olarak kaydedilir. GKM’nin gerçekten tamamlanmış olması zorunludur; yalnız ileri tarihli plan veya manuel konum etiketi yeterli değildir. Bir iş günlük teslimat tamponu henüz dolmadıysa bu onayla yalnız teslim edilen adet için aşılır. Kalan adet aynı aşama ve hazır olma zamanıyla kalır. Teslimat Üretim arşivi ile yarı mamül bakiyesine birlikte yansır, Geri al ile birlikte geri alınabilir; planı yeniden çalıştırın uyarısı oluşur. Torna sonrası kalite, Center Pin Delme sonrası yıkama ve Çapak Alma sonrası GKM beklemelerinde Beklemeyi tamamla vardır. İlgili proses kontrol / yıkama onayı yalnız seçili şarjın bu beklemesini şimdi tamamlar; sonraki operasyonu tamamlanmış saymaz, üretime başlama ve tezgâh uygunluğu kuralları sürer. Normal planlama tüm tamponları kullanmaya devam eder; yeni şarjlar ve sonraki aşamalar için süreler değişmez. Blokeli, kapanmış veya önceki gerçek proses kaydı eksik şarjda tampon kaldırılamaz. Şarj onay penceresi açıkken değişirse yeniden açıp onaylamak gerekir. Hayır, vazgeç ve Esc hiçbir kayıt oluşturmaz.",
       "sources": [
         {
           "path": "frontend/components/ProcessPlanningView.tsx",
@@ -434,13 +434,29 @@
         {
           "path": "frontend/lib/charge-journey-status.ts",
           "symbol": "deliveredChargeJourneyJobs"
+        },
+        {
+          "path": "frontend/lib/wip-manual-actions.ts"
+        },
+        {
+          "path": "frontend/components/WipManualActionDialog.tsx"
+        },
+        {
+          "path": "frontend/features/planning/session/production-actions.ts",
+          "symbol": "createProductionActions"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "releaseWipBuffer"
         }
       ],
-      "implementationNotes": "Şarj Yolculuğu ekranı iş emri/şarj/ürün aramasıyla seçili şarjın fiili ve planlanan operasyonlarını gösterir; aktif ve sevk edilen listeleri ayrılır. İkincil çalışma alanları WIP ve proses ana verisidir. buildDownstreamProcessPlan ürün rotası, kaynak kapasitesi, setup, kuyruk bağımlılığı ve bekleme işgünlerini kullanır. Gerçek tamamlanan operasyonlar actualWipOperations'tan gelir. Torna tamamlanınca registerTurningCompletion WIP lotu ve hareket kaydı üretir. completeWipOperation sonraki aşamaya ilerletir, miktarı/resource uygunluğunu doğrular; blokaj ve serbest bırakma ayrı hareketlerdir. Üretim tamamlanması otomatik müşteri teslimi değildir. Notlar şarj yolculuğu ile ilişkilidir. Belirli şarj sorusunda seçili iş/operasyon ve lotu inspect_state ile incele. deliveredChargeJourneyJobs projects delivered quantities independent of terminal lot stage; archivedDelivery marks display-only rows and prevents completion actions. Legacy history fallback deduplicates IDs and avoids lots already represented by source history IDs. Actual waiting intervals require previous.actual. Compact planned lane respects plannedJourneyRange. journeyVisibleQuantity uses remainingQuantity/availableQuantity for active work; filters and counts are registered in Ravi context. ProcessPlanningView journey-filter-count displays mode-specific count provenance; paired filters and subdued process colors are styled in frontend/app/globals.css.",
+      "implementationNotes": "Şarj Yolculuğu ekranı iş emri/şarj/ürün aramasıyla seçili şarjın fiili ve planlanan operasyonlarını gösterir; aktif ve sevk edilen listeleri ayrılır. İkincil çalışma alanları WIP ve proses ana verisidir. buildDownstreamProcessPlan ürün rotası, kaynak kapasitesi, setup, kuyruk bağımlılığı ve bekleme işgünlerini kullanır. Gerçek tamamlanan operasyonlar actualWipOperations'tan gelir. Torna tamamlanınca registerTurningCompletion WIP lotu ve hareket kaydı üretir. completeWipOperation sonraki aşamaya ilerletir, miktarı/resource uygunluğunu doğrular; blokaj ve serbest bırakma ayrı hareketlerdir. Üretim tamamlanması otomatik müşteri teslimi değildir. Notlar şarj yolculuğu ile ilişkilidir. Belirli şarj sorusunda seçili iş/operasyon ve lotu inspect_state ile incele. deliveredChargeJourneyJobs projects delivered quantities independent of terminal lot stage; archivedDelivery marks display-only rows and prevents completion actions. Legacy history fallback deduplicates IDs and avoids lots already represented by source history IDs. Actual waiting intervals require previous.actual. Compact planned lane respects plannedJourneyRange. journeyVisibleQuantity uses remainingQuantity/availableQuantity for active work; filters and counts are registered in Ravi context. ProcessPlanningView journey-filter-count displays mode-specific count provenance; paired filters and subdued process colors are styled in frontend/app/globals.css. WipManualActionDialog captures a cloned lot and wipActionSignature, shows kind/lot/quantity/question/waiting/error through useRaviScreenContext. createProductionActions deliverJourneyWip and releaseJourneyBuffer are coordinator-owned atomic commits. completeWipDelivery reuses allocateProductionHistoryEntry for the original open archive entry, then consumes only the selected lot through deliverWipQuantity; stale lot signatures reject without commit. releaseWipBuffer accepts only supported buffer stages with actual predecessor end <= occurredAt, requires confirmation, and logs buffer-released with previousReadyAt. Partial early delivery restores the remainder readiness and records the override quantity only for delivered pieces. Shared scheduler buffer constants are unchanged. These are ordinary production actions under existing user permissions, not admin settings or Ravi tools.",
       "userSources": [
         "Şarj Yolculuğu: seçili şarj ve proses durumları",
         "Tezgahlar: Sıradaki işi üretime al, İş tamamlandı",
-        "Üretim arşivi"
+        "Üretim arşivi",
+        "Şarj Yolculuğu / Yarı mamül → Teslimatı tamamla → Proses kontrol ve paketleme tamamlandı mı? → Evet, teslimatı tamamla",
+        "Beklemeyi tamamla → kontrol / yıkama onayı; Hayır, vazgeç; Geri al"
       ]
     },
     {
@@ -614,7 +630,7 @@
         "arşiv",
         "fiili üretim"
       ],
-      "body": "Üretim arşivi üst çubuktan açılır; gerçekten tamamlanan işler ve teslim/yarı mamül durumları buradadır. Miktar, tarih, durum ve tahsis bu ekran üzerinden düzenlenir. Teslim edilen miktar siparişten düşülecekse siparişin kaynak tarihi ve seçilen teslimat aralığı önemlidir; aynı teslimat iki kez düşülmez. Yeni müşteri dosyası daha önceki sevkiyatları zaten içeriyorsa bu teslimatlar yeniden düşülmemelidir. Planlı bitiş tarihi, gerçek tamamlanma ve gerçek teslim tarihi farklıdır. Ravi kaydı açıklayabilir; kendisi değiştiremez. Şarj Yolculuğu → Arşiv sevk edilen miktarı ve mevcut proses geçmişini gösterir. Kısmi sevkte kalan aktif miktar ayrı görünür. Eski kayıtta bulunmayan prosesler veya plan tarihleri sonradan tahmin edilmez.",
+      "body": "Üretim arşivi üst çubuktan açılır; gerçekten tamamlanan işler ve teslim/yarı mamül durumları buradadır. Miktar, tarih, durum ve tahsis bu ekran üzerinden düzenlenir. Teslim edilen miktar siparişten düşülecekse siparişin kaynak tarihi ve seçilen teslimat aralığı önemlidir; aynı teslimat iki kez düşülmez. Yeni müşteri dosyası daha önceki sevkiyatları zaten içeriyorsa bu teslimatlar yeniden düşülmemelidir. Planlı bitiş tarihi, gerçek tamamlanma ve gerçek teslim tarihi farklıdır. Ravi kaydı açıklayabilir; kendisi değiştiremez. Şarj Yolculuğu → Arşiv sevk edilen miktarı ve mevcut proses geçmişini gösterir. Kısmi sevkte kalan aktif miktar ayrı görünür. Eski kayıtta bulunmayan prosesler veya plan tarihleri sonradan tahmin edilmez. Şarj Yolculuğu’ndaki Teslimatı tamamla da aynı üretim arşivine teslim edilen adedi kaydeder. Kısmi teslimatta açık arşiv miktarı ile seçili şarjın kalan miktarı birlikte azalır; diğer şarjların bakiyesi tüketilmez. Final kontrol ve paketleme onayı, GKM fiilen bittiyse teslimat tamponundan erken sevke izin verir.",
       "sources": [
         {
           "path": "frontend/features/planning/archive/ProductionArchiveDrawer.tsx"
@@ -634,13 +650,18 @@
         {
           "path": "frontend/lib/charge-journey-status.ts",
           "symbol": "deliveredChargeJourneyJobs"
+        },
+        {
+          "path": "frontend/lib/wip-manual-actions.ts",
+          "symbol": "completeWipDelivery"
         }
       ],
       "implementationNotes": "Üretim arşivi üst çubuktan her ekranda açılır. productionHistory fiili tamamlanan işleri tutar, production-archive filtre/özetleri üretir. inventoryStatus delivered, semi-finished gibi durumlar teslim ve eldeki üretimi ayırır. Kullanıcı statü, miktar/tarih ve tahsis işlemlerini arşivde yapar; operasyon commit sınırı undo/geçmiş/WIP/senkronizasyonu birlikte yönetir. delivery-deduction teslim edilen kayıtları ithalat metadata'sındaki tarih kapsamına göre siparişten düşer ve aynı teslimi tekrar düşmemeyi gözetir. Snapshot öncesi sevkiyatı yeni dosyadan tekrar düşmemek gerekir. production_archive_history ayrı sunucu geçmiş snapshot'larıdır. Ravi veri değiştirmez; açıklama için ilgili arşiv kayıtlarını okur. Release merge retains production archive regression helpers; current scenario application uses scenarioPlanningSeed/mergeScenarioWithLiveOperations, which preserve productionHistory plus WIP, movements and current jobs. Backend preserve_live_operations and durable production_archive_snapshots retain production main protections.",
       "userSources": [
         "Üst çubuk → Üretim arşivi",
         "Planı Çalıştır: teslimat düşümü seçenekleri",
-        "Müşteri Excel’i: Date"
+        "Müşteri Excel’i: Date",
+        "Şarj Yolculuğu → Teslimatı tamamla ve Üretim arşivi → teslim edilen / yarı mamül miktarı"
       ]
     },
     {
