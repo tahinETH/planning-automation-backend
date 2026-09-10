@@ -150,7 +150,7 @@ def test_material_requirement_uses_102_percent_and_marks_missing_weights(process
     assert "ara toplamı" in sheet["A10"].value
     assert "1 işin ağırlığı bilinmiyor" in sheet["A6"].value
     assert "plan güncel değil" in sheet["A6"].value
-    assert "1,02 / 1000" in sheet["A4"].value
+    assert "(1 + Iskarta Oranı / 100) / 1000" in sheet["A4"].value
 
 
 def test_material_totals_preserve_precision_and_station_scope():
@@ -225,7 +225,7 @@ def test_turning_materials_are_inline_scoped_and_missing_is_explicit():
     assert "Bilinen ara toplam" in sheet["A18"].value
     assert "1 ağırlık eksik" in sheet["A18"].value
     assert "3,289.928" in sheet["A18"].value
-    assert "1,02 / 1000" in sheet["A5"].value
+    assert "(1 + Iskarta Oranı / 100) / 1000" in sheet["A5"].value
     assert "Plan güncel değil" in sheet["A5"].value
     assert sheet["M6"].value.startswith("C-1")
     assert sheet["W8"].value == pytest.approx(365.5476)

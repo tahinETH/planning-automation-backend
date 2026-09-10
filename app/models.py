@@ -159,6 +159,7 @@ class OverviewOperationResource(BaseModel):
 
 
 class OverviewOperationPlan(BaseModel):
+    scrapPercent: float = Field(default=2, ge=0, le=100, allow_inf_nan=False)
     process: Literal["turning", "drilling", "deburring", "gkm"]
     label: str = Field(max_length=60)
     totalQuantity: int = Field(ge=0)

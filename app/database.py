@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .production_merge import merge_production_refresh
 from .product_weights import initial_product_weights, preserve_missing_weights, validate_product_weights
+from .raw_materials import initial_raw_material_settings, validate_raw_material_settings
 
 import hashlib
 import json
@@ -171,6 +172,10 @@ def init_database() -> None:
         ).fetchone()
         if current_state is not None:
             initial_seed = _loads(current_state["seed_json"])
+            if "rawMaterialSettings" not in initial_seed:
+                initial_seed["rawMaterialSettings"] = initial_raw_material_settings()
+                db.execute("UPDATE planning_state SET seed_json=?, updated_at=? WHERE state_key='default'",
+                           (json.dumps(initial_seed, ensure_ascii=False), now_iso()))
             if "productWeights" not in initial_seed:
                 initial_seed["productWeights"] = initial_product_weights()
                 db.execute("UPDATE planning_state SET seed_json=?, updated_at=? WHERE state_key='default'",
@@ -294,7 +299,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights")
+PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -417,6 +422,8 @@ def save_planning_state(
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
         if "productWeights" in seed:
             validate_product_weights(seed["productWeights"])
+        if "rawMaterialSettings" in seed:
+            validate_raw_material_settings(seed["rawMaterialSettings"])
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(

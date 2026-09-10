@@ -73,6 +73,11 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
 
 
 def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
+    materials = data.get("rawMaterialSettings") or {}
+    stocks = workbook.create_sheet("Hammadde Stokları")
+    _append_rows(stocks, ["Hammadde kodu", "Ambar stoğu (kg)", "Güncelleme Tarihi"],
+                 [[row.get("materialCode"), row.get("kg"), materials.get("stockDate", "")]
+                  for row in materials.get("stocks", [])])
     weights = workbook.create_sheet("Ürün Ağırlıkları")
     _append_rows(weights, ["Tip no", "Ürün adı", "Hammadde kodu", "Hammadde açıklaması", "Hammadde ağırlığı (g)"],
                  [[row.get("product"), row.get("productName"), row.get("materialCode"), row.get("materialName"), row.get("grams")]
@@ -80,6 +85,7 @@ def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     setup = data.get("setupSettings", {}) or {}
     setup_sheet = workbook.create_sheet("Genel Ayarlar")
     _append_rows(setup_sheet, ["Ayar", "Değer"], [
+        ["Iskarta Oranı (%)", materials.get("scrapPercent", 2)],
         ["Vardiya süresi (saat)", setup.get("shiftHours", "")],
         ["Aynı çap setup (saat)", setup.get("sameDiameterHours", "")],
         ["Aynı aile, farklı çap setup (saat)", setup.get("sameFamilyDifferentDiameterHours", "")],
