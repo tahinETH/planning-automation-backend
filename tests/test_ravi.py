@@ -145,6 +145,21 @@ def test_turning_shift_rate_guidance_is_retrievable_with_visible_units():
     assert "machineShiftRates" not in topic["body"]
 
 
+def test_delivery_coverage_guidance_exposes_operator_choices_without_implementation_details():
+    results = knowledge.search_topics("dışarıda kalan teslimatlar yeniden şarj teslimat kapsamı")
+    assert "plan-run-options" in [topic["id"] for topic in results[:3]]
+    session = ToolSession(None, False)
+    topic = session.execute("read_knowledge", '{"topic_id":"plan-run-options"}')
+    assert "Excel yükleme anından itibaren teslimatları dahil et" in topic["body"]
+    assert "saniye ve milisaniyeyi korur" in topic["body"]
+    assert "sonraki yeni çalıştırma için otomatik onay sayılmaz" in topic["body"]
+    assert "şarj silmez" in topic["body"]
+    assert any("Eksik düşülen adet" in source for source in topic["userSources"])
+    assert "reviewedDeliveryCoverageKey" not in topic["body"]
+    assert "implementationNotes" not in topic and "sources" not in topic
+    assert session.references
+
+
 def test_provider_failure_is_sanitized_and_admission_released(client, monkeypatch):
     async def fail(*_args):
         raise httpx.HTTPError("test-provider-secret")

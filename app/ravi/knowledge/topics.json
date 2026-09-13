@@ -1307,9 +1307,13 @@
         "planı çalıştır",
         "geçmiş ihtiyaç dahil",
         "devam planı",
-        "üretim aralığı"
+        "üretim aralığı",
+        "dışarıda kalan teslimatlar",
+        "yeniden şarj",
+        "teslimat kapsamı",
+        "mükerrer şarj"
       ],
-      "body": "Planı Çalıştır penceresinde hafta aralıkları, üretim başlangıcı/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni planda geçmiş ihtiyaç ve kapsamdan önce üretim başlangıçta kapalıdır; devam planı önceki tercihleri korur. Yeni planın varsayılan amacı en erken bitiştir. Teslimat düşümünün başlangıç tercihi önceki seçim veya yüklenmiş sipariş bilgisine bağlıdır; teslimat başlangıcı ve o başlangıç anının dahil edilmesi ayrıca önemlidir. Kullanıcı hangi kutuyu seçmişse onu esas al. Eski veya genel varsayılanı mevcut seçim diye söyleme.\nYeni planın net sipariş adedi, teslimat düşümünün son anı ve Standart planlama için seçilen ortak Termin kaydetme veya ekranı yeniden açma sırasında değiştirilmez. Tekrar planlama gross ithalat ihtiyacından teslimatları yeniden ve bir kez düşer. Manuel üretim tarihleri gerçek takvim tarihi olmalıdır ve tezgahın operasyonel müsaitlik sınırını erkene alamaz. Devam aralıkları bitişik ve sıralı olmalıdır. Eski motorla hesaplanmış veya yeniden hesaplama bekleyen plan, kayıtlı işleri gösterse de güncel sayılmaz.",
+      "body": "Planı Çalıştır penceresinde hafta aralıkları, üretim başlangıcı/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni planda geçmiş ihtiyaç ve kapsamdan önce üretim başlangıçta kapalıdır; devam planı önceki tercihleri korur. Yeni planın varsayılan amacı en erken bitiştir. Teslimat düşümünün başlangıç tercihi önceki seçim veya yüklenmiş sipariş bilgisine bağlıdır; teslimat başlangıcı ve o başlangıç anının dahil edilmesi ayrıca önemlidir. Kullanıcı hangi kutuyu seçmişse onu esas al. Eski veya genel varsayılanı mevcut seçim diye söyleme.\nYeni planın net sipariş adedi, teslimat düşümünün son anı ve Standart planlama için seçilen ortak Termin kaydetme veya ekranı yeniden açma sırasında değiştirilmez. Tekrar planlama gross ithalat ihtiyacından teslimatları yeniden ve bir kez düşer. Manuel üretim tarihleri gerçek takvim tarihi olmalıdır ve tezgahın operasyonel müsaitlik sınırını erkene alamaz. Devam aralıkları bitişik ve sıralı olmalıdır. Eski motorla hesaplanmış veya yeniden hesaplama bekleyen plan, kayıtlı işleri gösterse de güncel sayılmaz.\nTeslimat başlangıç tarihi ve saati gerçek zaman damgasıyla karşılaştırılır; saatler Türkiye saatidir. Alanı değiştirmeden bırakmak kayıtlı saniye ve milisaniyeyi korur; elle dakika seçmek o dakikanın başlangıcını seçer. Eski kayıtlarda gerçek teslim saati yoksa kayıtlı durum zamanı veya teslim gününün başlangıcı kullanılır; bu, kesin sevk saati kanıtı değildir.\nExcel yüklemesinden planın teslimat son anına kadar olan bazı teslimatlar seçili başlangıç, Başlangıç anını dahil et veya Teslimatları ihtiyaçtan düş tercihi yüzünden dışarıda kalıyorsa kontrol yapılır. Mevcut üretim, yarı mamül, uygulanabilir açılış stoğu ve korunan şarjlar bir kez sayıldıktan sonra bu dışlama yeni şarj miktarını artırıyorsa Dışarıda kalan teslimatlar uyarısı görünür. Eksik düşülen adet, bu seçimle yeni üretim ve teslimatlar dahil edilirse yeni üretim miktarı ürün bazında gösterilir. Teslimatları göster ayrıntısında iş emri, adet ve teslim zamanı vardır. Yeni üretim rakamları mevcut yarım şarj yuvarlamasını kullanır; tezgaha yerleşme veya Termin garantisi değildir. Available quantity müşteri Balance içinde zaten sayıldığı için tekrar düşülmez.\nPlanı oluştur ve Seçenekleri karşılaştır, bu fark ele alınana kadar kapalıdır. Yeni planda Excel yükleme anından itibaren teslimatları dahil et ile kapsam düzeltilebilir. Teslimatlar Excel ihtiyacına zaten yansıtılmışsa kullanıcı gösterilen kayıtlar için bunu açıkça doğrulayıp seçili kapsamla devam edebilir. Doğrulama başlangıçta seçili değildir; hesap, ilgili kayıtlar, Excel veya filtre değişince yeniden gerekir. Sonuçla saklanır, sonraki yeni çalıştırma için otomatik onay sayılmaz. Excel yüklemesinden önceki teslimatlar kendiliğinden eklenmez; bunlar yeni Excel bakiyesinde zaten bulunabilir.\nDevam planı önceki teslimat filtresini ve son anını korur. Sonraki aşamada yeni bir dışlama riski oluşursa aşama uygulanmadan durur. Filtreyi değiştirmek için Yeni plan başlat gerekir; kilitli işler korunur. Bu kontrol kayıtlı eski planı kendiliğinden düzeltmez veya şarj silmez. Dışlama yeni şarj bütçesini değiştirmiyorsa bu uyarı çıkmaz; uyarının yokluğu tüm fiziksel stokların veya eski şarjların doğru olduğunun kanıtı değildir.",
       "sources": [
         {
           "path": "frontend/features/planning/board/PlanRunDialog.tsx"
@@ -1329,11 +1333,39 @@
         {
           "path": "frontend/lib/plan-run.ts",
           "symbol": "planRequiresRecalculation"
+        },
+        {
+          "path": "frontend/lib/delivery-deduction.ts",
+          "symbol": "calculateDeliveryDeduction"
+        },
+        {
+          "path": "frontend/lib/delivery-deduction.ts",
+          "symbol": "effectiveDeliveryTimestamp"
+        },
+        {
+          "path": "frontend/lib/delivery-coverage-review.ts",
+          "symbol": "reviewDeliveryCoverage"
+        },
+        {
+          "path": "frontend/lib/delivery-coverage-review.ts",
+          "symbol": "assertDeliveryCoverageReviewed"
+        },
+        {
+          "path": "frontend/lib/delivery-coverage-review.ts",
+          "symbol": "deliveryCutoffFromInput"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "committedProductionQuantities"
         }
       ],
-      "implementationNotes": "Sayfa başlığındaki Planı Çalıştır diyaloğunda hafta aralıkları, üretim başlangıç/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni plan için includePriorBacklog ve allowProductionBeforeScope başlangıçta false; devam planında önceki plan metadata tercihi kullanılır. Varsayılan amaç earliest-finish, devam planı eski amacı korur. deductDeliveries önceki filtreden veya sipariş import metadata varlığından başlar; teslim başlangıç zamanı ve başlangıç anını dahil etme ayrı seçeneklerdir. executePlanRun ve executeNextPlanStage bu istekle mevcut motoru çalıştırır. Checkbox değerini ekran context plan-run-dialog içinden oku; yardımcı fonksiyonun varsayılanını kullanıcının seçimi sanma. PLAN_ENGINE_VERSION=4; planRequiresRecalculation checks persisted planNeedsRecalculation and old/missing engine metadata. executePlanRun and executeNextPlanStage run assertPlanInputs/assertPlanResult before application. Strict calendar-day validation rejects rollover dates. Manual range availableStart is max(operational start, requested start).",
+      "implementationNotes": "Sayfa başlığındaki Planı Çalıştır diyaloğunda hafta aralıkları, üretim başlangıç/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni plan için includePriorBacklog ve allowProductionBeforeScope başlangıçta false; devam planında önceki plan metadata tercihi kullanılır. Varsayılan amaç earliest-finish, devam planı eski amacı korur. deductDeliveries önceki filtreden veya sipariş import metadata varlığından başlar; teslim başlangıç zamanı ve başlangıç anını dahil etme ayrı seçeneklerdir. executePlanRun ve executeNextPlanStage bu istekle mevcut motoru çalıştırır. Checkbox değerini ekran context plan-run-dialog içinden oku; yardımcı fonksiyonun varsayılanını kullanıcının seçimi sanma. PLAN_ENGINE_VERSION=4; planRequiresRecalculation checks persisted planNeedsRecalculation and old/missing engine metadata. executePlanRun and executeNextPlanStage run assertPlanInputs/assertPlanResult before application. Strict calendar-day validation rejects rollover dates. Manual range availableStart is max(operational start, requested start). DeliveryDeductionPreview compares the selected deduction with the same calculator including omitted post-import deliveries up to the same endAt; older explicitly selected records remain in the comparison. reviewDeliveryCoverage normalizes route/interruption commitments, uses committedProductionQuantities and roundToBatchByFraction, and requires review only when the new quantity budget increases. executePlanRun (including comparePlanRuns callers) verifies reviewedDeliveryCoverageKey against current inputs before scheduling; executeNextPlanStage rejects an unreviewed risk without mutation. PlanRunMetadata.deliveryCoverageReview stores reviewedAt/key for audit, not implicit future consent. The key covers import identity, selected filter except endAt, relevant quantities and matched omitted records; wall-clock passage alone does not invalidate it. deliveryCutoffFromInput preserves an untouched ISO instant. plan-run-dialog Ravi context reports the review products, at most 20 excluded records plus total count, exact cutoff and pending state. No automatic saved-plan recalculation, production data repair or live-model guarantee.",
       "userSources": [
-        "Planı Çalıştır: kapsam, üretim tarihleri ve seçim kutuları"
+        "Planı Çalıştır: kapsam, üretim tarihleri ve seçim kutuları",
+        "Planı Çalıştır → Dışarıda kalan teslimatlar: Eksik düşülen adet, Bu seçimle yeni üretim, Teslimatlar dahil edilirse",
+        "Planı Çalıştır → Teslimatları göster: ürün, iş emri, adet ve Türkiye saatinde teslimat zamanı",
+        "Planı Çalıştır → Excel yükleme anından itibaren teslimatları dahil et ve Excel ihtiyacına yansıtılma doğrulaması",
+        "Sipariş Excel’i → 3. Overview (confirmed): Material, Balance (confirmed), Available quantity ve seçili CW haftaları"
       ]
     },
     {
