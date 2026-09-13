@@ -7,6 +7,12 @@
       "label": "Planlama"
     },
     {
+      "id": "manual-batch",
+      "view": "planning",
+      "label": "Manuel şarj ekle",
+      "focusId": "planning-manual-batch"
+    },
+    {
       "id": "processes",
       "view": "processes",
       "label": "Şarj Yolculuğu"
@@ -81,6 +87,13 @@
       "view": "settings",
       "label": "Hammadde Tüketim Tablosu",
       "focusId": "settings-tab-consumption",
+      "adminOnly": true
+    },
+    {
+      "id": "new-product-type",
+      "view": "parameters",
+      "label": "Yeni tip tanımla",
+      "focusId": "parameters-new-type",
       "adminOnly": true
     }
   ],
@@ -234,7 +247,7 @@
         "açılış stoku",
         "talep karşılama"
       ],
-      "body": "İhtiyaçlar her tip için termin sırasına konur. Stok veya üretimden gelen aynı adet yalnız bir kez, aynı tipin ihtiyacına ayrılır. İhtiyaç tarihine kadar hazır olan miktar zamanında, daha sonra hazır olan geç karşılamadır; hazır tarihi bilinmeyen miktar zamanında üretim diye gösterilmez. Daha ileri bir dönem seçmek önceki dönemlerin birikmiş ihtiyacını unutmak anlamına gelmez. Müşteri dosyasındaki net bakiyeden zaten düşülmüş stok ikinci kez düşülmez. Ekranların hesap kapsamı farklı olabileceğinden Sipariş adedi, teslimat çıktısındaki Sipariş ve Termininde karşılama etiketlerini birbirine karıştırma.",
+      "body": "İhtiyaçlar her tip için termin sırasına konur. Stok veya üretimden gelen aynı adet yalnız bir kez, aynı tipin ihtiyacına ayrılır. İhtiyaç tarihine kadar hazır olan miktar zamanında, daha sonra hazır olan geç karşılamadır; hazır tarihi bilinmeyen miktar zamanında üretim diye gösterilmez. Daha ileri bir dönem seçmek önceki dönemlerin birikmiş ihtiyacını unutmak anlamına gelmez. Müşteri dosyasındaki net bakiyeden zaten düşülmüş stok ikinci kez düşülmez. Ekranların hesap kapsamı farklı olabileceğinden Sipariş adedi, teslimat çıktısındaki Sipariş ve Termininde karşılama etiketlerini birbirine karıştırma.\nTorna otomatik planında geç hazır olacak mevcut üretim de toplam adet ihtiyacına ayrılır; geçlik termin eksiği olarak kalır. Aynı stoğu veya şarjı birden fazla siparişin üretim kapsamına tekrar eklemek yasaktır. Şarj yuvarlama nedeniyle kalan küçük açık ayrıca görünür; hammadde ıskarta yüzdesi müşteri adedini artırmaz.",
       "sources": [
         {
           "path": "frontend/lib/demand-planning.ts",
@@ -246,6 +259,10 @@
         },
         {
           "path": "frontend/lib/delivery-deduction.ts"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "orderProductionBreakdown"
         }
       ],
       "implementationNotes": "deriveDemandRequirements ürün başına dönem/termin sırasıyla monoton efektif kümülatif hedeflerden artışları üretir. Kapsam filtresi hesaplamadan sonra uygulanır, önceki dönem birikimi unutulmaz. allocateProductionOnce her stok/üretim kaynağını en fazla bir kez, aynı ürünün taleplerine dağıtır; availability tarihine göre on-time/late/undated sınıflarına ayırır. Açılış stoku tarihsiz olabilir; current-production ve planned-production için hazır tarihi zorunludur. Müşteri net bakiye dosyası kullanılırken brüt stok düşümünü tekrar yapmamak gerekir. Ekranda kullanılan akışı doğrulamak için ilgili çağıran modülü oku; genel allocation yardımcısını tüm ekranların formülü gibi anlatma.",
@@ -345,7 +362,7 @@
         "tezgah seçimi",
         "Gantt"
       ],
-      "body": "Planlama’daki torna çizelgesi siparişleri şarj büyüklüğü, uygun aktif tezgâhlar, günlük üretim hızları, tezgâh tercihleri, mevcut işler, kilitler ve çalışma takvimiyle yerleştirir. Parametreler’deki ürün/çap/aile değişimleri hazırlık süresini etkiler. Vardiya, tatil ve bakım nedeniyle takvimdeki bitiş yalnız adet bölü hız hesabı değildir. Manuel taşıma sıra ve tezgâh yerleşimini yeniden değerlendirir; kilit ihlali reddedilir. Otomatik plan ile manuel değişiklikler karşılaştırılabilir. Ravi plan çalıştırmaz veya şarj taşımaz; ilgili kontrolü gösterir.",
+      "body": "Planlama’daki torna çizelgesi siparişleri şarj büyüklüğü, uygun aktif tezgâhlar, vardiyalık üretim hızları, tezgâh tercihleri, mevcut işler, kilitler ve çalışma takvimiyle yerleştirir. Parametreler’deki ürün/çap/aile değişimleri hazırlık süresini etkiler. Vardiya, tatil ve bakım nedeniyle takvimdeki bitiş yalnız adet bölü hız hesabı değildir. Manuel taşıma sıra ve tezgâh yerleşimini yeniden değerlendirir; kilit ihlali reddedilir. Otomatik plan ile manuel değişiklikler karşılaştırılabilir. Ravi plan çalıştırmaz veya şarj taşımaz; ilgili kontrolü gösterir.\nYeni otomatik üretim her tipin seçili ihtiyacından mevcut Torna işi, yarı mamul ve korunan şarjlar düşüldükten sonra belirlenir. Geç bitecek iş miktar ihtiyacını karşılar; termin gecikmesi aynı parçayı ikinci kez üretme gerekçesi değildir. Aynı tipte birden çok sipariş varsa stok ve üretim bir kez dağıtılır, fazlalık son siparişte görünür. Şarjın yarısından küçük kalan ihtiyaç aşağı, yarısı veya fazlası yukarı yuvarlanır; bu nedenle küçük bir eksik görünür kalabilir.\nStandart planlama seçili haftaları tek son hedefte toplar; ürün/çap kampanyası, setup ve kapasiteye göre yerleştirir, yeni işleri seçili üretim penceresine sığdırır. En erken bitiş uygun tezgahta setup dahil en erken bitişi seçer. Minimum setup hazırlık süresini azaltır ve kontroller izin verirse kampanya birleştirir. Dengeli planlama tahmini termin, kıt tezgah kapasitesi, kullanım ve setup arasında seçim yapar. Tüm uygun tezgahlar uygun en kısa kuyruğu, sonra bitişi seçer. Hepsi aynı yeni üretim sınırını kullanır; hiçbirinin tüm rota için matematiksel en iyi teslimatı garanti ettiği söylenmez. Standart dışındaki müşteri planlarında seçili son Cumartesiden sonraki 28 gün geç üretimi göstermek için kullanılabilir; sonraki haftaların siparişleri bu yüzden eklenmez. Gerçek teslimat için Delme, Çapak Alma, GKM ve paketleme hazır tarihini ayrıca değerlendir.\nKorunan üretimden sonra şarj karşılığı sıfırsa ek şarj veya ek planlanamayan iş kaydı oluşturulmaz. Kapasite bulunmaması gereksiz ek üretim talebini gizlememelidir; gerçek termin gecikmesi ilgili siparişte görünür kalır. Planlama ve Tezgahlar → Torna ekranlarında Manuel şarj ekle, aktif sipariş şartı olmadan parametrelerde tanımlı tipleri gösterir. Adet standart şarjdan gelir ve bu manuel kayıt için pozitif tam sayı olarak değiştirilebilir; tezgah ve kuyruk sırası seçilir. Eksik parametreler açıklanır; ayrıntılar manuel şarj ekleme konusundadır.\nÜretime ara verildi. kaydı olan Torna şarjının yalnız kalan adedi korunmuş üretimdir; Planı Temizle, yeni plan veya yetersiz kapasite bu kaydı düşürmez. Kalan adet standart şarja tekrar yuvarlanmaz; üretilen yarı mamül ile ayrı ve birer kez sayılır.\nÜretim akışını düzenle ile kabul edilmiş akış tercihi olan Torna şarjları da yeni planlarda kimlik, adet ve yerleşimiyle korunur. Sonraki prosesler için kaydedilmiş sıra geçerlidir; sipariş miktarı ikinci kez üretilmez. Tercihi aynı ekrandan kaldırmak veya kilitsiz şarjı Planı Temizle ile silmek ayrı açık işlemlerdir.",
       "sources": [
         {
           "path": "frontend/lib/planning.ts",
@@ -360,13 +377,43 @@
         },
         {
           "path": "frontend/features/planning/board/PlanningView.tsx"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "orderProductionBreakdown"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "clearPlanKeepingLocks"
+        },
+        {
+          "path": "frontend/lib/plan-integrity.ts",
+          "symbol": "assertPlanResult"
+        },
+        {
+          "path": "frontend/features/planning/shared/ManualBatchDialog.tsx",
+          "symbol": "ManualBatchDialog"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "addBatchManually"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "retainRouteCommitments"
         }
       ],
-      "implementationNotes": "Planlama ekranı torna şarjlarını Gantt üzerinde gösterir. runOptimizedScenario ve plan-run akışı siparişleri ürün parametreleri, şarj büyüklüğü, uygun/aktif tezgahlar, ürün × tezgah günlük hızları, tercih/kısıt kuralları, mevcut işler, kilitler ve takvim üzerinden planlar. Setup ürün/çap/aile değişimine ve seed.setupSettings değerlerine bağlıdır; mevcut değeri okumadan sabit varsayma. Vardiya, tatil, bakım ve istisnalar çalışma süresini etkiler; takvim süresi salt quantity/rate değildir. Manuel taşıma kuyruk/tezgah/sırayı yeniden hesaplatır; kilitli işleri ihlal eden işlemler reddedilir. Otomatik plan ile manuel değişiklikler karşılaştırılabilir. Ravi planı çalıştıramaz veya şarjı taşıyamaz; ilgili ekrana yönlendirir. Ayrıntılı karar sorularında source-map içinden ilgili fonksiyonun gerçek kodunu oku. Downstream Gantt taşıma için process-gantt-placement konusundaki istenen/hesaplanan zaman, kuyruk ekleme ve onay kurallarını kullan.",
+      "implementationNotes": "Planlama ekranı torna şarjlarını Gantt üzerinde gösterir. runOptimizedScenario ve plan-run akışı siparişleri ürün parametreleri, şarj büyüklüğü, uygun/aktif tezgahlar, ürün × tezgah günlük hızları, tercih/kısıt kuralları, mevcut işler, kilitler ve takvim üzerinden planlar. Setup ürün/çap/aile değişimine ve seed.setupSettings değerlerine bağlıdır; mevcut değeri okumadan sabit varsayma. Vardiya, tatil, bakım ve istisnalar çalışma süresini etkiler; takvim süresi salt quantity/rate değildir. Manuel taşıma kuyruk/tezgah/sırayı yeniden hesaplatır; kilitli işleri ihlal eden işlemler reddedilir. Otomatik plan ile manuel değişiklikler karşılaştırılabilir. Ravi planı çalıştıramaz veya şarjı taşıyamaz; ilgili ekrana yönlendirir. Ayrıntılı karar sorularında source-map içinden ilgili fonksiyonun gerçek kodunu oku. Downstream Gantt taşıma için process-gantt-placement konusundaki istenen/hesaplanan zaman, kuyruk ekleme ve onay kurallarını kullan. Engine v4 separates quantity from deadline feasibility: cumulative residual minus all committed supply is rounded once per product, independent of readiness. orderProductionBreakdown allocates each physical piece once across same-product orders. New scenario IDs skip references from WIP, overrides and current process jobs. Legacy V51 behavior still has its 14-slot constraint; optimized modes do not. The old late-checkpoint test intentionally required duplicate output; user-requested reliability change replaces that expectation. assertPlanResult also counts new proposal records: unplanned attempts carry quantity=0, so a zero rounded budget permits no new records for a configured product. Staging/prod comparison showed full queues can mask duplicate planning through zero-quantity unplanned warnings; meaningful capacity warnings with a positive residual remain valid. The shared ManualBatchDialog and addBatchManually now implement order-independent manual admission and exact user quantities; see manual-batch topic for scope, preserved commitments and failure handling.",
       "userSources": [
         "Planlama çizelgesi",
         "Parametreler: ürün, hız ve şarj bilgileri",
-        "Tezgahlar: mevcut iş, kuyruk, vardiya ve bakım"
+        "Tezgahlar: mevcut iş, kuyruk, vardiya ve bakım",
+        "Planlama / Tezgahlar → Torna → Manuel şarj ekle → Tip no / Tezgah / Adet / Kuyruk sırası",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler",
+        "Planı Çalıştır → akış tercihi olan şarjlar; Üretim akışını düzenle"
       ]
     },
     {
@@ -379,7 +426,7 @@
         "termin içi",
         "hazır miktar"
       ],
-      "body": "Torna işi bitince ürün mutlaka teslimata hazır olmaz. Şarj Yolculuğu’nda ürünün uygun delme/çapak alma adımları, GKM ve son bekleme süresi tamamlanır. Rotalı işte GKM sonrasında 1 fabrika işgünü beklenir; çalışma takvimi dikkate alınır. Ayrıntılı rotada temsil edilmeyen planlı torna şarjları için geçici tahmin, Pazarları atlayan 4 günlük teslimata hazırlık süresidir. Aynı şarj veya yarı mamül iki kez sayılmaz; blokeli/sınıflandırılmamış yarı mamül hazır kabul edilmez. Aynı tipin hazır üretimi siparişlerine bir kez dağıtılır. Hazır gün termin günü veya öncesiyse zamanında karşılar. Müşteri net bakiye dosyası yoksa açılış stoku ayrıca hesaba girebilir. Siparişler’de İlk teslimata hazır, Termin içinde ve Termin sonrası tahmini gösterir; Üretim arşivi içindeki teslim edildi kaydı ise gerçek sevkiyattır.",
+      "body": "Torna işi bitince ürün mutlaka teslimata hazır olmaz. Şarj Yolculuğu’nda ürünün uygun delme/çapak alma adımları, GKM ve son bekleme süresi tamamlanır. Rotalı işte GKM sonrasında 1 fabrika işgünü beklenir; çalışma takvimi dikkate alınır. Ayrıntılı rotada temsil edilmeyen planlı torna şarjları için geçici tahmin, Pazarları atlayan 4 günlük teslimata hazırlık süresidir. Aynı şarj veya yarı mamül iki kez sayılmaz; blokeli/sınıflandırılmamış yarı mamül hazır kabul edilmez. Aynı tipin hazır üretimi siparişlerine bir kez dağıtılır. Hazır gün termin günü veya öncesiyse zamanında karşılar. Müşteri net bakiye dosyası yoksa açılış stoku ayrıca hesaba girebilir. Siparişler’de İlk teslimata hazır, Termin içinde ve Termin sonrası tahmini gösterir; Üretim arşivi içindeki teslim edildi kaydı ise gerçek sevkiyattır. Yeni tip akışında açıkça seçilmiş rotalarda pasif prosesler atlanır; aileye ait eski varsayılan sıra zorunlu değildir. Tanımlı beklemeler son aktif öncüden hesaplanır. Teslimat son aktif proses ve Paketleme & Final Kontrol sonrasındadır; GKM yalnız Aktif seçildiyse gereklidir. Torna pasif tip için yeni Torna üretimi açılmaz; mevcut gerçek yarı mamul esas alınır. Eski tipler ve gerçekleşen kayıtlar otomatik değiştirilmez.\nYarım üretimde sonraki prosesler manuel seçilene veya ara verilen üretim tamamlanana kadar teslimata hazır tarih verilmez. Üretime ara verildi. uyarısı bir rota parametresi hatası değildir; gerçek biten ve kalan adetler miktar hesabında ayrıdır.",
       "sources": [
         {
           "path": "frontend/lib/delivery-calendar.ts",
@@ -396,13 +443,38 @@
         {
           "path": "frontend/lib/delivery-readiness.ts",
           "symbol": "buildOrderDeliveryResults"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        },
+        {
+          "path": "frontend/lib/process-master-data.ts",
+          "symbol": "productProcessRoute"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "buildDownstreamProcessPlan"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "advanceStage"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completedDeliveryRouteEnd"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
-      "implementationNotes": "Torna bitişi, teslimata hazır tarih ve gerçek sevkiyat farklıdır. buildDeliveryReadinessEvents downstream rotasını kullanır: torna → uygun delme/çapak alma operasyonları → GKM → son tampon. ROUTED_DELIVERY_BUFFER_WORKDAYS şu anda 1 fabrika işgünüdür; tatil ve açılmış vardiyalar isFactoryWorkday ile hesaba katılır. Rota tarafından temsil edilmeyen planlı torna şarjları için TURNING_DELIVERY_LEAD_WORKDAYS=4, pazar atlayan turningDeliveryReadyAt fallback'i vardır. Aynı şarj/WIP iki kez sayılmaz. Blokeli/sınıflandırılmamış WIP teslimata hazır sayılmaz. buildOrderDeliveryResults kaynakları aynı ürünün siparişleri arasında bir kez dağıtır, son siparişe artan miktarı verir; hazır gün <= termin olan adet onTimePlanned, bunun quantity farkı onTimeDifference. Müşteri net dosyası yokken openingStock eklenir. Bu sonuç tahmindir; delivered statüsündeki gerçek kayıtla eş anlamlı değildir.",
+      "implementationNotes": "Torna bitişi, teslimata hazır tarih ve gerçek sevkiyat farklıdır. buildDeliveryReadinessEvents downstream rotasını kullanır: torna → uygun delme/çapak alma operasyonları → GKM → son tampon. ROUTED_DELIVERY_BUFFER_WORKDAYS şu anda 1 fabrika işgünüdür; tatil ve açılmış vardiyalar isFactoryWorkday ile hesaba katılır. Rota tarafından temsil edilmeyen planlı torna şarjları için TURNING_DELIVERY_LEAD_WORKDAYS=4, pazar atlayan turningDeliveryReadyAt fallback'i vardır. Aynı şarj/WIP iki kez sayılmaz. Blokeli/sınıflandırılmamış WIP teslimata hazır sayılmaz. buildOrderDeliveryResults kaynakları aynı ürünün siparişleri arasında bir kez dağıtır, son siparişe artan miktarı verir; hazır gün <= termin olan adet onTimePlanned, bunun quantity farkı onTimeDifference. Müşteri net dosyası yokken openingStock eklenir. Bu sonuç tahmindir; delivered statüsündeki gerçek kayıtla eş anlamlı değildir. Explicit ProcessProduct.route is authoritative for newly created types; see new-product-type for the five-step workflow and completedDeliveryRouteEnd for its actual-delivery gate.",
       "userSources": [
         "Şarj Yolculuğu: prosesler ve beklemeler",
         "Siparişler: İlk teslimata hazır, Termin içinde, Termin sonrası",
-        "Üretim arşivi: teslim edilen kayıtlar"
+        "Üretim arşivi: teslim edilen kayıtlar",
+        "Parametreler → Yeni tip → Aktif / Pasif → Hammadde bilgileri",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -417,7 +489,7 @@
         "şarj nerede",
         "yıkama"
       ],
-      "body": "Şarj Yolculuğu bir şarjın torna, delme, çapak alma, yıkama/bekleme ve GKM adımlarındaki yerini gösterir; ürünün rotasında olmayan adımlar atlanır. Kuyruktaki planlı iş, gerçekten üretime başlamış iş ve tamamlanan yarı mamül farklıdır. Sıradaki işi üretime al için önceki prosesin gerçek tamamlanması ve malzemenin hazır olması gerekir; yalnız ileri tarihli plan yeterli değildir. Kısmi tamamlama yalnız tamamlanan adedi ilerletir, kalan adet önceki aşamada kalır. Bloke edilmiş miktar serbest bırakılana kadar kullanılamaz. Gerçek miktar, tarih, kaynak ve durum açıklamasını seçili şarjın görünür bilgilerine bağla; planlı işi teslim edilmiş diye anlatma. Şarj Yolculuğu’nda Mevcut proses ve Durum filtreleri vardır. Tip/adet özeti arama ve bu filtrelere uyan kayıtlar içindir: aktif şarjda kalan, arşivde sevk edilen adet sayılır; farklı durumların toplamı bekleyen stok diye anlatılmaz. Arşiv kısmi teslimatın sevk edilen kısmını da gösterir; kalanı Aktif’te kalır. Eski teslim kayıtlarında yalnız kaydedilmiş prosesler gösterilir; eksik geçmiş uyarılır, Plan kaydı yok tarihi uydurmaz. Tüm akışta üst sıra KALAN PLAN, alt sıra GERÇEKLEŞEN olarak gösterilir. Üst sıra yalnız henüz tamamlanmamış veya halen çalışan proseslerin hesaplanan başlangıç ve bitişlerini kullanır; tamamlanan proseslerin eski plan tarihleri bu sıraya karıştırılmaz. Tamamlanan adımlar gerçek tarihlerinde alt sırada görünür; eski planla karşılaştırma her prosesin kendi PLANLANAN / GERÇEKLEŞEN satırındadır. Böylece erken tamamlanmış Delme’nin eski plan tarihi GKM’den sonra görünerek kalan rota sanılmaz. Kısa gerçekleşen adımlar bekleme çubuklarının önünde görünür; tam tarihler çubuğun açıklamasındadır. Gerçekleşen beklemeler sarı, kalan plandaki Torna mavi, Delme turuncu, Çapak Alma mor, GKM mavi-yeşildir. Tüm akış yalnız prosesleri özetler; Paketleme & Final Kontrol ayrı satırındadır. Bu gösterim mevcut tarayıcı hesabını kullanır; plan güncel değilse güncel sonuç olarak yorumlanmaz ve kayıtlı tarihler bu gösterimle değiştirilmez. Paketleme & Final Kontrol mevcut bir iş günlük aşamanın adıdır. Şarj listesinde adet açıklaması Aktif için “Filtrelenen kalan adet”, Arşiv için “Filtrelenen sevk adedi” olarak gösterilir. Şarj Yolculuğu seçili şarj başlığında ve Yarı mamül alanında Paketleme & Final Kontrol aşamasındaki pozitif kalan miktar için Teslimatı tamamla bulunur. GKM’nin gerçekten tamamlanmış olması zorunludur; yalnız ileri tarihli plan veya manuel konum etiketi yeterli değildir. Bir iş günlük teslimat tamponu henüz dolmadıysa bu onayla yalnız teslim edilen adet için aşılır. Kalan adet aynı aşama ve hazır olma zamanıyla kalır. Teslimat Üretim arşivi ile yarı mamül bakiyesine birlikte yansır, Geri al ile birlikte geri alınabilir; planı yeniden çalıştırın uyarısı oluşur. Torna sonrası kalite, Center Pin Delme sonrası yıkama ve Çapak Alma sonrası GKM beklemelerinde Beklemeyi tamamla vardır. İlgili proses kontrol / yıkama onayı yalnız seçili şarjın bu beklemesini şimdi tamamlar; sonraki operasyonu tamamlanmış saymaz, üretime başlama ve tezgâh uygunluğu kuralları sürer. Normal planlama tüm tamponları kullanmaya devam eder; yeni şarjlar ve sonraki aşamalar için süreler değişmez. Blokeli, kapanmış veya önceki gerçek proses kaydı eksik şarjda tampon kaldırılamaz. Şarj onay penceresi açıkken değişirse yeniden açıp onaylamak gerekir. Hayır, vazgeç ve Esc hiçbir kayıt oluşturmaz. Şarj Yolculuğu → Arşiv’de Adet / Teslimat ve Önceki aşamaya geri al bulunur. Seçili şarjın birden fazla teslimatı varsa ilgili arşiv kaydı seçilir. Önceki aşamaya geri al, gerekçe ve Onayla ve geri al ile yalnız seçili teslimatı iptal edip Paketleme / Final Kontrol’e döndürür; GKM ve diğer gerçekleşmiş prosesler korunur. Kısmi teslimatta sevk edilmemiş miktar yerinde kalır; geri alınan miktar yeniden teslim edilebilir. Teslim adedi azaltılırsa fark Paketleme / Final Kontrol’e döner; artırılırsa aynı üretim kaydına bağlı açık miktardan, seçilen teslim tarihinde gerçekten hazır olan miktar tüketilir. Yeterli bakiye yoksa işlem kaydedilmez. Teslim tarihi ve saati tamamlanan proseslerden önce olamaz; düzeltilmiş tarih şarj arşivine yansır. Eski teslimatın şarj bakiyesi doğrulanamıyorsa geri alma ve teslimat düzeltmesi açıklamayla durur; eksik proses tarihleri uydurulmaz. Yarı mamulde Adet / Teslimat fiili adedi değiştirir; aynı tamamlanma günü seçildiğinde kayıtlı saat korunur. Sonraki prosese geçmiş şarjın Torna günü değiştirilemez; adedi düzeltilebilir. Birden fazla açık parçaya bölünmüş kayıtta Adet farkının uygulanacağı şarj seçilir; fark yalnız o parçaya uygulanır, diğer parçalar korunur. Çalışan işin kalan süresi yeni miktarla hesaplanır. Teslim / parçala penceresinde teslim adedi sıfır ve Yarı mamulde bırak seçiliyse yalnız adet düzeltmesi kaydedilebilir. Geçersiz giriş ve değişmiş arşiv kaydı hataları açık pencerenin içinde görünür. Başarılı işlemler ortak kayda ve Geri al geçmişine birlikte aktarılır, planı yeniden çalıştırın uyarısı oluşur; görünen eski plan otomatik olarak güncel sayılmaz. Delme, Çapak Alma ve GKM tamamlama ekranlarında Gerçek tamamlanma tarihi ve saati dakika hassasiyetinde, Türkiye saatiyle girilir. Varsayılan şu andır; Şimdi düğmesi alanı günceller. Geçmiş zaman seçilebilir, ancak şarjın gerçek hazır olma zamanından önce veya şu andan sonra tamamlanma kaydedilemez. Tezgahlar’daki mevcut iş ve kuyruk işi tamamlama, Şarj Yolculuğu ve Yarı mamül aynı tarih-saat girişini kullanır. Seçilen saat gerçekleşen kayda yazılır; planlanan bitiş saati veya sabit 23:00 eklenmez. Önceden kaydedilmiş tarihler otomatik değiştirilmez. Piston Delme tamamlanınca Çapak Alma aynı gerçek bitiş zamanında hazır olur; Center Pin yıkama, Çapak Alma sonrası GKM ve GKM sonrası teslimat beklemeleri mevcut kurallarla bu zamandan hesaplanır. Başarılı kayıt Geri al ile geri alınabilir; eski planın güncel olduğu varsayılmaz. Şarj Yolculuğu / Yarı mamül → Teslimatı tamamla, Üretim arşivi ile ortak FİİLİ ÜRETİM VE TESLİMAT formunu açar. Fiili tamamlanan adet, Gerçek tamamlanma tarihi, Teslim edilen adet ve Teslim tarihi ve saati girilir. Kalan miktar için Yarı mamulde bırak veya Iskartaya ayır seçilir; Teslimat ayrımını kaydet işlemi tamamlar. Yolculukta adetler yalnız seçili şarjın açık kalan miktarı içindir; önceki teslimatlar ve aynı kaydın diğer parçaları korunur. Teslim tarihi ve saati Türkiye saatidir, tamamlanan proseslerden önce veya şu andan sonra olamaz. Paketleme beklemesi seçilen teslim anında dolmamışsa Proses kontrol ve paketleme tamamlandı. onayı gerekir. Onay yalnız teslim edilen adedin beklemesini kaldırır; yarı mamulde kalan miktar önceki hazır olma zamanını korur. Iskartaya ayrılan kalan miktar Iskartalar listesinde görünür. Teslim adedi sıfırsa Yarı mamulde bırak yalnız adet düzeltmesini kaydeder; Iskartaya ayır seçili şarjın tamamını ıskartaya ayırır. Aynı Gerçek tamamlanma tarihi seçildiğinde kayıtlı Torna saati korunur; sonraki prosese geçmiş şarjın Torna günü değiştirilemez. Şarj veya bağlı arşiv kaydı pencere açıkken değişirse yeniden açmak gerekir. Vazgeç veya Esc kayıt oluşturmaz. İşlem arşiv ve yarı mamül bakiyesini ortak Geri al geçmişiyle birlikte günceller; planı yeniden çalıştırın uyarısı oluşur, eski plan güncel sayılmaz.",
+      "body": "Şarj Yolculuğu bir şarjın torna, delme, çapak alma, yıkama/bekleme ve GKM adımlarındaki yerini gösterir; ürünün rotasında olmayan adımlar atlanır. Kuyruktaki planlı iş, gerçekten üretime başlamış iş ve tamamlanan yarı mamül farklıdır. Sıradaki işi üretime al için önceki prosesin gerçek tamamlanması ve malzemenin hazır olması gerekir; yalnız ileri tarihli plan yeterli değildir. Kısmi tamamlama yalnız tamamlanan adedi ilerletir, kalan adet önceki aşamada kalır. Bloke edilmiş miktar serbest bırakılana kadar kullanılamaz. Gerçek miktar, tarih, kaynak ve durum açıklamasını seçili şarjın görünür bilgilerine bağla; planlı işi teslim edilmiş diye anlatma. Şarj Yolculuğu’nda Mevcut proses ve Durum filtreleri vardır. Tip/adet özeti arama ve bu filtrelere uyan kayıtlar içindir: aktif şarjda kalan, arşivde sevk edilen adet sayılır; farklı durumların toplamı bekleyen stok diye anlatılmaz. Arşiv kısmi teslimatın sevk edilen kısmını da gösterir; kalanı Aktif’te kalır. Şarj Yolculuğu → Arşiv, listede görünen sevk tarihine göre yeniden eskiye sıralanır; en son teslim edilen şarj en üsttedir. Kayıtlı saat varsa aynı gün içindeki sıra da bu saate uyar. Bir şarjın birden fazla kısmi teslimatı varsa son teslim tarihi kullanılır; Adet / Teslimat ile düzeltilen teslim tarihi sıralamaya yansır. Sıralama arama ve filtrelere uyan kayıtlar içindir. Aktif listesi ilk proses başlangıcına göre eskiden yeniye sıralanır. Eski kayıtlarda kesin teslim zamanı yoksa listede zaten kullanılan kayıtlı tarih esas alınır; bu tarih kesin sevk saati diye anlatılmaz. Sıralama yalnız görünümü düzenler; adetleri, kayıtlı planı ve yeniden hesaplama uyarısını değiştirmez. Eski teslim kayıtlarında yalnız kaydedilmiş prosesler gösterilir; eksik geçmiş uyarılır, Plan kaydı yok tarihi uydurmaz. Tüm akışta üst sıra KALAN PLAN, alt sıra GERÇEKLEŞEN olarak gösterilir. Üst sıra yalnız henüz tamamlanmamış proseslerin hesaplanan tarihlerini ve çalışan işin şu andan sonraki kalan planını kullanır; tamamlanan proseslerin eski plan tarihleri bu sıraya karıştırılmaz. Tamamlanan adımlar gerçek tarihlerinde alt sırada görünür; eski planla karşılaştırma her prosesin kendi PLANLANAN / GERÇEKLEŞEN satırındadır. Böylece erken tamamlanmış Delme’nin eski plan tarihi GKM’den sonra görünerek kalan rota sanılmaz. Operasyon sırası bölümünde kısa ve başlangıç/bitişi aynı anda kaydedilmiş adımlar da adı, tezgâhı, durumu ve tarih-saatleriyle ayrı seçilir. Süreler takvim günü, saat ve dakikadır; vardiya çalışma süresi değildir. Tarihler Gerçek veya Plan olarak ayrılır. Tüm akıştaki dar gerçekleşen adımlar seçilebilir işaret olarak beklemelerin önünde görünür; işaretin asgari görünür genişliği üretim süresi değildir. Gerçek tarihler çubuğun açıklamasındadır. Beklemeler önceki gerçek operasyon bitişinden sonraki gerçek başlangıca kadar hesaplanır; henüz başlamamış şarjda şu ana kadar sürer, eski plan başlangıcında veya gece yarısında kesilmez. Devam eden gerçek üretim şu ana kadardır; tahmini bitiş gerçekleşmiş bitiş sayılmaz. Saat görünüm açıkken dakikada bir ve pencereye dönünce yenilenir. Gecikme ayrı ince kırmızı banttır; üretim çubuğunu örtmez. Geçmiş plan kaydı yoksa gecikme uydurulmaz. Geçersiz, ters sıralı veya gelecekte kayıtlı gerçek tarihler ve tamamlanmadan geçmiş plan bitişleri açıklamayla işaretlenir; kayıtlar otomatik onarılmaz. Tamamlanmış adımlar üst özette de bitti diye görünür. Eski bağımsız Yıkama kaydı Yıkama adıyla korunur. Hesaplanan teslimat tarihi yoksa ROTA EKSİK / Tarih doğrulanmalı gösterilir; aktif rotasında GKM bulunmaması tek başına hata değildir. Operasyon sırası sonunda, tüm kayıtlı rota tamamlanmış ve teslimat tarihi hesaplanmışsa Paketleme / Final Kontrol için Kontrolde; arşivde Sevk edildi gösterilir. Gerçekleşen beklemeler sarı, kalan plandaki Torna mavi, Delme turuncu, Çapak Alma mor, GKM mavi-yeşildir. Tüm akış yalnız prosesleri özetler; Paketleme & Final Kontrol ayrı satırındadır. Bu gösterim mevcut tarayıcı hesabını kullanır; plan güncel değilse güncel sonuç olarak yorumlanmaz ve kayıtlı tarihler bu gösterimle değiştirilmez. Paketleme & Final Kontrol mevcut bir iş günlük aşamanın adıdır. Şarj listesinde adet açıklaması Aktif için “Filtrelenen kalan adet”, Arşiv için “Filtrelenen sevk adedi” olarak gösterilir. Şarj Yolculuğu seçili şarj başlığında ve Yarı mamül alanında Paketleme & Final Kontrol aşamasındaki pozitif kalan miktar için Teslimatı tamamla bulunur. GKM’nin gerçekten tamamlanmış olması zorunludur; yalnız ileri tarihli plan veya manuel konum etiketi yeterli değildir. Bir iş günlük teslimat tamponu henüz dolmadıysa bu onayla yalnız teslim edilen adet için aşılır. Kalan adet aynı aşama ve hazır olma zamanıyla kalır. Teslimat Üretim arşivi ile yarı mamül bakiyesine birlikte yansır, Geri al ile birlikte geri alınabilir; planı yeniden çalıştırın uyarısı oluşur. Torna sonrası kalite, Center Pin Delme sonrası yıkama ve Çapak Alma sonrası GKM beklemelerinde Beklemeyi tamamla vardır. İlgili proses kontrol / yıkama onayı yalnız seçili şarjın bu beklemesini şimdi tamamlar; sonraki operasyonu tamamlanmış saymaz, üretime başlama ve tezgâh uygunluğu kuralları sürer. Normal planlama tüm tamponları kullanmaya devam eder; yeni şarjlar ve sonraki aşamalar için süreler değişmez. Blokeli, kapanmış veya önceki gerçek proses kaydı eksik şarjda tampon kaldırılamaz. Şarj onay penceresi açıkken değişirse yeniden açıp onaylamak gerekir. Hayır, vazgeç ve Esc hiçbir kayıt oluşturmaz. Şarj Yolculuğu → Arşiv’de Adet / Teslimat ve Önceki aşamaya geri al bulunur. Seçili şarjın birden fazla teslimatı varsa ilgili arşiv kaydı seçilir. Önceki aşamaya geri al, gerekçe ve Onayla ve geri al ile yalnız seçili teslimatı iptal edip Paketleme / Final Kontrol’e döndürür; GKM ve diğer gerçekleşmiş prosesler korunur. Kısmi teslimatta sevk edilmemiş miktar yerinde kalır; geri alınan miktar yeniden teslim edilebilir. Teslim adedi azaltılırsa fark Paketleme / Final Kontrol’e döner; artırılırsa aynı üretim kaydına bağlı açık miktardan, seçilen teslim tarihinde gerçekten hazır olan miktar tüketilir. Yeterli bakiye yoksa işlem kaydedilmez. Teslim tarihi ve saati tamamlanan proseslerden önce olamaz; düzeltilmiş tarih şarj arşivine yansır. Eski teslimatın şarj bakiyesi doğrulanamıyorsa geri alma ve teslimat düzeltmesi açıklamayla durur; eksik proses tarihleri uydurulmaz. Yarı mamulde Adet / Teslimat fiili adedi değiştirir; aynı tamamlanma günü seçildiğinde kayıtlı saat korunur. Sonraki prosese geçmiş şarjın Torna günü değiştirilemez; adedi düzeltilebilir. Birden fazla açık parçaya bölünmüş kayıtta Adet farkının uygulanacağı şarj seçilir; fark yalnız o parçaya uygulanır, diğer parçalar korunur. Çalışan işin kalan süresi yeni miktarla hesaplanır. Teslim / parçala penceresinde teslim adedi sıfır ve Yarı mamulde bırak seçiliyse yalnız adet düzeltmesi kaydedilebilir. Geçersiz giriş ve değişmiş arşiv kaydı hataları açık pencerenin içinde görünür. Başarılı işlemler ortak kayda ve Geri al geçmişine birlikte aktarılır, planı yeniden çalıştırın uyarısı oluşur; görünen eski plan otomatik olarak güncel sayılmaz. Delme, Çapak Alma ve GKM tamamlama ekranlarında Gerçek tamamlanma tarihi ve saati dakika hassasiyetinde, Türkiye saatiyle girilir. Varsayılan şu andır; Şimdi düğmesi alanı günceller. Geçmiş zaman seçilebilir, ancak şarjın gerçek hazır olma zamanından önce veya şu andan sonra tamamlanma kaydedilemez. Tezgahlar’daki mevcut iş ve kuyruk işi tamamlama, Şarj Yolculuğu ve Yarı mamül aynı tarih-saat girişini kullanır. Seçilen saat gerçekleşen kayda yazılır; planlanan bitiş saati veya sabit 23:00 eklenmez. Önceden kaydedilmiş tarihler otomatik değiştirilmez. Piston Delme tamamlanınca Çapak Alma aynı gerçek bitiş zamanında hazır olur; Center Pin yıkama, Çapak Alma sonrası GKM ve GKM sonrası teslimat beklemeleri mevcut kurallarla bu zamandan hesaplanır. Başarılı kayıt Geri al ile geri alınabilir; eski planın güncel olduğu varsayılmaz. Şarj Yolculuğu / Yarı mamül → Teslimatı tamamla, Üretim arşivi ile ortak FİİLİ ÜRETİM VE TESLİMAT formunu açar. Fiili tamamlanan adet, Gerçek tamamlanma tarihi, Teslim edilen adet ve Teslim tarihi ve saati girilir. Kalan miktar için Yarı mamulde bırak veya Iskartaya ayır seçilir; Teslimat ayrımını kaydet işlemi tamamlar. Yolculukta adetler yalnız seçili şarjın açık kalan miktarı içindir; önceki teslimatlar ve aynı kaydın diğer parçaları korunur. Teslim tarihi ve saati Türkiye saatidir, tamamlanan proseslerden önce veya şu andan sonra olamaz. Paketleme beklemesi seçilen teslim anında dolmamışsa Proses kontrol ve paketleme tamamlandı. onayı gerekir. Onay yalnız teslim edilen adedin beklemesini kaldırır; yarı mamulde kalan miktar önceki hazır olma zamanını korur. Iskartaya ayrılan kalan miktar Iskartalar listesinde görünür. Teslim adedi sıfırsa Yarı mamulde bırak yalnız adet düzeltmesini kaydeder; Iskartaya ayır seçili şarjın tamamını ıskartaya ayırır. Aynı Gerçek tamamlanma tarihi seçildiğinde kayıtlı Torna saati korunur; sonraki prosese geçmiş şarjın Torna günü değiştirilemez. Şarj veya bağlı arşiv kaydı pencere açıkken değişirse yeniden açmak gerekir. Vazgeç veya Esc kayıt oluşturmaz. İşlem arşiv ve yarı mamül bakiyesini ortak Geri al geçmişiyle birlikte günceller; planı yeniden çalıştırın uyarısı oluşur, eski plan güncel sayılmaz.\nParametreler → Planlama yöntemi içinde Delme, Çapak Alma ve GKM için Aynı tip / setup kampanyası veya En erken hazır işi al seçilebilir. Delme başlangıçta kampanya, diğer ikisi en erken hazır yöntemindedir; kayıtlı seçim geçerlidir. Her iki yöntem önce mevcut iş ve açık manuel yerleşimleri korur, önceki prosesin hazır oluşuna bakar. Kampanya yöntemi aynı hazır zaman ve kaynak sınıfındaki işlerde setup anahtarı/tip sırasını kullanır; gelecek bir kampanya için hazır işi sınırsız bekletmez. Uygun kaynakta en erken bitiş, kaynak önceliği ve kimlik sırası belirleyicidir. D-02 Center Pin rezervasyonları korunur; piston ancak dönüş setupı dahil uygun boşluğa sığarsa araya girer. B-01-S1/S2 ayrı kapasitelerdir, B-01 ortak bakım kaydı ikisini etkiler. Tornada bir işi elle öne çekmek GKM’ye kendiliğinden müşteri aciliyeti talimatı taşımaz; sonraki prosesleri ve teslimatı ayrıca kontrol et. Yeni tip akışında açıkça seçilmiş rotalarda pasif prosesler atlanır; aileye ait eski varsayılan sıra zorunlu değildir. Tanımlı beklemeler son aktif öncüden hesaplanır. Teslimat son aktif proses ve Paketleme & Final Kontrol sonrasındadır; GKM yalnız Aktif seçildiyse gereklidir. Torna pasif tip için yeni Torna üretimi açılmaz; mevcut gerçek yarı mamul esas alınır. Eski tipler ve gerçekleşen kayıtlar otomatik değiştirilmez.\nÜretime ara verildi. kayıtlarında üretilen yarı mamül ve Torna’da kalan miktar ayrıdır. Yolculuk ara verme tarihi, adetleri ve nedeni gösterir. Üretim tamamlanana kadar sonraki prosesler yalnız manuel eklenir; üretime alma veya doğrudan tamamlama yarım üretim onayı ister. Bilerek bekletilen bu rota için teslim tarihi uydurulmaz.",
       "sources": [
         {
           "path": "frontend/components/ProcessPlanningView.tsx",
@@ -503,9 +575,64 @@
         {
           "path": "frontend/lib/wip-ledger.ts",
           "symbol": "scrapWipQuantity"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "scheduleStage"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "calculateDownstreamSetup"
+        },
+        {
+          "path": "frontend/lib/charge-journey-status.ts",
+          "symbol": "compareChargeJourneyJobs"
+        },
+        {
+          "path": "frontend/lib/delivery-deduction.ts",
+          "symbol": "effectiveDeliveryTimestamp"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        },
+        {
+          "path": "frontend/lib/process-master-data.ts",
+          "symbol": "productProcessRoute"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "advanceStage"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completedDeliveryRouteEnd"
+        },
+        {
+          "path": "frontend/lib/delivery-readiness.ts",
+          "symbol": "buildDeliveryReadinessEvents"
+        },
+        {
+          "path": "frontend/lib/charge-journey-timeline.ts",
+          "symbol": "buildJourneyTimeline"
+        },
+        {
+          "path": "frontend/lib/charge-journey-timeline.ts",
+          "symbol": "journeyRangePosition"
+        },
+        {
+          "path": "frontend/components/JourneyFlowSummary.tsx",
+          "symbol": "JourneyFlowSummary"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "actualWipOperations"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
-      "implementationNotes": "Şarj Yolculuğu ekranı iş emri/şarj/ürün aramasıyla seçili şarjın fiili ve planlanan operasyonlarını gösterir; aktif ve sevk edilen listeleri ayrılır. İkincil çalışma alanları WIP ve proses ana verisidir. buildDownstreamProcessPlan ürün rotası, kaynak kapasitesi, setup, kuyruk bağımlılığı ve bekleme işgünlerini kullanır. Gerçek tamamlanan operasyonlar actualWipOperations'tan gelir. Torna tamamlanınca registerTurningCompletion WIP lotu ve hareket kaydı üretir. completeWipOperation sonraki aşamaya ilerletir, miktarı/resource uygunluğunu doğrular; blokaj ve serbest bırakma ayrı hareketlerdir. Üretim tamamlanması otomatik müşteri teslimi değildir. Notlar şarj yolculuğu ile ilişkilidir. Belirli şarj sorusunda seçili iş/operasyon ve lotu inspect_state ile incele. deliveredChargeJourneyJobs projects delivered quantities independent of terminal lot stage; archivedDelivery marks display-only rows and prevents completion actions. Legacy history fallback deduplicates IDs and avoids lots already represented by source history IDs. Actual waiting intervals require previous.actual. Compact KALAN PLAN lane uses remainingJourneyRange: completed operations are excluded, remaining/current operations use scheduler start/end. Historical plannedJourneyRange remains exclusively in per-process comparisons and details. Compact bars use proportional widths and completed markers stay above waits; no baseline is shifted to manufacture a route order. Ravi context reports flowPlanScope=remaining-operations. journeyVisibleQuantity uses remainingQuantity/availableQuantity for active work; filters and counts are registered in Ravi context. ProcessPlanningView journey-filter-count displays mode-specific count provenance; paired filters and subdued process colors are styled in frontend/app/globals.css. WipManualActionDialog captures a cloned lot and wipActionSignature, shows kind/lot/quantity/question/waiting/error through useRaviScreenContext. createProductionActions deliverJourneyWip and releaseJourneyBuffer are coordinator-owned atomic commits. Legacy completeWipDelivery inputs retain the old allocation path; the visible delivery UI now supplies the shared allocation draft described below. releaseWipBuffer accepts only supported buffer stages with actual predecessor end <= occurredAt, requires confirmation, and logs buffer-released with previousReadyAt. Partial early delivery restores the remainder readiness and records the override quantity only for delivered pieces. Shared scheduler buffer constants are unchanged. These are ordinary production actions under existing user permissions, not admin settings or Ravi tools. archive-corrections.ts correctArchiveRecord / restoreArchiveDelivery clone before mutation, validate archiveEntrySignature, preserve original completion time on same-day edits, and use explicit wipAllocations or verified legacy shipment balances. restorePieces transfers shipped balance into a new delivery-ready lot rooted at the restored history record, retaining completedSteps and preserving unrelated open lots. Decreased shipment quantities create an open return record; increased quantities consume only linked lineage ready lots via deliverWipQuantity. productionHistoryLots prefers own lots then source fallback; journeyArchiveEntryIds resolves selected shipment records. deliveredChargeJourneyJobs uses effective history delivery timestamps before movement fallback and avoids linked-lot duplicates. syncWipWithHistoryEdit applies the total delta to a single open or explicitly selected correctionLotId, logs quantity-corrected, and protects historical route dates. correctArchiveRecord updates running duration through updateProcessCurrentJob. createProductionActions synchronizes WIP total before allocation, treats zero-delivery keep as quantity-only edit, and propagates failures to drawer actionError. Datetime allocations validate actual GKM/readiness at the chosen factory-local instant; early confirmation remains in completeWipDelivery. ProductionArchiveDrawer reports focus IDs, drafts, selected correction lot and errors through archive Ravi context. Existing ordinary-user production permissions, common commit/undo/persistence and stale-plan warning are retained. ProcessCompletionTimeField is shared by CompleteProcessCurrentJobDialog, CompleteQueuedProcessOperationDialog and both ProcessPlanningView completion surfaces. parseProcessCompletionTime validates minute precision, factory wall-clock input, no future completion and wipOperationReadyAt lower bound. processCompletionTimeInput formats serial wall time without adding Istanbul offset twice. Dialogs register process-completion context; ProcessPlanningView reports active completion draft. Existing completeWipOperation / completeProcessCurrentJob persist entered end and advance existing buffers through the shared coordinator; no legacy date migration is performed. DeliveryAllocationForm is shared by ProductionArchiveDrawer and WipDeliveryAllocationDialog. The latter reports journey-delivery-allocation context including selected lot, history, scope, draft, early confirmation and errors. completeWipDelivery delegates allocation inputs to allocateJourneyDelivery: validates lot/history snapshots, actual GKM and exact factory-local delivery time; correctArchiveRecord applies the selected-lot quantity delta without rewriting completed steps. A scoped history record is split off when sibling open balances exist. allocateProductionHistoryEntry performs archive splitting; deliverWipQuantity and scrapWipQuantity consume only the selected lot. Explicit wipAllocations keep delivered records linked after repeated partial shipments. Zero-delivery keep saves only the correction. Remainder readiness is restored after early partial shipment, buffer-released quantity covers only shipped pieces. The coordinator commits once, retains ordinary permissions/undo/persistence and clears stale automatic-plan metadata.",
+      "implementationNotes": "Şarj Yolculuğu ekranı iş emri/şarj/ürün aramasıyla seçili şarjın fiili ve planlanan operasyonlarını gösterir; aktif ve sevk edilen listeleri ayrılır. İkincil çalışma alanları WIP ve proses ana verisidir. buildDownstreamProcessPlan ürün rotası, kaynak kapasitesi, setup, kuyruk bağımlılığı ve bekleme işgünlerini kullanır. Gerçek tamamlanan operasyonlar actualWipOperations'tan gelir. Torna tamamlanınca registerTurningCompletion WIP lotu ve hareket kaydı üretir. completeWipOperation sonraki aşamaya ilerletir, miktarı/resource uygunluğunu doğrular; blokaj ve serbest bırakma ayrı hareketlerdir. Üretim tamamlanması otomatik müşteri teslimi değildir. Notlar şarj yolculuğu ile ilişkilidir. Belirli şarj sorusunda seçili iş/operasyon ve lotu inspect_state ile incele. deliveredChargeJourneyJobs projects delivered quantities independent of terminal lot stage; archivedDelivery marks display-only rows and prevents completion actions. Legacy history fallback deduplicates IDs and avoids lots already represented by source history IDs. Actual waiting intervals require a valid previous.actual range. Unstarted WIP waits until factoryNowSerial, while actual/running work closes the preceding wait at its recorded start. Compact KALAN PLAN lane uses buildJourneyTimeline.remainingRange: completed operations are excluded, queued operations retain scheduler dates and current operations project only the remainder after factoryNowSerial. Historical plannedJourneyRange remains exclusively in per-process comparisons and details. Compact bars use proportional widths and completed markers stay above waits; no baseline is shifted to manufacture a route order. Ravi context reports flowPlanScope=remaining-operations. journeyVisibleQuantity uses remainingQuantity/availableQuantity for active work; filters and counts are registered in Ravi context. ProcessPlanningView journey-filter-count displays mode-specific count provenance; paired filters and subdued process colors are styled in frontend/app/globals.css. WipManualActionDialog captures a cloned lot and wipActionSignature, shows kind/lot/quantity/question/waiting/error through useRaviScreenContext. createProductionActions deliverJourneyWip and releaseJourneyBuffer are coordinator-owned atomic commits. Legacy completeWipDelivery inputs retain the old allocation path; the visible delivery UI now supplies the shared allocation draft described below. releaseWipBuffer accepts only supported buffer stages with actual predecessor end <= occurredAt, requires confirmation, and logs buffer-released with previousReadyAt. Partial early delivery restores the remainder readiness and records the override quantity only for delivered pieces. Shared scheduler buffer constants are unchanged. These are ordinary production actions under existing user permissions, not admin settings or Ravi tools. archive-corrections.ts correctArchiveRecord / restoreArchiveDelivery clone before mutation, validate archiveEntrySignature, preserve original completion time on same-day edits, and use explicit wipAllocations or verified legacy shipment balances. restorePieces transfers shipped balance into a new delivery-ready lot rooted at the restored history record, retaining completedSteps and preserving unrelated open lots. Decreased shipment quantities create an open return record; increased quantities consume only linked lineage ready lots via deliverWipQuantity. productionHistoryLots prefers own lots then source fallback; journeyArchiveEntryIds resolves selected shipment records. deliveredChargeJourneyJobs uses effective history delivery timestamps before movement fallback and avoids linked-lot duplicates. syncWipWithHistoryEdit applies the total delta to a single open or explicitly selected correctionLotId, logs quantity-corrected, and protects historical route dates. correctArchiveRecord updates running duration through updateProcessCurrentJob. createProductionActions synchronizes WIP total before allocation, treats zero-delivery keep as quantity-only edit, and propagates failures to drawer actionError. Datetime allocations validate actual GKM/readiness at the chosen factory-local instant; early confirmation remains in completeWipDelivery. ProductionArchiveDrawer reports focus IDs, drafts, selected correction lot and errors through archive Ravi context. Existing ordinary-user production permissions, common commit/undo/persistence and stale-plan warning are retained. ProcessCompletionTimeField is shared by CompleteProcessCurrentJobDialog, CompleteQueuedProcessOperationDialog and both ProcessPlanningView completion surfaces. parseProcessCompletionTime validates minute precision, factory wall-clock input, no future completion and wipOperationReadyAt lower bound. processCompletionTimeInput formats serial wall time without adding Istanbul offset twice. Dialogs register process-completion context; ProcessPlanningView reports active completion draft. Existing completeWipOperation / completeProcessCurrentJob persist entered end and advance existing buffers through the shared coordinator; no legacy date migration is performed. DeliveryAllocationForm is shared by ProductionArchiveDrawer and WipDeliveryAllocationDialog. The latter reports journey-delivery-allocation context including selected lot, history, scope, draft, early confirmation and errors. completeWipDelivery delegates allocation inputs to allocateJourneyDelivery: validates lot/history snapshots, actual GKM and exact factory-local delivery time; correctArchiveRecord applies the selected-lot quantity delta without rewriting completed steps. A scoped history record is split off when sibling open balances exist. allocateProductionHistoryEntry performs archive splitting; deliverWipQuantity and scrapWipQuantity consume only the selected lot. Explicit wipAllocations keep delivered records linked after repeated partial shipments. Zero-delivery keep saves only the correction. Remainder readiness is restored after early partial shipment, buffer-released quantity covers only shipped pieces. The coordinator commits once, retains ordinary permissions/undo/persistence and clears stale automatic-plan metadata. ProcessPlanningView sorts filtered rows with compareChargeJourneyJobs: archive uses deliveryReadyAt descending, active uses first-operation start ascending, with batchId as the deterministic tie-breaker. The existing deliveredChargeJourneyJobs projection remains authoritative: linked history uses the latest effectiveDeliveryTimestamp before movement fallback; absent both, lot readiness/completion remains the legacy display fallback. Unlinked legacy history falls back to archivedAt, then completedAt. These fallback dates are not evidence of an exact shipment time. Sorting does not mutate input arrays, quantities, operational records, persisted plans or dirty status. Ravi processes context reports journeySortOrder as delivery-date-desc or process-start-asc. Explicit ProcessProduct.route is authoritative for newly created types; see new-product-type for the five-step workflow and completedDeliveryRouteEnd for its actual-delivery gate. buildJourneyTimeline is a read-only display projection preserving quantities, persisted baselines and dirty status. journeyOperationRunning recognizes current-turning sources. journeyRangePosition clips exact intervals and zero-duration points without adding fictitious hours. JourneyFlowSummary presents named selectable steps independent of timeline scale. ProcessPlanningView registers journey-timeline context with asOf, dirty, issues and displayed intervals; selection remains in processes context. Date ticks and the current-time line use matching serial positions; delay bands do not occlude actual bars. actualWipOperations carries recordedProcess for legacy washing identity; scheduling process mapping remains unchanged. Delivery visibility trusts finite positive scheduler deliveryReadyAt, including explicit routes without GKM, rather than inventing another readiness engine.",
       "userSources": [
         "Şarj Yolculuğu: seçili şarj ve proses durumları",
         "Tezgahlar: Sıradaki işi üretime al, İş tamamlandı",
@@ -515,7 +642,12 @@
         "Üretim arşivi → Yarı mamuller → Adet / Teslimat; Adet farkının uygulanacağı şarj; Teslim / parçala",
         "Şarj Yolculuğu → Tüm akış: KALAN PLAN / GERÇEKLEŞEN; proses satırları: PLANLANAN / GERÇEKLEŞEN; çubuk tarih açıklamaları",
         "Gerçek tamamlanma tarihi ve saati → Şimdi; Türkiye saati; Tezgahlar / Şarj Yolculuğu / Yarı mamül",
-        "Şarj Yolculuğu / Yarı mamül → Teslimatı tamamla → FİİLİ ÜRETİM VE TESLİMAT; Fiili tamamlanan adet; Gerçek tamamlanma tarihi; Teslim edilen adet; Teslim tarihi ve saati; Kalan miktar → Yarı mamulde bırak / Iskartaya ayır; Teslimat ayrımını kaydet; erken teslimatta Proses kontrol ve paketleme tamamlandı."
+        "Şarj Yolculuğu / Yarı mamül → Teslimatı tamamla → FİİLİ ÜRETİM VE TESLİMAT; Fiili tamamlanan adet; Gerçek tamamlanma tarihi; Teslim edilen adet; Teslim tarihi ve saati; Kalan miktar → Yarı mamulde bırak / Iskartaya ayır; Teslimat ayrımını kaydet; erken teslimatta Proses kontrol ve paketleme tamamlandı.",
+        "Parametreler → Delme / Çapak Alma / GKM → Planlama yöntemi",
+        "Şarj Yolculuğu → Arşiv → ŞARJ SEÇ: en üstteki kayıt, SEVK EDİLDİ ve sevk tarihi; Adet / Teslimat → Teslim tarihi ve saati",
+        "Parametreler → Yeni tip → Aktif / Pasif → Hammadde bilgileri",
+        "Şarj Yolculuğu → Operasyon sırası: Tamamlandı / Üretimde / Bekliyor / Planlandı; Gerçek / Plan saatleri; öncesindeki bekleme; Paketleme / Final Kontrol; ROTA EKSİK; tarih uyarıları",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -528,7 +660,7 @@
         "günlük vardiya",
         "bakım"
       ],
-      "body": "Tezgahlar’da torna veya diğer prosesin iş merkezini seçerek mevcut iş, kalan adet, bitiş ve kuyruğu görebilirsiniz. Manuel şarj, Günlük vardiya, Planlı bakım ve mevcut işi düzenleme/tamamlama buradadır. Diğer proseslerde Sıradaki işi üretime al, Mevcut işi değiştir ve İş tamamlandı kullanılır. Kuyruk okları, sürükleme ve Taşı önce yerleşim incelemesi açar; Yerleşimi uygula onayına kadar plan değişmez. Ürün uygunluğu, hız, vardiya, önceki prosesin hazır olması ve kilitli/çalışan işler sınır koyar. Boş kuyruk tek başına kullanılabilir kapasite demek değildir. Tezgâha bağlı kayıtlar varsa silme korunur. Yerleşim ayrıntısı için proses kuyruk konusunu oku. Planlama’nın aktif Delme, Çapak Alma ve GKM panolarında tamamlanan operasyonlar gösterilmez; geçmiş Şarj Yolculuğu’nda kalır, kısmi işin kalanı görünür. Mevcut işi değiştir ile yeni bir şarj mevcut üretime alındığında, kesilen eski iş tamamlanmış sayılmaz ve aynı tezgâhta ilk bekleyen iş olarak korunur. D-02’de bu açık kullanıcı tercihi otomatik Center Pin sıralamasından önce uygulanır; diğer bekleyen işler yeni mevcut işin bitişinden önce yerleştirilmez. Normal otomatik planlamanın Center Pin önceliği devam eder. Delme, Çapak Alma ve GKM tamamlama ekranlarında Gerçek tamamlanma tarihi ve saati dakika hassasiyetinde, Türkiye saatiyle girilir. Varsayılan şu andır; Şimdi düğmesi alanı günceller. Geçmiş zaman seçilebilir, ancak şarjın gerçek hazır olma zamanından önce veya şu andan sonra tamamlanma kaydedilemez. Tezgahlar’daki mevcut iş ve kuyruk işi tamamlama, Şarj Yolculuğu ve Yarı mamül aynı tarih-saat girişini kullanır. Seçilen saat gerçekleşen kayda yazılır; planlanan bitiş saati veya sabit 23:00 eklenmez. Önceden kaydedilmiş tarihler otomatik değiştirilmez. Piston Delme tamamlanınca Çapak Alma aynı gerçek bitiş zamanında hazır olur; Center Pin yıkama, Çapak Alma sonrası GKM ve GKM sonrası teslimat beklemeleri mevcut kurallarla bu zamandan hesaplanır. Başarılı kayıt Geri al ile geri alınabilir; eski planın güncel olduğu varsayılmaz. Delme, Çapak Alma ve GKM’de Sıradaki işi üretime al kapalıysa Üretim neden başlatılamıyor? kutusu nedeni ve kontrol edilecek alanı gösterir: aktif olmayan merkez, Müsait başlangıç zamanı, sona ermiş Plan bitişi, yarı mamülün henüz gelmemiş hazırlık saati, önceki prosesin tamamlanmamış olması veya başlatılabilecek planlı iş bulunmaması. Hazırlık saati mesajında en erken hazır olacak şarj belirtilir. Kuyruk boşsa uygun ürünün blokeli veya konumu doğrulanmamış şarjı varsa bu da açıklanır. İş merkezine atanmış işler içinden gerçekten hazır iş aranır; yalnız ilk plan çubuğunun gelecekte olması tek başına engel değildir. Mevcut iş varsa başlatma düğmesinin yerinde Adedi düzenle bulunur; Mevcut işi değiştir ayrı işlemdir. Kontrol ekran açıkken yaklaşık 30 saniyede yenilenir. Açıklamalar mevcut tarayıcı verisine bağlıdır; veri veya plan değişince yeniden değerlendirilir.",
+      "body": "Tezgahlar’da torna veya diğer prosesin iş merkezini seçerek mevcut iş, kalan adet, bitiş ve kuyruğu görebilirsiniz. Manuel şarj, Günlük vardiya, Planlı bakım ve mevcut işi düzenleme/tamamlama buradadır. Diğer proseslerde Sıradaki işi üretime al, Mevcut işi değiştir ve İş tamamlandı kullanılır. Kuyruk okları, sürükleme ve Taşı önce yerleşim incelemesi açar; Yerleşimi uygula onayına kadar plan değişmez. Ürün uygunluğu, hız, vardiya, önceki prosesin hazır olması ve kilitli/çalışan işler sınır koyar. Boş kuyruk tek başına kullanılabilir kapasite demek değildir. Tezgâha bağlı kayıtlar varsa silme korunur. Yerleşim ayrıntısı için proses kuyruk konusunu oku. Planlama’nın aktif Delme, Çapak Alma ve GKM panolarında tamamlanan operasyonlar gösterilmez; geçmiş Şarj Yolculuğu’nda kalır, kısmi işin kalanı görünür. Mevcut işi değiştir ile yeni bir şarj mevcut üretime alındığında, kesilen eski iş tamamlanmış sayılmaz ve aynı tezgâhta ilk bekleyen iş olarak korunur. D-02’de bu açık kullanıcı tercihi otomatik Center Pin sıralamasından önce uygulanır; diğer bekleyen işler yeni mevcut işin bitişinden önce yerleştirilmez. Normal otomatik planlamanın Center Pin önceliği devam eder. Delme, Çapak Alma ve GKM tamamlama ekranlarında Gerçek tamamlanma tarihi ve saati dakika hassasiyetinde, Türkiye saatiyle girilir. Varsayılan şu andır; Şimdi düğmesi alanı günceller. Geçmiş zaman seçilebilir, ancak şarjın gerçek hazır olma zamanından önce veya şu andan sonra tamamlanma kaydedilemez. Tezgahlar’daki mevcut iş ve kuyruk işi tamamlama, Şarj Yolculuğu ve Yarı mamül aynı tarih-saat girişini kullanır. Seçilen saat gerçekleşen kayda yazılır; planlanan bitiş saati veya sabit 23:00 eklenmez. Önceden kaydedilmiş tarihler otomatik değiştirilmez. Piston Delme tamamlanınca Çapak Alma aynı gerçek bitiş zamanında hazır olur; Center Pin yıkama, Çapak Alma sonrası GKM ve GKM sonrası teslimat beklemeleri mevcut kurallarla bu zamandan hesaplanır. Başarılı kayıt Geri al ile geri alınabilir; eski planın güncel olduğu varsayılmaz. Delme, Çapak Alma ve GKM’de Sıradaki işi üretime al kapalıysa Üretim neden başlatılamıyor? kutusu nedeni ve kontrol edilecek alanı gösterir: aktif olmayan merkez, Müsait başlangıç zamanı, sona ermiş Plan bitişi, yarı mamülün henüz gelmemiş hazırlık saati, önceki prosesin tamamlanmamış olması veya başlatılabilecek planlı iş bulunmaması. Hazırlık saati mesajında en erken hazır olacak şarj belirtilir. Kuyruk boşsa uygun ürünün blokeli veya konumu doğrulanmamış şarjı varsa bu da açıklanır. İş merkezine atanmış işler içinden gerçekten hazır iş aranır; yalnız ilk plan çubuğunun gelecekte olması tek başına engel değildir. Mevcut iş varsa başlatma düğmesinin yerinde Adedi düzenle bulunur; Mevcut işi değiştir ayrı işlemdir. Kontrol ekran açıkken yaklaşık 30 saniyede yenilenir. Açıklamalar mevcut tarayıcı verisine bağlıdır; veri veya plan değişince yeniden değerlendirilir. Planlama ve Tezgahlar → Torna ekranlarında Manuel şarj ekle, aktif sipariş şartı olmadan parametrelerde tanımlı tipleri gösterir. Adet standart şarjdan gelir ve bu manuel kayıt için pozitif tam sayı olarak değiştirilebilir; tezgah ve kuyruk sırası seçilir. Eksik parametreler açıklanır; ayrıntılar manuel şarj ekleme konusundadır.\nMevcut işi değiştir Torna’da da vardır. Tüm proseslerde Üretim oldu mu? sorusu, üretim varsa zorunlu Üretilen adet ve İşe ara verme nedeni kullanılır. Kalan iş korunur; ayrıntılar Mevcut işi değiştir: yarım üretim konusunda açıklanır.",
       "sources": [
         {
           "path": "frontend/features/planning/machines/MachinesView.tsx",
@@ -580,16 +712,29 @@
         {
           "path": "frontend/lib/process-planning.ts",
           "symbol": "processJobStartAvailability"
+        },
+        {
+          "path": "frontend/features/planning/shared/ManualBatchDialog.tsx",
+          "symbol": "ManualBatchDialog"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "addBatchManually"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
-      "implementationNotes": "Tezgahlar ekranında torna ve downstream proses kaynakları seçilebilir. Mevcut iş, kalan adet, bitiş ve kuyruk gösterilir. Manuel şarj, Günlük vardiya, Planlı bakım ve mevcut işi düzenleme/tamamlama kontrolleri vardır. Downstream için Sıradaki işi üretime al, Mevcut işi değiştir, seçili proses adıyla Delme prosesini bitir / Çapak alma prosesini bitir / GKM prosesini bitir ve seçili prosesi otomatik plana döndürme işlemleri bulunur. Hız/parametre eksikliği ve uygunluk kontrolleri hareketi engelleyebilir. Tezgah silme bağlı iş/kayıtlara göre korunur. Kapasite hesabı vardiya, tatil, bakım ve ürün hızına bağlıdır; boş kuyruk otomatik olarak kullanılabilir kapasite demek değildir. buildMachineDiagnostics açıklama üretir; gerçek sebep için seçili kaynak/ürün parametrelerini oku. Downstream kuyruk sürükleme, yukarı/aşağı taşıma, iş merkezi transferi ve manuel sıraya yerleştirme previewProcessQueuePlacement ile kuyruk konumunu zamana çevirir ve Gantt’ın previewProcessOperationReschedule kurallarını kullanır. Dolu sıranın mevcut saati, sona eklemede önceki işin bitişi esas alınır; boş kuyrukta hazır olma, kaynak başlangıcı ve sabit işlerin bitişi dikkate alınır. Çalışan/tamamlanan işler taşınamaz. Proses yerleşimini incele penceresi istenen/hesaplanan başlangıç ve bitişi, ayarlama gerekçeleri ve etkilenen işleri gösterir; Yerleşimi uygula ile onaylanır. placeDownstreamQueueOperation incelenen imzayı yeniden kontrol eder; plan/kuyruk değişmişse tekrar inceleme ister. İşlem ortak operasyon kaydı ve Geri al yoluyla yapılır; eski plan dirty durumu korunur. Başarıda taşınan işin merkezi/sırası/tarihleri gösterilir, arama temizlenir ve satır odak alanına kaydırılıp vurgulanır. Manuel penceredeki Yerleşimi incele düğmesi önce önizlemeyi açar; geçersiz istek hatası pencerede gösterilir, seçim veya sıra değişince temizlenir. İş zaten istenen sıradaysa plan değişmedi mesajı gösterilip manuel pencere kapanır. Manuel seçim, sıfır tabanlı sıra, hazır olma ve hata machine-manual-queue-placement bağlamıyla bildirilir. replaceProcessCurrentJob sets resumeAfterCurrent for the interrupted job, reanchors the local queue at current.end, and verifies its first queued position. scheduleStage sorts explicit resumed jobs before the automatic family campaign; D-02 piston gaps cannot precede the fixed current operation end. The D-02 regression reproduces the previous first-queue failure with Center Pin reservations and a shorter piston. ProcessCompletionTimeField is shared by CompleteProcessCurrentJobDialog, CompleteQueuedProcessOperationDialog and both ProcessPlanningView completion surfaces. parseProcessCompletionTime validates minute precision, factory wall-clock input, no future completion and wipOperationReadyAt lower bound. processCompletionTimeInput formats serial wall time without adding Istanbul offset twice. Dialogs register process-completion context; ProcessPlanningView reports active completion draft. Existing completeWipOperation / completeProcessCurrentJob persist entered end and advance existing buffers through the shared coordinator; no legacy date migration is performed. processJobStartAvailability retains existing admission rules and returns reason/guidance. Empty-queue held/unclassified explanations inspect positive relevant WIP and product resource eligibility without changing scheduling. MachinesView exposes startAvailability in Ravi context and aria-describedby connects the disabled button to process-start-blocker. The reason/guidance box is rendered only with no current job and no start candidate; active current jobs retain the existing edit/switch controls.",
+      "implementationNotes": "Tezgahlar ekranında torna ve downstream proses kaynakları seçilebilir. Mevcut iş, kalan adet, bitiş ve kuyruk gösterilir. Manuel şarj, Günlük vardiya, Planlı bakım ve mevcut işi düzenleme/tamamlama kontrolleri vardır. Downstream için Sıradaki işi üretime al, Mevcut işi değiştir, seçili proses adıyla Delme prosesini bitir / Çapak alma prosesini bitir / GKM prosesini bitir ve seçili prosesi otomatik plana döndürme işlemleri bulunur. Hız/parametre eksikliği ve uygunluk kontrolleri hareketi engelleyebilir. Tezgah silme bağlı iş/kayıtlara göre korunur. Kapasite hesabı vardiya, tatil, bakım ve ürün hızına bağlıdır; boş kuyruk otomatik olarak kullanılabilir kapasite demek değildir. buildMachineDiagnostics açıklama üretir; gerçek sebep için seçili kaynak/ürün parametrelerini oku. Downstream kuyruk sürükleme, yukarı/aşağı taşıma, iş merkezi transferi ve manuel sıraya yerleştirme previewProcessQueuePlacement ile kuyruk konumunu zamana çevirir ve Gantt’ın previewProcessOperationReschedule kurallarını kullanır. Dolu sıranın mevcut saati, sona eklemede önceki işin bitişi esas alınır; boş kuyrukta hazır olma, kaynak başlangıcı ve sabit işlerin bitişi dikkate alınır. Çalışan/tamamlanan işler taşınamaz. Proses yerleşimini incele penceresi istenen/hesaplanan başlangıç ve bitişi, ayarlama gerekçeleri ve etkilenen işleri gösterir; Yerleşimi uygula ile onaylanır. placeDownstreamQueueOperation incelenen imzayı yeniden kontrol eder; plan/kuyruk değişmişse tekrar inceleme ister. İşlem ortak operasyon kaydı ve Geri al yoluyla yapılır; eski plan dirty durumu korunur. Başarıda taşınan işin merkezi/sırası/tarihleri gösterilir, arama temizlenir ve satır odak alanına kaydırılıp vurgulanır. Manuel penceredeki Yerleşimi incele düğmesi önce önizlemeyi açar; geçersiz istek hatası pencerede gösterilir, seçim veya sıra değişince temizlenir. İş zaten istenen sıradaysa plan değişmedi mesajı gösterilip manuel pencere kapanır. Manuel seçim, sıfır tabanlı sıra, hazır olma ve hata machine-manual-queue-placement bağlamıyla bildirilir. replaceProcessCurrentJob sets resumeAfterCurrent for the interrupted job, reanchors the local queue at current.end, and verifies its first queued position. scheduleStage sorts explicit resumed jobs before the automatic family campaign; D-02 piston gaps cannot precede the fixed current operation end. The D-02 regression reproduces the previous first-queue failure with Center Pin reservations and a shorter piston. ProcessCompletionTimeField is shared by CompleteProcessCurrentJobDialog, CompleteQueuedProcessOperationDialog and both ProcessPlanningView completion surfaces. parseProcessCompletionTime validates minute precision, factory wall-clock input, no future completion and wipOperationReadyAt lower bound. processCompletionTimeInput formats serial wall time without adding Istanbul offset twice. Dialogs register process-completion context; ProcessPlanningView reports active completion draft. Existing completeWipOperation / completeProcessCurrentJob persist entered end and advance existing buffers through the shared coordinator; no legacy date migration is performed. processJobStartAvailability retains existing admission rules and returns reason/guidance. Empty-queue held/unclassified explanations inspect positive relevant WIP and product resource eligibility without changing scheduling. MachinesView exposes startAvailability in Ravi context and aria-describedby connects the disabled button to process-start-blocker. The reason/guidance box is rendered only with no current job and no start candidate; active current jobs retain the existing edit/switch controls. The shared ManualBatchDialog and addBatchManually now implement order-independent manual admission and exact user quantities; see manual-batch topic for scope, preserved commitments and failure handling.",
       "userSources": [
         "Tezgahlar: kaynak seçimi, mevcut iş ve kuyruk",
         "Tezgahlar → Günlük vardiya / Planlı bakım",
         "Proses yerleşimini incele",
         "Tezgahlar → D-02 → Mevcut işi değiştir → Seçili şarjı mevcut yap; eski iş kuyruğun ilk sırasında",
         "Gerçek tamamlanma tarihi ve saati → Şimdi; Türkiye saati; Tezgahlar / Şarj Yolculuğu / Yarı mamül",
-        "Tezgahlar → Delme / Çapak Alma / GKM → Sıradaki işi üretime al → Üretim neden başlatılamıyor?"
+        "Tezgahlar → Delme / Çapak Alma / GKM → Sıradaki işi üretime al → Üretim neden başlatılamıyor?",
+        "Planlama / Tezgahlar → Torna → Manuel şarj ekle → Tip no / Tezgah / Adet / Kuyruk sırası",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -603,7 +748,7 @@
         "ayarlar",
         "ürün ailesi"
       ],
-      "body": "Parametreler’de ürünün şarj büyüklüğü, çapı, ailesi, tezgâh tercihleri ve üretim hızları bulunur; diğer prosesler ayrı sekmelerdedir. Yeni tip eksik bilgiyle listelenebilir ama planlanamaz. Eksik/geçersiz parametreyi ekrandaki alan adıyla göster. Ayarlar yalnız yöneticilere açıktır; fabrika takvimi, vardiya, tatil ve hazırlık ayarları buradadır. Vardiya ve bakım kapasiteyi etkiler, kayıt tüm fabrika veya belirli bir tezgâha uygulanabilir. Yetkisiz kullanıcıyı Ayarlar’a yönlendirmek yerine yetkili kullanıcıdan yardım almasını söyle. Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları, ürün kodu ve hammadde eşleşmesiyle gram değerini tutar. İlk aktarım Delme ve Çapak alma Parametre bilgileri (2).xlsx dosyasının ÜRÜN AĞIRLIKLARI sayfasındaki Mamül Kodu, Hammadde Kodu, Mal Adı, Miktar ve Hm. Birim sütunlarından yapılmıştır; temel ürün listesindeki 65 ürün eşleşmiştir. Kaynak değerler Gram birimindedir ve hammadde miktarıdır; bitmiş ürünün net ağırlığı olarak açıklanmaz. Yönetici arama yapabilir, ürün ekleyebilir, hammadde kodu/açıklamasını ve ağırlığı düzenleyebilir. Boş ağırlık bilinmiyor demektir; sıfır veya negatif değer kabul edilmez. Kayıtlar ortak plan verisinde saklanır; ilk değerler yalnız alan henüz yokken eklenir. Sayfa yenileme veya senaryo uygulama düzenlenmiş ağırlıkları sıfırlamaz. Ayarlar Excel yedeği ağırlıkları içerir, eski yedekte bu alan yoksa mevcut değerler korunur. Hammadde Bilgileri Ayarlar’daki son sekmedir; içinde Ürün Ağırlıkları ve Hammadde Tüketim Tablosu bulunur. Genel Bakış indirmelerindeki Torna iş satırları ve diğer proseslerin Hammadde sayfaları bu güncel gram değerlerini kullanır: iş adedi × gram × (1 + Iskarta Oranı / 100) / 1000 ile kg ihtiyacı hesaplanır. Iskarta Oranı (%) başlangıçta 2’dir, yönetici 0–100 arasında değiştirip Oranı kaydet ile saklar. Aynı oran günlük tüketimde ve saha planı indirmelerinde kullanılır. Ağırlık düzenlemek stok düşmez.",
+      "body": "Parametreler’de ürünün şarj büyüklüğü, çapı, ailesi, tezgâh tercihleri ve üretim hızları bulunur; diğer prosesler ayrı sekmelerdedir. Siparişler → Yeni tip eksik parametreyle listelenebilir ama planlanamaz. Parametreler → Yeni tip ise Torna, Delme, Çapak Alma, GKM ve Hammadde bilgilerini beş adımda ister; prosesler Aktif/Pasif seçilir. Hammadde dahil tam kaydı yönetici yapar. Eksik/geçersiz parametreyi ekrandaki alan adıyla göster. Ayarlar yalnız yöneticilere açıktır; fabrika takvimi, vardiya, tatil ve hazırlık ayarları buradadır. Vardiya ve bakım kapasiteyi etkiler, kayıt tüm fabrika veya belirli bir tezgâha uygulanabilir. Yetkisiz kullanıcıyı Ayarlar’a yönlendirmek yerine yetkili kullanıcıdan yardım almasını söyle. Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları, ürün kodu ve hammadde eşleşmesiyle gram değerini tutar. İlk aktarım Delme ve Çapak alma Parametre bilgileri (2).xlsx dosyasının ÜRÜN AĞIRLIKLARI sayfasındaki Mamül Kodu, Hammadde Kodu, Mal Adı, Miktar ve Hm. Birim sütunlarından yapılmıştır; temel ürün listesindeki 65 ürün eşleşmiştir. Kaynak değerler Gram birimindedir ve hammadde miktarıdır; bitmiş ürünün net ağırlığı olarak açıklanmaz. Yönetici arama yapabilir, ürün ekleyebilir, hammadde kodu/açıklamasını ve ağırlığı düzenleyebilir. Boş ağırlık bilinmiyor demektir; sıfır veya negatif değer kabul edilmez. Kayıtlar ortak plan verisinde saklanır; ilk değerler yalnız alan henüz yokken eklenir. Sayfa yenileme veya senaryo uygulama düzenlenmiş ağırlıkları sıfırlamaz. Ayarlar Excel yedeği ağırlıkları içerir, eski yedekte bu alan yoksa mevcut değerler korunur. Hammadde Bilgileri Ayarlar’daki son sekmedir; içinde Ürün Ağırlıkları ve Hammadde Tüketim Tablosu bulunur. Genel Bakış indirmelerindeki Torna iş satırları ve diğer proseslerin Hammadde sayfaları bu güncel gram değerlerini kullanır: iş adedi × gram × (1 + Iskarta Oranı / 100) / 1000 ile kg ihtiyacı hesaplanır. Iskarta Oranı (%) başlangıçta 2’dir, yönetici 0–100 arasında değiştirip Oranı kaydet ile saklar. Aynı oran günlük tüketimde ve saha planı indirmelerinde kullanılır. Ağırlık düzenlemek stok düşmez. Planlama ve Tezgahlar → Torna ekranlarında Manuel şarj ekle, aktif sipariş şartı olmadan parametrelerde tanımlı tipleri gösterir. Adet standart şarjdan gelir ve bu manuel kayıt için pozitif tam sayı olarak değiştirilebilir; tezgah ve kuyruk sırası seçilir. Eksik parametreler açıklanır; ayrıntılar manuel şarj ekleme konusundadır. Parametreler → Torna’da Tezgah önceliği ve vardiyalık üretim ile Varsayılan vardiyalık üretim alanları adet/vardiya kullanır. Eski üç vardiyalık günlük 900 adet, 300 adet/vardiya görünür; Yeni tip formuna da bir vardiyanın adedi girilir. Kaydet sonrası kayıtlı kuyruk korunur ve Girdiler değişti — planı yeniden çalıştırın uyarısı gösterilir. Ayrıntılar Torna vardiyalık üretim adedi konusundadır. Yeni tip akışında açıkça seçilmiş rotalarda pasif prosesler atlanır; aileye ait eski varsayılan sıra zorunlu değildir. Tanımlı beklemeler son aktif öncüden hesaplanır. Teslimat son aktif proses ve Paketleme & Final Kontrol sonrasındadır; GKM yalnız Aktif seçildiyse gereklidir. Torna pasif tip için yeni Torna üretimi açılmaz; mevcut gerçek yarı mamul esas alınır. Eski tipler ve gerçekleşen kayıtlar otomatik değiştirilmez.",
       "sources": [
         {
           "path": "frontend/features/planning/parameters/ParametersView.tsx"
@@ -647,16 +792,51 @@
         },
         {
           "path": "frontend/features/planning/PlanningApplication.tsx"
+        },
+        {
+          "path": "frontend/features/planning/shared/ManualBatchDialog.tsx",
+          "symbol": "ManualBatchDialog"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "addBatchManually"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        },
+        {
+          "path": "frontend/lib/process-master-data.ts",
+          "symbol": "productProcessRoute"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "buildDownstreamProcessPlan"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "advanceStage"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completedDeliveryRouteEnd"
+        },
+        {
+          "path": "frontend/lib/delivery-readiness.ts",
+          "symbol": "buildDeliveryReadinessEvents"
         }
       ],
-      "implementationNotes": "Parametreler ürünün şarj büyüklüğü, çapı, ailesi, sıralı tezgah tercihleri ve günlük hızlarını düzenler; proses parametreleri de ayrı sekmelerden yönetilir. productParametersReady/validateProductParameterDraft geçersiz veya eksik veriyi saptar. Yeni tip eksik parametreyle listede olabilir, planlanmaya hazır değildir. Ayarlar yöneticiye özeldir: fabrika takvimi, vardiyalar, tatiller, setup ve planlama girdileri. Takvim kayıtları tezgah veya fabrika kapsamına sahip olabilir; 0–3 vardiya ve bakım üretimi etkiler. ProtectedSettingsChange backend'de yetkisiz ayar değişimini de engeller. Kullanıcı admin değilse Ayarlar'a erişebileceğini söyleme; yetkili kullanıcıya başvurmasını belirt. productWeights is a protected settings field; init_database backfills only missing fields. Frontend migratePlanningSeed uses the identical reviewed foundation. Older-client saves preserve_missing_weights; validate_product_weights validates values on the server. mergeScenarioWithLiveOperations keeps live productWeights. Ravi product-weights screen context includes query, selected product, draft grams and source unit. inspect_state(product_weights) reads paginated persisted gram values; browser visibleWeights are bounded to 12 rows and may be unsaved. The workbook is not reopened at runtime. rawMaterialSettings is protected shared configuration. OverviewOperationPlan.scrapPercent carries the current browser setting (legacy default 2) into _material_amounts and all export labels. updateMaterialSettings uses the shared operational commit with preserveDirty=true; weights, stock and rate edits do not reschedule jobs or clear a stale plan. navigateFromRavi activates registered role=tab controls only after a user navigation click.",
+      "implementationNotes": "Parametreler ürünün şarj büyüklüğü, çapı, ailesi, sıralı tezgah tercihleri ve vardiyalık hızlarını düzenler; proses parametreleri de ayrı sekmelerden yönetilir. productParametersReady/validateProductParameterDraft geçersiz veya eksik veriyi saptar. Yeni tip eksik parametreyle listede olabilir, planlanmaya hazır değildir. Ayarlar yöneticiye özeldir: fabrika takvimi, vardiyalar, tatiller, setup ve planlama girdileri. Takvim kayıtları tezgah veya fabrika kapsamına sahip olabilir; 0–3 vardiya ve bakım üretimi etkiler. ProtectedSettingsChange backend'de yetkisiz ayar değişimini de engeller. Kullanıcı admin değilse Ayarlar'a erişebileceğini söyleme; yetkili kullanıcıya başvurmasını belirt. productWeights is a protected settings field; init_database backfills only missing fields. Frontend migratePlanningSeed uses the identical reviewed foundation. Older-client saves preserve_missing_weights; validate_product_weights validates values on the server. mergeScenarioWithLiveOperations keeps live productWeights. Ravi product-weights screen context includes query, selected product, draft grams and source unit. inspect_state(product_weights) reads paginated persisted gram values; browser visibleWeights are bounded to 12 rows and may be unsaved. The workbook is not reopened at runtime. rawMaterialSettings is protected shared configuration. OverviewOperationPlan.scrapPercent carries the current browser setting (legacy default 2) into _material_amounts and all export labels. updateMaterialSettings uses the shared operational commit with preserveDirty=true; weights, stock and rate edits do not reschedule jobs or clear a stale plan. navigateFromRavi activates registered role=tab controls only after a user navigation click. The shared ManualBatchDialog and addBatchManually now implement order-independent manual admission and exact user quantities; see manual-batch topic for scope, preserved commitments and failure handling. ProductParameterDraft and NewProductTypeDraft now use machineShiftRates/defaultShiftRate in pieces per shift. Persisted Product.dailyRate/parameterDailyRate retain three-shift daily units; Machine.rates was already per shift. See turning-shift-production for conversion and compatibility. The earlier weights/stock/rate statement refers to material scrap-rate settings; production parameter saves still use updateSeed and mark the plan stale. Explicit ProcessProduct.route is authoritative for newly created types; see new-product-type for the five-step workflow and completedDeliveryRouteEnd for its actual-delivery gate.",
       "userSources": [
         "Parametreler: ürün ve proses sekmeleri",
         "Ayarlar: fabrika takvimi ve planlama tercihleri",
         "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları: Tip no, Hammadde kodu, Hammadde ağırlığı (g), Kaydet",
         "ÜRÜN AĞIRLIKLARI: Mamül Kodu, Mal Adı, Hammadde Kodu, Miktar, Hm. Birim",
         "Ayarlar Excel yedeği → Ürün Ağırlıkları",
-        "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları → Iskarta Oranı (%) / Oranı kaydet"
+        "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları → Iskarta Oranı (%) / Oranı kaydet",
+        "Planlama / Tezgahlar → Torna → Manuel şarj ekle → Tip no / Tezgah / Adet / Kuyruk sırası",
+        "Parametreler → Torna → Tezgah önceliği ve vardiyalık üretim / Varsayılan vardiyalık üretim / Değiştir / Kaydet / Yeni tip",
+        "Parametreler → Yeni tip → Aktif / Pasif → Hammadde bilgileri"
       ]
     },
     {
@@ -669,7 +849,7 @@
         "setup saati",
         "plan kontrolü"
       ],
-      "body": "Genel Bakış mevcut işleri, kuyrukları, plan özetini ve kontrol bulgularını bir araya getirir; arama ve ilgili sipariş/tezgâha gitme vardır. Plan kapsamı, doluluk ve operasyon yükü farklı ölçülerdir. Bir yüzde sorulduğunda önce ekrandaki tam etiketi, tarih aralığını ve hangi adet/sürelerin karşılaştırıldığını belirt. Genel Bakış Excel çıktısı ekrandan hazırlanan veriyi dışarı aktarır, indirme yeni bir plan çalıştırmaz. Eksik bağlamda farklı yüzdeleri aynı formülle açıklama. Torna, Çapak Alma ve GKM saha planı Excel çıktılarında Çap sütunu hammadde çapını gösterir; ürün parametresinden, yoksa mevcut iş veya planlı şarjın çapından gelir. Eksik çap çizgi gösterilir. Matkap/setup kodu hammadde çapı yerine kullanılmaz. Delme Excel çıktısında Çap sütunu yoktur. Delme, Çapak Alma ve GKM saha planları Başlangıç günü dahil 15 takvim gününü kapsar; Bitiş otomatik belirlenir. Bu aralığa denk gelen devam eden ve planlı işlerin tamamı, tüm istasyonlardan alınır; tamamlanmış operasyon kayıtları dahil edilmez. İş sayısı nedeniyle kesilmez, gerektiği kadar sayfaya yayılır. Tarih aralığıyla kesişen işin tam adedi gösterilir; yalnız aralık içindeki üretim adedi hesaplanmaz. Torna her tezgâh için sıradaki en fazla 10 işi ve en fazla 16 tezgâhı içerir, tarih sınırı yoktur. Çıktı tarayıcıdaki mevcut planı kullanır; kaydedilmemiş veya güncelliğini yitirmiş planı kendiliğinden yenilemez. Delme, Çapak Alma ve GKM saha planında tüm tezgâhlar aynı çalışma sayfasında, yan yana ayrı tablolar halinde bulunur. İstasyon kimlikleri ve sıraları korunur; uzun kuyruklar 10 satırlık devam tablolarına ve sonraki yazdırma sayfalarına taşınır. Bu yalnız yerleşimdir; 15 günlük işlerin hiçbiri kesilmez. Boş tezgâhta planlı iş olmadığı belirtilir. Torna’da Hammadde kodu, Birim ağırlık (g) ve İhtiyaç (kg) doğrudan iş satırındadır; ayrı Hammadde sayfası yoktur. Torna tablo altındaki ihtiyaç yalnız o tablonun satırlarını toplar. Delme, Çapak Alma ve GKM ek Hammadde sayfalarını korur. Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları içindeki güncel Hammadde kodu ve gram değeri, dışa aktarılan işin Adet değeriyle eşleştirilir. Ek Hammadde sayfalarında Birim ağırlık (g), Iskartasız (kg), seçili orana göre ıskarta (kg) ve İhtiyaç (kg) sütunları vardır. İhtiyaç = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000. Iskarta Oranı (%) Ürün Ağırlıkları’nda değiştirilebilir; başlangıç %2’dir, sıfır da geçerlidir. Sayılar üç ondalıkla gösterilir, toplam satırları gösterimde yuvarlanmadan önceki değerleri toplar. Eksik ağırlık Eksik gösterilir; bilinen ihtiyaç ara toplamı eksik işler hariçtir, tüm ağırlıklar eksikse Hesaplanamadı yazar. Çapak Alma ve GKM için Hammadde sayfaları da istasyon bazında ayrıdır. Torna hammadde kapsamı saha planındaki en fazla 16 tezgâh ve tezgâh başına 10 işle aynıdır. Diğer proseslerde seçilen tarih aralığına denk gelen işlerin tam dışa aktarılan adedi kullanılır. Hesap bu proses işlerine ait ihtiyaç tahminidir; fiili tüketim veya stok düşümü değildir. Aynı şarj farklı proseslerde bulunabileceğinden proseslerin ihtiyaçları birbirine eklenmez. Tarayıcıdaki güncel ağırlık düzenlemeleri kullanılır; plan kendiliğinden yeniden çalıştırılmaz. Girdiler değişmişse Torna saha planında veya ek hammadde sayfasında planın güncel olmadığı belirtilir.",
+      "body": "Genel Bakış mevcut işleri, kuyrukları, plan özetini ve kontrol bulgularını bir araya getirir; arama ve ilgili sipariş/tezgâha gitme vardır. Tezgahlar → Torna kuyruğunda İş emri / izlenebilirlik alanına yazılan değer Kaydet ile aynı şarjın kaydına işlenir. Genel Bakış → Torna → İş emri sütunu ve Excel saha planı bu kayıtlı iş emrini kullanır; ekran için ayrı bir iş emri listesi tutulmaz. Kaydetmeden önceki yazı yalnız düzenleme taslağıdır. Mevcut üretimin iş emri kendi mevcut iş kaydından gelir; planlı şarjların iş emirleri birbirinden bağımsızdır, aynı ürünün başka şarjından alınmaz. Kaydedilen değişiklik Genel Bakış’taki aramaya da yansır. İş emri yoksa ekranda — gösterilir; kısaltılmış değer üzerine gelince tam iş emri görülebilir. Bu gösterim değişikliği adet, tarih, kuyruk sırası veya planın güncellik durumunu değiştirmez. Geri al ve yeniden yükleme ortak planlama kaydını kullanır; tarayıcıdaki kaydın ortak veritabanına aktarılması için mevcut kayıt/senkronizasyon durumunu kontrol edin. Plan kapsamı, doluluk ve operasyon yükü farklı ölçülerdir. Bir yüzde sorulduğunda önce ekrandaki tam etiketi, tarih aralığını ve hangi adet/sürelerin karşılaştırıldığını belirt. Genel Bakış Excel çıktısı ekrandan hazırlanan veriyi dışarı aktarır, indirme yeni bir plan çalıştırmaz. Eksik bağlamda farklı yüzdeleri aynı formülle açıklama. Torna, Çapak Alma ve GKM saha planı Excel çıktılarında Çap sütunu hammadde çapını gösterir; ürün parametresinden, yoksa mevcut iş veya planlı şarjın çapından gelir. Eksik çap çizgi gösterilir. Matkap/setup kodu hammadde çapı yerine kullanılmaz. Delme Excel çıktısında Çap sütunu yoktur. Delme, Çapak Alma ve GKM saha planları Başlangıç günü dahil 15 takvim gününü kapsar; Bitiş otomatik belirlenir. Bu aralığa denk gelen devam eden ve planlı işlerin tamamı, tüm istasyonlardan alınır; tamamlanmış operasyon kayıtları dahil edilmez. İş sayısı nedeniyle kesilmez, gerektiği kadar sayfaya yayılır. Tarih aralığıyla kesişen işin tam adedi gösterilir; yalnız aralık içindeki üretim adedi hesaplanmaz. Torna her tezgâh için sıradaki en fazla 10 işi ve en fazla 16 tezgâhı içerir, tarih sınırı yoktur. Çıktı tarayıcıdaki mevcut planı kullanır; kaydedilmemiş veya güncelliğini yitirmiş planı kendiliğinden yenilemez. Delme, Çapak Alma ve GKM saha planında tüm tezgâhlar aynı çalışma sayfasında, yan yana ayrı tablolar halinde bulunur. İstasyon kimlikleri ve sıraları korunur; uzun kuyruklar 10 satırlık devam tablolarına ve sonraki yazdırma sayfalarına taşınır. Bu yalnız yerleşimdir; 15 günlük işlerin hiçbiri kesilmez. Boş tezgâhta planlı iş olmadığı belirtilir. Torna’da Hammadde kodu, Birim ağırlık (g) ve İhtiyaç (kg) doğrudan iş satırındadır; ayrı Hammadde sayfası yoktur. Torna tablo altındaki ihtiyaç yalnız o tablonun satırlarını toplar. Delme, Çapak Alma ve GKM ek Hammadde sayfalarını korur. Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları içindeki güncel Hammadde kodu ve gram değeri, dışa aktarılan işin Adet değeriyle eşleştirilir. Ek Hammadde sayfalarında Birim ağırlık (g), Iskartasız (kg), seçili orana göre ıskarta (kg) ve İhtiyaç (kg) sütunları vardır. İhtiyaç = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000. Iskarta Oranı (%) Ürün Ağırlıkları’nda değiştirilebilir; başlangıç %2’dir, sıfır da geçerlidir. Sayılar üç ondalıkla gösterilir, toplam satırları gösterimde yuvarlanmadan önceki değerleri toplar. Eksik ağırlık Eksik gösterilir; bilinen ihtiyaç ara toplamı eksik işler hariçtir, tüm ağırlıklar eksikse Hesaplanamadı yazar. Çapak Alma ve GKM için Hammadde sayfaları da istasyon bazında ayrıdır. Torna hammadde kapsamı saha planındaki en fazla 16 tezgâh ve tezgâh başına 10 işle aynıdır. Diğer proseslerde seçilen tarih aralığına denk gelen işlerin tam dışa aktarılan adedi kullanılır. Hesap bu proses işlerine ait ihtiyaç tahminidir; fiili tüketim veya stok düşümü değildir. Aynı şarj farklı proseslerde bulunabileceğinden proseslerin ihtiyaçları birbirine eklenmez. Tarayıcıdaki güncel ağırlık düzenlemeleri kullanılır; plan kendiliğinden yeniden çalıştırılmaz. Girdiler değişmişse Torna saha planında veya ek hammadde sayfasında planın güncel olmadığı belirtilir.",
       "sources": [
         {
           "path": "frontend/components/PlanControl.tsx"
@@ -709,9 +889,25 @@
         },
         {
           "path": "frontend/features/planning/PlanningApplication.tsx"
+        },
+        {
+          "path": "frontend/lib/dashboard.ts",
+          "symbol": "buildDashboardModel"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "updateBatchWorkOrder"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "buildDownstreamProcessPlan"
+        },
+        {
+          "path": "frontend/features/planning/session/planning-state.ts",
+          "symbol": "restoreManualResult"
         }
       ],
-      "implementationNotes": "Genel Bakış PlanControl üzerinden tezgahların mevcut işleri, kuyrukları, plan özeti ve kontrol bulgularını gösterir; arama/filtre ve ilgili sipariş/tezgaha gitme vardır. general-overview ve dashboard verileri ekran düzenlerine dönüştürür. Plan kapsamı/doluluk/operasyon yükü farklı ölçülerdir: plan-coverage, capacity-analytics, operation-workload ve operational-metrics kendi pay/payda ve tarih kapsamlarını uygular. Yüzdeyi veya rötarı açıklarken önce ölçünün ekrandaki tam etiketini ve gerçek fonksiyonunu bul. Genel Bakış Excel çıktısı frontend payload'ının backend overview_export biçimlendirmesidir; backend yeniden planlama yapmaz. PlanControl exportEnd is derived as exportStart + 14 days. buildGeneralOverviewExportPayload filters non-actual operations by end >= rangeStart and start < rangeEnd + 1; downstream resources/rows have no print cap. _resource_shop_floor_sheet pairs machines in one sheet; downstream queues are chunked into 10-row continuation blocks without dropping rows. Two bands per downstream printed page, four per turning page. Torna uses 11 columns per block with material code, unit grams and required kg inline; its separate material sheet is removed, including legacy exports. buildGeneralOverviewExportPayload joins current seed.productWeights by normalized product code; no foundation fallback for unknown weights. OverviewOperationRow validates finite positive unitWeightGrams or null. _material_amounts is the shared requirement arithmetic for inline and companion sheets: Decimal quantity * grams / 1000, scrap = net * scrap_percent / 100, required = net + scrap. Numeric workbook cells retain precision; only number_format rounds display. Material sheets use the exact exported resource rows, enforce the same turning limits, split deburring/gkm stations, and never aggregate across processes. _shop_floor_resource_block sums the unrounded material requirements for its displayed rows and flags missing weights. rawMaterialSettings is protected shared configuration. OverviewOperationPlan.scrapPercent carries the current browser setting (legacy default 2) into _material_amounts and all export labels. updateMaterialSettings uses the shared operational commit with preserveDirty=true; weights, stock and rate edits do not reschedule jobs or clear a stale plan. navigateFromRavi activates registered role=tab controls only after a user navigation click.",
+      "implementationNotes": "Genel Bakış PlanControl üzerinden tezgahların mevcut işleri, kuyrukları, plan özeti ve kontrol bulgularını gösterir; arama/filtre ve ilgili sipariş/tezgaha gitme vardır. general-overview ve dashboard verileri ekran düzenlerine dönüştürür. Plan kapsamı/doluluk/operasyon yükü farklı ölçülerdir: plan-coverage, capacity-analytics, operation-workload ve operational-metrics kendi pay/payda ve tarih kapsamlarını uygular. Yüzdeyi veya rötarı açıklarken önce ölçünün ekrandaki tam etiketini ve gerçek fonksiyonunu bul. Genel Bakış Excel çıktısı frontend payload'ının backend overview_export biçimlendirmesidir; backend yeniden planlama yapmaz. PlanControl exportEnd is derived as exportStart + 14 days. buildGeneralOverviewExportPayload filters non-actual operations by end >= rangeStart and start < rangeEnd + 1; downstream resources/rows have no print cap. _resource_shop_floor_sheet pairs machines in one sheet; downstream queues are chunked into 10-row continuation blocks without dropping rows. Two bands per downstream printed page, four per turning page. Torna uses 11 columns per block with material code, unit grams and required kg inline; its separate material sheet is removed, including legacy exports. buildGeneralOverviewExportPayload joins current seed.productWeights by normalized product code; no foundation fallback for unknown weights. OverviewOperationRow validates finite positive unitWeightGrams or null. _material_amounts is the shared requirement arithmetic for inline and companion sheets: Decimal quantity * grams / 1000, scrap = net * scrap_percent / 100, required = net + scrap. Numeric workbook cells retain precision; only number_format rounds display. Material sheets use the exact exported resource rows, enforce the same turning limits, split deburring/gkm stations, and never aggregate across processes. _shop_floor_resource_block sums the unrounded material requirements for its displayed rows and flags missing weights. rawMaterialSettings is protected shared configuration. OverviewOperationPlan.scrapPercent carries the current browser setting (legacy default 2) into _material_amounts and all export labels. updateMaterialSettings uses the shared operational commit with preserveDirty=true; weights, stock and rate edits do not reschedule jobs or clear a stale plan. navigateFromRavi activates registered role=tab controls only after a user navigation click. Work-order authority is the live PlanningApplication seed/result: saveBatchWorkOrder calls updateBatchWorkOrder by batch ID; commitOperationalChange mirrors the resulting batches into seed.manualBatches for the existing undo/persistence path. buildDashboardModel now projects batch.workOrder (empty only when missing), fixing its old hardcoded empty string. PlanControl MachinePanel and search consume that model; buildGeneralOverviewExportPayload.machines uses the same model, and operationPlans reads workOrder from buildDownstreamProcessPlan, whose turning sources take the same live batch/currentJob fields. No independent work-order store, product-level lookup or new synchronization engine is introduced. restoreManualResult restores the persisted work-order field. Regression exercises two same-product charges, editing one, clearing, failure/no mutation, unchanged schedule/quantities and stale reload, with dashboard/legacy-export/shop-floor-export parity.",
       "userSources": [
         "Genel Bakış: görünür özet ve ölçü etiketleri",
         "Genel Bakış Excel çıktısı",
@@ -719,7 +915,9 @@
         "Excel saha planı: tarih aralığı, iş/adet toplamı, İstasyon, Başlangıç, Bitiş; Torna / Çapak Alma / GKM: Çap",
         "Excel → Hammadde: Hammadde kodu, Birim ağırlık (g), Iskartasız (kg), seçili orana göre ıskarta (kg), İhtiyaç (kg), bilinen ihtiyaç ara toplamı",
         "Delme / Çapak Alma / GKM Saha Planı: aynı sayfada yan yana tezgâh tabloları ve devam tabloları; Torna satırları: Hammadde kodu, Birim ağırlık (g), İhtiyaç (kg)",
-        "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları → Iskarta Oranı (%) / Oranı kaydet"
+        "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları → Iskarta Oranı (%) / Oranı kaydet",
+        "Tezgahlar → Torna → İş emri / izlenebilirlik → Kaydet; Mevcut üretim → Mevcut işi düzenle",
+        "Genel Bakış → Torna → İş emri; istasyon/ürün araması; Torna saha planı → Excel saha planını indir"
       ]
     },
     {
@@ -809,7 +1007,7 @@
         "kayboldu",
         "kayıt adı"
       ],
-      "body": "Senaryolar alternatif planları kaydetme, karşılaştırma ve yükleme yeridir. Eski senaryoyu yüklemek sahada gerçekleşmiş üretimi geri almaz; canlı üretim kayıtları korunur, gerekirse planın tarih kapsamı uyarlanır. Mevcut ekran henüz kaydedilmemiş değişiklik içerebilir. Yeniden hesaplama uyarısı hesaplanan planın eski kaldığını, çevrimdışı/kaydediliyor/çakışma durumu ise ortak kayıtla eşleşmeyi anlatır. Çakışmada Ortak veriyi yükle ve Bu cihazı yeni sürüm olarak yayınla seçenekleri vardır. Ravi ekrandaki güncel taslak ile son kaydedilen planı ayırmalıdır. Prod’dan güncelle de yerelde değişen plan ve operasyonları korur; kayıt çakışması veya bağlantı hatası varsa önce çözülmelidir. Kayıtlı yerel senaryolar korunur.",
+      "body": "Senaryolar alternatif planları kaydetme, karşılaştırma ve yükleme yeridir. Eski senaryoyu yüklemek sahada gerçekleşmiş üretimi geri almaz; canlı üretim kayıtları korunur, gerekirse planın tarih kapsamı uyarlanır. Mevcut ekran henüz kaydedilmemiş değişiklik içerebilir. Yeniden hesaplama uyarısı hesaplanan planın eski kaldığını, çevrimdışı/kaydediliyor/çakışma durumu ise ortak kayıtla eşleşmeyi anlatır. Çakışmada Ortak veriyi yükle ve Bu cihazı yeni sürüm olarak yayınla seçenekleri vardır. Ravi ekrandaki güncel taslak ile son kaydedilen planı ayırmalıdır. Prod’dan güncelle de yerelde değişen plan ve operasyonları korur; kayıt çakışması veya bağlantı hatası varsa önce çözülmelidir. Kayıtlı yerel senaryolar korunur.\nPlanı Temizle yalnız kilitsiz önerileri kaldırır; kilitli işlerin tarihlerini yeniden hesaplamaz. Kilitli kayıt doğrulanamazsa tüm eski durum korunur ve hata gösterilir. Temizleme geri alınabilir. Girdi değişikliklerinde kayıtlı kuyruk ve kilitler yeniden açılış için korunur; planın yeniden hesaplama ihtiyacı da kaydedilir. Sunucu canlı üretimi korurken hesaplamanın girdisini değiştirmişse plan güncel sayılmaz. Plan ve ilgili siparişlerin Termin / ara teslim tarihleri birlikte kaydedilir. Ortak sürüm çakışması ya da kayıt hatasında yalnız tarihlerin ayrı kaydolması engellenir. Senaryo yüklenirken canlı üretim hesabın eski girdilerinden farklıysa kayıtlı işler korunur, sonuç yeniden hesaplama bekler.\nPlanı Temizle, kilitsiz olsa da yarım kalan Torna şarjını korur. Ara verme kayıtları, kalan iş ve yarı mamül canlı operasyon verisidir; eski senaryo bunları silmez veya tamamlanmış kalanı yeniden açmaz. Bu kayıtları içermeyen eski istemcinin operasyon yazısı yenileme uyarısıyla reddedilir.",
       "sources": [
         {
           "path": "frontend/features/planning/scenarios/useScenarioLibrary.ts"
@@ -832,13 +1030,30 @@
         {
           "path": "backend/app/production_merge.py",
           "symbol": "merge_production_refresh"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "clearPlanKeepingLocks"
+        },
+        {
+          "path": "frontend/features/planning/session/planning-state.ts",
+          "symbol": "cloneSeed"
+        },
+        {
+          "path": "backend/app/database.py",
+          "symbol": "preserve_live_operations"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
-      "implementationNotes": "Senaryolar kayıtlı alternatifleri listeler/karşılaştırır/yükler. Senaryo plan taslağı ile canlı üretim gerçeği ayrıdır: mergeScenarioWithLiveOperations sahadaki üretimi eski snapshot ile geri almaz; rebaseScenarioPlan tarih kapsamını uyarlayabilir. Aktif ortak seed SQLite planning_state'te sürüm updatedAt ile saklanır. Browser yerel kopyası daha yeni olabilir; newestPlanningState seçer, canlı operasyonlar sunucuyla birleştirilir. Yazılar sırayla gider; eski expectedUpdatedAt ile yazı 409 çakışır. Kullanıcı Ortak veriyi yükle veya Bu cihazı yeni sürüm olarak yayınla seçebilir. dirty eski hesaplanmış planın girdiler değiştiği için geçersiz olduğunu belirtir; saving/offline/conflict ise kayıt eşleşmesi sorunudur. Ravi current browser context'i kullanırken sunucu snapshot'ının farklı olabileceğini açıkça ayırır.",
+      "implementationNotes": "Senaryolar kayıtlı alternatifleri listeler/karşılaştırır/yükler. Senaryo plan taslağı ile canlı üretim gerçeği ayrıdır: mergeScenarioWithLiveOperations sahadaki üretimi eski snapshot ile geri almaz; rebaseScenarioPlan tarih kapsamını uyarlayabilir. Aktif ortak seed SQLite planning_state'te sürüm updatedAt ile saklanır. Browser yerel kopyası daha yeni olabilir; newestPlanningState seçer, canlı operasyonlar sunucuyla birleştirilir. Yazılar sırayla gider; eski expectedUpdatedAt ile yazı 409 çakışır. Kullanıcı Ortak veriyi yükle veya Bu cihazı yeni sürüm olarak yayınla seçebilir. dirty eski hesaplanmış planın girdiler değiştiği için geçersiz olduğunu belirtir; saving/offline/conflict ise kayıt eşleşmesi sorunudur. Ravi current browser context'i kullanırken sunucu snapshot'ının farklı olabileceğini açıkça ayırır. clearPlanKeepingLocks preserves protected tuples exactly; coordinator commits clear through shared undo/operational persistence. cloneSeed rebuilds weekly orders only with no activePlanRun, preserving run net quantities/coarse dates. planNeedsRecalculation travels with operational refresh state. preserve_live_operations flags changed live calculation inputs and retains an omitted dirty flag for old planning clients. save_planning_state calls _save_orders in the same SQLite transaction as the versioned seed, history and archive snapshot. The coordinator no longer issues parallel PUT /orders calls for plan/input/import writes. The legacy endpoint remains for compatibility; this guarantee covers the current planning-state workflow. mergeScenarioWithLiveOperations marks planNeedsRecalculation when live current work, history or WIP differs from the scenario calculation. A returned server stale marker applies to the same current browser seed only; an older queued response cannot invalidate a newer run.",
       "userSources": [
         "Senaryolar",
         "Üst çubuk: kaydetme/bağlantı ve yeniden hesaplama uyarıları",
-        "Çakışma seçenekleri: Ortak veriyi yükle / Bu cihazı yeni sürüm olarak yayınla"
+        "Çakışma seçenekleri: Ortak veriyi yükle / Bu cihazı yeni sürüm olarak yayınla",
+        "Planı Temizle; yeniden hesaplama uyarısı; geri alma",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -851,7 +1066,7 @@
         "fazla mesai",
         "öne çek"
       ],
-      "body": "Tavsiyeler üst çubuktan açılır; eksik adet, termin riski, manuel şarj, vardiya veya ileri haftadan öne çekme önerileri görülebilir. Bulguların dayanağını ilgili sipariş, tezgâh, tarih veya eksik parametre üzerinden anlat. Plan yeniden hesaplanmayı bekliyorsa eski öneriyi kesin güncel sonuç gibi sunma. Ravi öneriyi açıklayabilir ve ekranı açma düğmesi sunabilir; öneriyi uygulamış olduğunu söylemez.",
+      "body": "Tavsiyeler üst çubuktan açılır; eksik adet, termin riski, manuel şarj, vardiya veya ileri haftadan öne çekme önerileri görülebilir. Bulguların dayanağını ilgili sipariş, tezgâh, tarih veya eksik parametre üzerinden anlat. Plan yeniden hesaplanmayı bekliyorsa eski öneriyi kesin güncel sonuç gibi sunma. Ravi öneriyi açıklayabilir ve ekranı açma düğmesi sunabilir; öneriyi uygulamış olduğunu söylemez.\nYeni plan uygulanmadan önce miktar, kimlik, korunan şarj ve yerleşim kontrolleri yapılır. Plan güvenilirlik kontrolü hatası çıkarsa yeni sonuç uygulanmaz. Bu kontrolün geçmesi terminlerin tamamının karşılandığı anlamına gelmez: kilitli eski fazlalar, şarj yuvarlama eksiği ve kapasite gecikmesi görünür kalır.\nYarım kalan işler plan temiz veya yeniden hesaplama bekliyor olsa da Tavsiyeler’de görünür; Göz ardı et ile kaldırılmaz. Şarjı incele yolculuğu açar. İş yeniden başladığında hatırlatma devam eder, kalan üretim tamamlanınca kapanır.",
       "sources": [
         {
           "path": "frontend/lib/planning-advice.ts",
@@ -863,12 +1078,20 @@
         },
         {
           "path": "frontend/features/planning/advice/RecommendationCenter.tsx"
+        },
+        {
+          "path": "frontend/lib/plan-integrity.ts",
+          "symbol": "assertPlanResult"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
       "implementationNotes": "Üst çubuktaki Tavsiyeler buildPlanningAdvice bulgularını açar. Öneriler eksik adet, termin riski, manuel şarj, vardiya ve ileri haftadan öne çekme gibi plan değişikliklerine yönlendirebilir; öneri uygulama mevcut workflow içindedir. buildPlanAudit veri/kapasite/termin tutarlılığı bulguları ve hedef ekran üretir. Dirty planda önerileri kesin güncel sonuç gibi sunma. Ravi mevcut öneriyi açıklayabilir veya Tavsiyeler'i açmayı teklif edebilir; kendi önerisinin uygulanmış olduğunu iddia etmez.",
       "userSources": [
         "Üst çubuk → Tavsiyeler",
-        "Siparişler, Tezgahlar ve Parametreler’de ilgili kayıt"
+        "Siparişler, Tezgahlar ve Parametreler’de ilgili kayıt",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -989,7 +1212,7 @@
         "sohbet",
         "yapay zeka"
       ],
-      "body": "Ravi sağ alttaki düğmeden açılır. Excel sütunları ve uygulama etiketleri üzerinden hesapları açıklar, ilgili ekrana gitmek için tıklanabilir düğme sunar; plan değiştirme, indirme veya mesaj gönderme işlemini kendisi yapmaz. Yanıt hazırlanırken Bir bakalım… gibi kısa durum güncellemeleri görünür ve yanıt geldikçe metin parça parça yazılır. Bu güncellemeler işlem durumudur, özel düşünce dökümü değildir. Kesilen yanıt tamamlanmış gibi kaydedilmez; soru taslağa geri konur ve tekrar gönderilebilir. Konuşmalar düğmesi geçmişi açar; Yeni konuşma ayrı sohbet başlatır. Mesajlar/taslaklar bu tarayıcıda kullanıcıya ayrı saklanır, yenilemede geri gelir; farklı cihazlara eşitlenmez. Son 20 konuşma, konuşma başına en fazla 100 mesaj/50.000 karakter saklanır; çok uzun tek mesaj 12.000, taslak 4.000 karakterle sınırlıdır. Eski mesajlar kırpılırsa belirtilir. Listeden konuşma seçilebilir/silinebilir. Boş taslaksız konuşmalar yeni konuşma açıldığında kaldırılır. Yanıt hazırlanırken sohbet değiştirme/yeni sohbet kapalıdır. Yalnız seçili sohbetin yakın geçmişi ve taze ekran bilgisi kullanılır; diğer konuşmalar yanıtın bağlamına eklenmez. Ekran değişse de sohbet korunur; yönlendirme düğmesine basılınca hedefi göstermek için panel kapanır. Kaynak dosyası listesi gösterilmez; metin kalın/italik, liste, başlık, kod ve tablo olarak biçimlenebilir. Harici resim veya rastgele gezinme bağlantısı çalıştırılmaz. Depolama veya bağlantı sorunu açıkça bildirilir. Mavi piksel kuzgun beklerken hafif salınır, yanıt hazırlarken daha sık hareket eder; azaltılmış hareket tercihi desteklenir.",
+      "body": "Ravi sağ alttaki düğmeden açılır. Excel sütunları ve uygulama etiketleri üzerinden hesapları açıklar, ilgili ekrana gitmek için tıklanabilir düğme sunar; plan değiştirme, indirme veya mesaj gönderme işlemini kendisi yapmaz. Yanıt hazırlanırken Bir bakalım… gibi kısa durum güncellemeleri görünür ve yanıt geldikçe metin parça parça yazılır. Bu güncellemeler işlem durumudur, özel düşünce dökümü değildir. Kesilen yanıt tamamlanmış gibi kaydedilmez; soru taslağa geri konur ve tekrar gönderilebilir. Konuşmalar düğmesi geçmişi açar; Yeni konuşma ayrı sohbet başlatır. Mesajlar/taslaklar bu tarayıcıda kullanıcıya ayrı saklanır, yenilemede geri gelir; farklı cihazlara eşitlenmez. Son 20 konuşma, konuşma başına en fazla 100 mesaj/50.000 karakter saklanır; çok uzun tek mesaj 12.000, taslak 4.000 karakterle sınırlıdır. Eski mesajlar kırpılırsa belirtilir. Listeden konuşma seçilebilir/silinebilir. Boş taslaksız konuşmalar yeni konuşma açıldığında kaldırılır. Yanıt hazırlanırken sohbet değiştirme/yeni sohbet kapalıdır. Yalnız seçili sohbetin yakın geçmişi ve taze ekran bilgisi kullanılır; diğer konuşmalar yanıtın bağlamına eklenmez. Ekran değişse de sohbet korunur; yönlendirme düğmesine basılınca hedefi göstermek için panel kapanır. Kaynak dosyası listesi gösterilmez; metin kalın/italik, liste, başlık, kod ve tablo olarak biçimlenebilir. Harici resim veya rastgele gezinme bağlantısı çalıştırılmaz. Depolama veya bağlantı sorunu açıkça bildirilir. Mavi piksel kuzgun beklerken hafif salınır, yanıt hazırlarken daha sık hareket eder; azaltılmış hareket tercihi desteklenir. Yarım üretim sorgusunda kayıtlı Üretilen adet, Kalan adet, İşe ara verme nedeni ve tarih bilgileri okunabilir; bu sunucu kaydı mevcut tarayıcı planından ayrı bir kaynaktır.",
       "sources": [
         {
           "path": "backend/app/ravi/routes.py"
@@ -1090,7 +1313,7 @@
         "devam planı",
         "üretim aralığı"
       ],
-      "body": "Planı Çalıştır penceresinde hafta aralıkları, üretim başlangıcı/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni planda geçmiş ihtiyaç ve kapsamdan önce üretim başlangıçta kapalıdır; devam planı önceki tercihleri korur. Yeni planın varsayılan amacı en erken bitiştir. Teslimat düşümünün başlangıç tercihi önceki seçim veya yüklenmiş sipariş bilgisine bağlıdır; teslimat başlangıcı ve o başlangıç anının dahil edilmesi ayrıca önemlidir. Kullanıcı hangi kutuyu seçmişse onu esas al. Eski veya genel varsayılanı mevcut seçim diye söyleme.",
+      "body": "Planı Çalıştır penceresinde hafta aralıkları, üretim başlangıcı/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni planda geçmiş ihtiyaç ve kapsamdan önce üretim başlangıçta kapalıdır; devam planı önceki tercihleri korur. Yeni planın varsayılan amacı en erken bitiştir. Teslimat düşümünün başlangıç tercihi önceki seçim veya yüklenmiş sipariş bilgisine bağlıdır; teslimat başlangıcı ve o başlangıç anının dahil edilmesi ayrıca önemlidir. Kullanıcı hangi kutuyu seçmişse onu esas al. Eski veya genel varsayılanı mevcut seçim diye söyleme.\nYeni planın net sipariş adedi, teslimat düşümünün son anı ve Standart planlama için seçilen ortak Termin kaydetme veya ekranı yeniden açma sırasında değiştirilmez. Tekrar planlama gross ithalat ihtiyacından teslimatları yeniden ve bir kez düşer. Manuel üretim tarihleri gerçek takvim tarihi olmalıdır ve tezgahın operasyonel müsaitlik sınırını erkene alamaz. Devam aralıkları bitişik ve sıralı olmalıdır. Eski motorla hesaplanmış veya yeniden hesaplama bekleyen plan, kayıtlı işleri gösterse de güncel sayılmaz.",
       "sources": [
         {
           "path": "frontend/features/planning/board/PlanRunDialog.tsx"
@@ -1102,16 +1325,24 @@
         {
           "path": "frontend/lib/plan-run.ts",
           "symbol": "executeNextPlanStage"
+        },
+        {
+          "path": "frontend/lib/plan-integrity.ts",
+          "symbol": "assertPlanInputs"
+        },
+        {
+          "path": "frontend/lib/plan-run.ts",
+          "symbol": "planRequiresRecalculation"
         }
       ],
-      "implementationNotes": "Sayfa başlığındaki Planı Çalıştır diyaloğunda hafta aralıkları, üretim başlangıç/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni plan için includePriorBacklog ve allowProductionBeforeScope başlangıçta false; devam planında önceki plan metadata tercihi kullanılır. Varsayılan amaç earliest-finish, devam planı eski amacı korur. deductDeliveries önceki filtreden veya sipariş import metadata varlığından başlar; teslim başlangıç zamanı ve başlangıç anını dahil etme ayrı seçeneklerdir. executePlanRun ve executeNextPlanStage bu istekle mevcut motoru çalıştırır. Checkbox değerini ekran context plan-run-dialog içinden oku; yardımcı fonksiyonun varsayılanını kullanıcının seçimi sanma.",
+      "implementationNotes": "Sayfa başlığındaki Planı Çalıştır diyaloğunda hafta aralıkları, üretim başlangıç/bitişi, optimizasyon amacı, geçmiş ihtiyacı dahil etme, kapsamdan önce üretime izin verme ve teslimat düşümü seçilir. Yeni plan için includePriorBacklog ve allowProductionBeforeScope başlangıçta false; devam planında önceki plan metadata tercihi kullanılır. Varsayılan amaç earliest-finish, devam planı eski amacı korur. deductDeliveries önceki filtreden veya sipariş import metadata varlığından başlar; teslim başlangıç zamanı ve başlangıç anını dahil etme ayrı seçeneklerdir. executePlanRun ve executeNextPlanStage bu istekle mevcut motoru çalıştırır. Checkbox değerini ekran context plan-run-dialog içinden oku; yardımcı fonksiyonun varsayılanını kullanıcının seçimi sanma. PLAN_ENGINE_VERSION=4; planRequiresRecalculation checks persisted planNeedsRecalculation and old/missing engine metadata. executePlanRun and executeNextPlanStage run assertPlanInputs/assertPlanResult before application. Strict calendar-day validation rejects rollover dates. Manual range availableStart is max(operational start, requested start).",
       "userSources": [
         "Planı Çalıştır: kapsam, üretim tarihleri ve seçim kutuları"
       ]
     },
     {
       "id": "process-gantt-placement",
-      "title": "Downstream Gantt taşıma, yerleşim önizlemesi ve engel nedenleri",
+      "title": "Üretim akışını düzenle ve proses yerleşimini incele",
       "aliases": [
         "sürükle",
         "bırak",
@@ -1119,44 +1350,75 @@
         "Eylül",
         "taşıma neden olmuyor",
         "yerleşim",
-        "Gantt kuyruk sırası"
+        "Gantt kuyruk sırası",
+        "üretim akışını düzenle",
+        "sonraki proseslerde de öne al",
+        "hedef teslim tarihi",
+        "akış tercihi",
+        "öncelikli planla"
       ],
-      "body": "Planlama’da Delme, Çapak Alma ve GKM çizelgesindeki yalnız kuyrukta planlı işler taşınır; çalışan/tamamlanan işler sabittir. Barın tutulduğu nokta korunur, istenen başlangıç 1 saatlik adımlara yuvarlanır. Taşıma bir kuyruk konumu ister; arkasındaki işler ve sonraki prosesler yeniden yerleşebilir. Kesikli çizgi istenen zamanı, taralı alan hesaplanan aralığı gösterir. Bırakmak kaydetmez: Proses yerleşimini incele içinde İstenen başlangıç, Hesaplanan başlangıç, Hesaplanan bitiş ve diğer işlere etki gösterilir. Önceki proses/bekleme hazır değilse en erken tarih/saatle reddedilir. Pasif kaynak, sıfır vardiya, eksik hız/uygunluk, D-02 Center Pin rezervi, hazırlık veya plan penceresine sığmayan rota engel olabilir. Vardiya/tatil/bakım ve sabit çalışan iş zaman kaydırırsa gerçek tarih ve gerekçe onaydan önce görünür. Yerleşimi uygula anında plan değişmişse tekrar inceleme gerekir. Geri al/Yinele desteklenir; yeniden hesaplama uyarısı taşıma ile temizlenmez. Esc/Vazgeç/geçersiz yere bırakma kaydetmez. Önce / Mevcut plan ve Sonra / Yeni plan panellerinde Tezgâh, Başlangıç, Bitiş karşılaştırılır; değişen değerler vurgulanır. Uzun etki listesinde Devamını gör ve Listenin sonu / Başa dön kaydırmayı kolaylaştırır. Bunlar inceleme kontrolleridir, tek başına plan değiştirmez.",
+      "body": "Planlama Gantt’ında ve Tezgahlar kuyruklarında Torna, Delme, Çapak Alma veya GKM işi taşınınca Üretim akışını düzenle açılır. Bırakmak kaydetmez. Seçili şarj için bu ekran tekrar açılabilir; Torna yerleşimini de değiştir ile Torna tezgâhı ve Kuyruk sırası düzenlenir. Değişiklik kapsamı: Sonraki proseslerde de öne al kalan rota adımlarına öncelik önerir; Yalnız bu prosesi değiştir sonraki adımlara yeni bir öncelik vermez, fakat öncü ve kapasite değişiminin tarih etkisi yine hesaplanır.\nKalan her adım ayrı seçilir: Öncelikli planla hazır olma, mevcut işler ve kaynak kurallarına uyan erken kuyruk konumunu arar; Mevcut yerleşimi koru mevcut iş merkezi, başlangıç ve bitişi ister; Elle yerleştir uygun iş merkezi ve istenen başlangıç seçtirir. Önceden kaydedilmiş manuel tercihler görünür ve değiştirilebilir. Seçili şarjın birden fazla korunmuş adımı birlikte değiştirilebilir; son rota topluca doğrulanır. Korunmuş yerleşim bozulursa veya bir rota adımı kaybolursa işlem engellenir. Kaynak uygunluğu, vardiya, tatil, bakım, setup, zorunlu bekleme ve D-02 Center Pin rezervi geçerlidir; çalışan ve tamamlanan işler değiştirilemez. Yarım üretimde yalnız seçili proses manuel yerleştirilir; sonraki prosesler ve teslim hedefi otomatik atanmaz.\nÖnce / Sonra tablosu her prosesin iş merkezi ve tarih/saatlerini gösterir. Teslimata hazır son aktif proses ve Paketleme & Final Kontrol takviminden hesaplanır. Hedef teslim tarihi iç planlama hedefidir; sipariş Termin bilgisini veya adedini değiştirmez. Hedefe yetişmeyen sonuç açıkça gösterilir, hedef otomatik bir teslimat garantisi değildir. Diğer işlere etkisi açılarak kaymış adımlar ve siparişlerin Termin tarihinde zamanında karşılanan adetleri karşılaştırılır; azalan karşılama uyarıdır.\nTüm değişiklikleri uygula tek ortak kayıttır; Geri al/Yinele tüm işlemi birlikte geri getirir. Esc/Vazgeç kaydetmez. İnceleme sırasında stok, sipariş, takvim veya plan değişirse Önizlemeyi yenile gerekir; eski hesap uygulanmaz. Yeniden hesaplama uyarısı korunur ve tarayıcıdaki kaydın ortak veriye gönderilme durumu ayrıca gösterilir.\nKabul edilmiş kuyruk sırası kaydedilir. Akış tercihi olan Torna şarjı otomatik planlamada aynı kimlik, adet ve yerleşimle tutulur; talebe ikinci kez eklenmez. Öncelik, kaydedilmiş şarj ve yarı mamul soy ilişkisini izler; aynı ürünün başka işi bu tercihi almaz. Değişen girdiler Mevcut yerleşimi koru seçimini olanaksız yaparsa uyarı gösterilir ve yeniden inceleme gerekir. Bu şarjın akış tercihlerini kaldır · Otomatik planlamaya dön kaldırma etkisini önizler. Planı Temizle kilitsiz şarjları siler; prosesin açık otomatik sıfırlaması o prosesin manuel tercihlerini kaldırır. Eski uygulama sürümünden kayıt, yeni akış tercihlerini silebileceği için reddedilir; uygulamayı yenilemek gerekir. Bu akış tek şarjın incelenmiş önceliğidir, tüm siparişler için en iyi ortak teslimat planı garantisi değildir.",
       "sources": [
+        {
+          "path": "frontend/lib/route-placement.ts",
+          "symbol": "previewRoutePlacement"
+        },
+        {
+          "path": "frontend/lib/route-placement.ts",
+          "symbol": "revalidateRoutePlacement"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "scheduleStage"
+        },
         {
           "path": "frontend/lib/process-planning.ts",
           "symbol": "previewProcessOperationReschedule"
         },
         {
-          "path": "frontend/lib/process-planning.ts",
-          "symbol": "processPlacementSignature"
+          "path": "frontend/lib/planning.ts",
+          "symbol": "retainRouteCommitments"
         },
         {
-          "path": "frontend/features/planning/board/PlanBoard.tsx",
-          "symbol": "PlanBoard"
+          "path": "frontend/lib/plan-run.ts",
+          "symbol": "executePlanRun"
         },
         {
-          "path": "frontend/features/planning/session/production-actions.ts",
-          "symbol": "createProductionActions"
+          "path": "frontend/lib/delivery-readiness.ts",
+          "symbol": "buildOrderDeliveryResults"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "registerTurningCompletion"
+        },
+        {
+          "path": "frontend/features/planning/shared/RoutePlacementDialog.tsx",
+          "symbol": "RoutePlacementDialog"
         },
         {
           "path": "frontend/features/planning/PlanningApplication.tsx",
           "symbol": "PlanningApplication"
         },
         {
-          "path": "frontend/features/planning/shared/ProcessPlacementReview.tsx",
-          "symbol": "ProcessPlacementReview"
+          "path": "backend/app/database.py",
+          "symbol": "save_planning_state"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "currentJobRouteIdentity"
         },
         {
           "path": "frontend/lib/process-planning.ts",
-          "symbol": "previewProcessQueuePlacement"
+          "symbol": "processPlacementOverride"
         }
       ],
-      "implementationNotes": "Planlama Gantt’ında Delme, Çapak Alma ve GKM için yalnız kuyruktaki planlı operasyonlar taşınır; çalışan ve tamamlanan işler sabittir. Sürüklenen barın tutulduğu nokta korunur, başlangıç 1 saatlik adımlara yuvarlanır. İstenen zaman, o anda süren kuyruk işinin önüne veya boşluktaki sıradaki işin önüne ekleme konumudur. previewProcessOperationReschedule aynı prosesin mevcut kaynak atamalarını ve kuyruk başlangıçlarını override olarak korur; taşınan işin arkasındaki işleri ve sonraki rota adımlarını mevcut buildDownstreamProcessPlan motoruyla hesaplar. Tezgahlar ekranındaki oklar, sürükleme, iş merkezi transferi ve Manuel şarj sıra seçimi de previewProcessQueuePlacement üzerinden aynı yerleşim hesabı ve ProcessPlacementReview diyaloğunu kullanır; kuyruk konumu mevcut planın saatine çevrilir. Kesikli çizgi istenen zamanı, taralı çerçeve hesaplanan aralığı gösterir; ekran dışında kalan zaman ayrıca sabit bildirimde yazılır. Bırakmak tek başına kaydetmez: Proses yerleşimini incele diyaloğu İstenen başlangıç, Hesaplanan başlangıç, Hesaplanan bitiş, sıra, kapasite kayması nedenleri ve etkilenen diğer adımların önce/sonra tarih/kaynaklarını gösterir. Zamanlar fabrika takvim seri günlerinden tarih ve saat olarak gösterilir; süre takvim saati ile vardiya iş saatini eşitlemez. Önceki proses/bekleme hazır değilse en erken tarih/saat belirtilerek reddedilir. Pasif veya sıfır vardiyalı kaynak, eksik hız/uygunluk, D-02 Center Pin rezervi/setup dönüşüyle korunamayan sıra ve herhangi bir mevcut rota adımının plan penceresi dışında kaybolması somut nedenle engellenir. Bakım/tatil/vardiya ya da sabit çalışan iş başlangıcı ileri atıyorsa gerçek hesaplanan zaman ve neden onaydan önce görünür. Yerleşimi uygula aynı güncel hesabı rescheduleDownstreamOperation içinde yeniden doğrular; incelenen hesap değiştiyse kaydetmez. commitOperationalChange mevcut Torna sonucunu değiştirmeden operasyonel kalıcılık ve geri alma sağlar; kirli plan bayrağı korunur. Güncel önizleme mevcut Torna planına dayanır, girdiler değişmişse diyaloğun uyarısı bunu açıklar. İş seçili kalır, gerçek tarih aralığına/istasyona kaydırılır ve geçici mor vurgu gösterilir. Geri al ve Yinele eski planla birlikte o anki kirli plan durumunu da geri yükler; taşımanın geri alınması yeniden hesaplama uyarısını yanlışlıkla silemez. Geçersiz satıra bırakma eski hedefi kullanmaz; Esc, pointer iptali veya Vazgeç kayıt oluşturmaz. Ravi process-placement bağlamında istek, hesaplanmış operasyon, etkiler, nedenler ve kirli durumunu okur; taşıma yapamaz. Ortak ProcessPlacementReview etki listesinde her proses için Önce / Mevcut plan ve Sonra / Yeni plan panelleri vardır: mevcut plan nötr gri, yeni plan yeşil tonundadır; Tezgâh, Başlangıç ve Bitiş aynı sırada karşılaştırılır. Değişen yeni değerler koyu/kalın vurgulanır, değişen tezgâh ayrıca Değişti etiketi taşır. Dar ekranda paneller alt alta dizilir. Bu yalnızca görsel karşılaştırmadır; hesap, tarih birimi, onay ve geri alma davranışı değişmez. Etki listesi ekrana sığmıyorsa altındaki sabit açıklamada Diğer adımlar aşağıda ve toplam adım sayısı, yanında aşağı oklu Devamını gör düğmesi görünür; düğme listeyi aşağı kaydırır. Alttaki hafif solma da devamı işaret eder. Listenin sonunda solma kalkar ve açıklama Listenin sonu, düğme Başa dön olur. Liste sığıyorsa bu kaydırma göstergesi gösterilmez. Liste klavyeyle odaklanıp kaydırılabilir; azaltılmış hareket tercihinde kaydırma animasyonsuzdur. Ravi placement-review-scroll bağlamından impactCount, overflow ve moreBelow değerlerini okur; bunlar inceleme görünümüdür, üretim planını değiştirmez.",
+      "implementationNotes": "RoutePlacementRequest unifies turning/Gantt/queue/edit entry points. previewRoutePlacement clones inputs, applies the existing queue helpers per remaining stage, validates actual/current/locked records, identities, quantities, route completeness and retained placements. queueOrder sorts after current/resume and drilling family reservation; readiness still bounds start. Priority overrides dynamically use predecessor readiness, while manual anchors retain requestedStart. Earlier feasible insertions are tried at readiness and queue ends on eligible resources. preservedStart/preservedEnd produce placement-conflict warnings after input drift. routeCommitted is retained by all automatic modes and plan-run validation; release removes retention. Overrides follow recorded currentJob.batchId, ProductionHistoryEntry.sourceBatchId, WipLot.sourceBatchId/parentLotId with product guard; routeMode=automatic masks inherited preferences for one lot. Interrupted partial production keeps its existing manual-only boundary. revalidateRoutePlacement compares the complete captured seed/result before recomputing; PlanningApplication performs one operational commit, with existing dirty/conflict/undo semantics. useRaviScreenContext route-placement reports draft choices, subject, stale state, delivery and order impacts. PlanningStatePayload.routePlacementVersion=1 gates saves containing route commitments and prevents legacy clients overwriting them. No new demand, reporting or capacity engine; no deployment or live-model validation implied. Current-job forecast overrides carry sourceCurrentJobKey; completeMachineCurrentJob transfers only the matching key to the archived sourceBatchId. This prevents reusable current:machine IDs from applying preferences to a later same-product job. Interrupted remainders clear replacement-charge route flags. processPlacementOverride resolves nearest lot ancestors before original charge references, with current-job identity checks; the editor uses the same resolution for displayed choices/targets. Selected-route keep constraints are deferred while its draft is assembled and validated on the final route; other jobs remain protected throughout.",
       "userSources": [
-        "Planlama → Delme / Çapak Alma / GKM çizelgesi",
-        "Proses yerleşimini incele → Önce / Mevcut plan, Sonra / Yeni plan",
-        "Yerleşimi uygula, Geri al, Yinele"
+        "Planlama → Torna / Delme / Çapak Alma / GKM Gantt",
+        "Tezgahlar → kuyruk sırası / taşıma / Üretim akışını düzenle",
+        "Üretim akışını düzenle → Değişiklik kapsamı, Önce / Sonra, Teslimata hazır, Diğer işlere etkisi",
+        "Tüm değişiklikleri uygula, Önizlemeyi yenile, Geri al, Yinele",
+        "Planı Çalıştır → korunacak kilitli ve akış tercihi olan şarjlar"
       ]
     },
     {
@@ -1173,7 +1435,7 @@
         "kuyruk neden taşınmıyor",
         "Yerleşimi incele"
       ],
-      "body": "Tezgahlar’da proses kuyruğunun okları, sürükleme kolu, Uygun iş merkezine taşı → Taşı ve Manuel şarj → Planlı proses işi → Kuyruk sırası → Yerleşimi incele aynı kurallarla yerleşim ister. Kullanıcı sırası 1’den başlar. Dolu sıraya taşıma o işin mevcut başlangıcını, sona taşıma son diğer işin bitişini ister. İstenen zaman önceki proses/bekleme tamamlanmadan önceyse Önceki proses tamamlanmadı açıklamasıyla reddedilir; kuyruk sessizce ileri itilerek bu engel gizlenmez. Boş kuyruğun ilk zamanı malzemenin hazır olması, kaynağın açılması ve sabit işlerin bitişine bağlıdır. Kaynak aktifliği, vardiya, ürün uygunluğu/hız, D-02 Center Pin rezervi ve plan penceresi de kontrol edilir. Proses yerleşimini incele istenen/gerçek başlangıç, bitiş, sıra ve diğer adımlara etkiyi gösterir. Yerleşimi uygula ile kaydedilir; incelemeden sonra değişmiş plan yeniden onay ister. Geri al/Yinele vardır. Aynı sıra isteği planı değiştirmez. Geçersiz manuel istekte hata seçim penceresinde görünür. Başarıda hedef iş merkezindeki satır ve tarihler gösterilir; arama temizlenir ve satır vurgulanır. Bu işlem gerçek üretime başlama değildir; Sıradaki işi üretime al için gerçekten hazır yarı mamül gerekir. Önce / Mevcut plan ve Sonra / Yeni plan karşılaştırmasında Tezgâh, Başlangıç, Bitiş görünür; uzun listede Devamını gör / Başa dön kullanılır. Yeniden hesaplama uyarısı varsa önizleme mevcut eski torna sonucuna dayanır, güncel plan diye anlatma. Mevcut işi değiştir ile yeni bir şarj mevcut üretime alındığında, kesilen eski iş tamamlanmış sayılmaz ve aynı tezgâhta ilk bekleyen iş olarak korunur. D-02’de bu açık kullanıcı tercihi otomatik Center Pin sıralamasından önce uygulanır; diğer bekleyen işler yeni mevcut işin bitişinden önce yerleştirilmez. Normal otomatik planlamanın Center Pin önceliği devam eder.",
+      "body": "Tezgahlar’da proses kuyruğunun okları, sürükleme kolu, Uygun iş merkezine taşı → Taşı ve Manuel şarj → Planlı proses işi → Kuyruk sırası → Yerleşimi incele aynı kurallarla yerleşim ister. Kullanıcı sırası 1’den başlar. Dolu sıraya taşıma o işin mevcut başlangıcını, sona taşıma son diğer işin bitişini ister. İstenen zaman önceki proses/bekleme tamamlanmadan önceyse Önceki proses tamamlanmadı açıklamasıyla reddedilir; kuyruk sessizce ileri itilerek bu engel gizlenmez. Boş kuyruğun ilk zamanı malzemenin hazır olması, kaynağın açılması ve sabit işlerin bitişine bağlıdır. Kaynak aktifliği, vardiya, ürün uygunluğu/hız, D-02 Center Pin rezervi ve plan penceresi de kontrol edilir. Proses yerleşimini incele istenen/gerçek başlangıç, bitiş, sıra ve diğer adımlara etkiyi gösterir. Yerleşimi uygula ile kaydedilir; incelemeden sonra değişmiş plan yeniden onay ister. Geri al/Yinele vardır. Aynı sıra isteği planı değiştirmez. Geçersiz manuel istekte hata seçim penceresinde görünür. Başarıda hedef iş merkezindeki satır ve tarihler gösterilir; arama temizlenir ve satır vurgulanır. Bu işlem gerçek üretime başlama değildir; Sıradaki işi üretime al için gerçekten hazır yarı mamül gerekir. Önce / Mevcut plan ve Sonra / Yeni plan karşılaştırmasında Tezgâh, Başlangıç, Bitiş görünür; uzun listede Devamını gör / Başa dön kullanılır. Yeniden hesaplama uyarısı varsa önizleme mevcut eski torna sonucuna dayanır, güncel plan diye anlatma. Mevcut işi değiştir önce Üretim oldu mu? sorusunu açar. Evet, üretim yapıldı seçilirse Üretilen adet ve İşe ara verme nedeni zorunludur; tüm adet üretildiyse iş değiştirme yerine prosesi bitirmek gerekir. Kalan miktar yeni mevcut işin arkasına eklenir; tamamlanan miktar yarı mamül kaydına ayrılır. Üretime ara verildi. durumundaki üretilmiş parçalar sonraki proseslere otomatik eklenmez; manuel seçim gerekir. Üretime alırken Üretim sonlanmadı, yine de üretime alayım mı? onayı istenir. Hayır, üretim yapılmadı seçimi tamamlanan parça yaratmaz. Kilit, gerçek hazır olma zamanı ve değişmiş form kontrolleri devam eder. Eski işi değiştirirken bütün eski şarjın tamamlandığı varsayılmaz. Üretim akışını düzenle içinde Değişiklik kapsamı, Hedef teslim tarihi ve sonraki prosesler için Öncelikli planla / Mevcut yerleşimi koru / Elle yerleştir seçimleri gösterilir. Hedef teslim tarihi iç planlama hedefidir, sipariş Termin bilgisini değiştirmez. Yarım üretimde yalnız seçili proses manuel yerleştirilir; sonraki prosesler ve teslim hedefi otomatik atanmaz. Bu şarjın akış tercihlerini kaldır · Otomatik planlamaya dön seçimi kayıtlı yerleşim tercihlerini kaldırmayı önizler; çalışan ve tamamlanmış işler korunur. Değişmiş girdide Önizlemeyi yenile gerekir. Eksik rota veya yerleşim çakışması hatasında uygulama yapılmaz.\nYarım üretimden çıkan gerçek parçalar Manuel şarj içindeki Yarım üretim (manuel) seçeneğiyle yalnız seçilen prosese eklenir. Sonraki prosesler otomatik eklenmez; üretime başlarken Üretim sonlanmadı, yine de üretime alayım mı? onayı gerekir. Üretim akışını düzenle bu kayıtların eksik sonraki adımlarını plan uydurarak tamamlamaz.",
       "sources": [
         {
           "path": "frontend/lib/process-planning.ts",
@@ -1202,6 +1464,29 @@
         {
           "path": "frontend/lib/process-planning.ts",
           "symbol": "replaceProcessCurrentJob"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts",
+          "symbol": "validateProductionInterruption"
+        },
+        {
+          "path": "frontend/lib/production-interruption-actions.ts",
+          "symbol": "replaceTurningCurrentJob"
+        },
+        {
+          "path": "frontend/features/planning/machines/CurrentJobSwitchDialog.tsx",
+          "symbol": "CurrentJobSwitchDialog"
+        },
+        {
+          "path": "frontend/lib/route-placement.ts",
+          "symbol": "previewRoutePlacement"
+        },
+        {
+          "path": "frontend/features/planning/shared/RoutePlacementDialog.tsx",
+          "symbol": "RoutePlacementDialog"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
         }
       ],
       "implementationNotes": "Tezgahlar → Delme, Çapak alma veya GKM kuyruğundaki oklar, sıra koluyla sürükleme, Uygun iş merkezine taşı / Taşı ve Manuel şarj → Planlı proses işi / Kuyruk sırası / Yerleşimi incele aynı previewProcessQueuePlacement doğrulamasını kullanır. İstek position alanı taşınan iş çıkarıldıktan sonra sıfır tabanlıdır; kullanıcı sırası 1 ile başlar, end sona ekleme demektir. Dolu bir konuma taşıma o konumdaki işin mevcut başlangıcını, sona taşıma son diğer işin bitişini ister. Bu saat taşınanın readyAt değerinden önceyse işlem reddedilir: Önceki proses tamamlanmadı mesajında en erken tarih/saat ve istenen tarih/saat yazılır. Kuyruk, geçersiz erken isteği geçerli gibi göstermek için sessizce ertelenmez. Boş hedef kuyruğunun ilk saati hazır olma, kaynak availableStart ve sabit çalışan/tamamlanan işlerin bitişinin en büyüğüdür; burada başka bir işin sırası yerinden edilmez. Zamanlar fabrika takvimindeki seri gün değeridir; gösterim tarih ve saattir, kuyruk pozisyonu bir süre değildir. Kaynak aktifliği, normal vardiya > 0, proses/ürün grubu uygunluğu, pozitif vardiya başı hız, plan penceresi, D-02 Center Pin rezervi ve rota bütünlüğü Gantt ile ortak kurallara tabidir. Bakım/tatil/vardiya veya sabit iş nedeniyle daha geç uygun başlangıç varsa istenen ve gerçek saat ile gerekçe Proses yerleşimini incele penceresinde görünür. Pencere taşınan işin merkezi ve sırası, hesaplanan başlangıç/bitiş, diğer etkilenen proses adımlarının önce/sonra tarihlerini ve kaynaklarını gösterir. Yerleşimi uygula yalnız incelenen güncel hesabı ortak operasyon kaydıyla uygular; değişmiş kuyruk/plan imzası reddedilir. Torna sonucu ve dirty bayrağı korunur, Geri al/Yinele ortak geçmişi kullanır. Aynı sıra isteği kayıt/geri alma girdisi oluşturmaz. Geçersiz manuel istek seçim penceresini açık tutar ve hatayı içeride gösterir; seçim değişince eski hata temizlenir. Sürükleme sırasında sabit bildirim geçerliliği, tarihleri ve nedenleri gösterir; geçersiz alana bırakma eski hedefi kullanmaz. Esc, pointer iptali ve Vazgeç taşıma kaydetmez. Başarılı iş hedef kaynakta gösterilir, arama temizlenir, satıra kaydırılır ve geçici vurgulanır; sonuç tarihleri ve sıra mesajda kalır, geri alınırsa eski başarı mesajı temizlenir. İleri tarihli planlama gerçek üretime başlama değildir: Sıradaki işi üretime al için tamamlanmış önceki prosesten gerçek serbest WIP ve o andaki hazır olma aranır. Ravi machine-queue-placement ve machine-manual-queue-placement ekran bağlamındaki istek, seçim, mevcut hesap, etkiler ve hataları açıklamak için okur; işlem yapamaz. Önizleme dirty ise mevcut Torna sonucuna dayanır, veritabanındaki eski planı bu yerel hesap yerine kullanma. Bağlamdaki kesilmiş etki listesi tam liste gibi anlatılmaz. Ortak ProcessPlacementReview etki listesinde her proses için Önce / Mevcut plan ve Sonra / Yeni plan panelleri vardır: mevcut plan nötr gri, yeni plan yeşil tonundadır; Tezgâh, Başlangıç ve Bitiş aynı sırada karşılaştırılır. Değişen yeni değerler koyu/kalın vurgulanır, değişen tezgâh ayrıca Değişti etiketi taşır. Dar ekranda paneller alt alta dizilir. Bu yalnızca görsel karşılaştırmadır; hesap, tarih birimi, onay ve geri alma davranışı değişmez. Etki listesi ekrana sığmıyorsa altındaki sabit açıklamada Diğer adımlar aşağıda ve toplam adım sayısı, yanında aşağı oklu Devamını gör düğmesi görünür; düğme listeyi aşağı kaydırır. Alttaki hafif solma da devamı işaret eder. Listenin sonunda solma kalkar ve açıklama Listenin sonu, düğme Başa dön olur. Liste sığıyorsa bu kaydırma göstergesi gösterilmez. Liste klavyeyle odaklanıp kaydırılabilir; azaltılmış hareket tercihinde kaydırma animasyonsuzdur. Ravi placement-review-scroll bağlamından impactCount, overflow ve moreBelow değerlerini okur; bunlar inceleme görünümüdür, üretim planını değiştirmez. replaceProcessCurrentJob sets resumeAfterCurrent for the interrupted job, reanchors the local queue at current.end, and verifies its first queued position. scheduleStage sorts explicit resumed jobs before the automatic family campaign; D-02 piston gaps cannot precede the fixed current operation end. The D-02 regression reproduces the previous first-queue failure with Center Pin reservations and a shorter piston.",
@@ -1209,7 +1494,10 @@
         "Tezgahlar → proses kuyruğu → oklar / Taşı / Manuel şarj",
         "Proses yerleşimini incele: tarih ve etki karşılaştırması",
         "Sıradaki işi üretime al",
-        "Tezgahlar → D-02 → Mevcut işi değiştir → Seçili şarjı mevcut yap; eski iş kuyruğun ilk sırasında"
+        "Tezgahlar → D-02 → Mevcut işi değiştir → Seçili şarjı mevcut yap; eski iş kuyruğun ilk sırasında",
+        "Mevcut işi değiştir → Üretim oldu mu? / Üretilen adet / İşe ara verme nedeni; Üretim sonlanmadı, yine de üretime alayım mı?",
+        "Üretim akışını düzenle → Değişiklik kapsamı / Hedef teslim tarihi / Öncelikli planla / Mevcut yerleşimi koru / Elle yerleştir / Önizlemeyi yenile",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler"
       ]
     },
     {
@@ -1225,7 +1513,7 @@
         "kalan",
         "hammadde tüketim tablosu"
       ],
-      "body": "Ayarlar → Hammadde Bilgileri yalnız yöneticilere açıktır; Ürün Ağırlıkları ve Hammadde Tüketim Tablosu adlı iki alt sekme içerir. Ürün Ağırlıkları’nda Iskarta Oranı (%) başlangıçta 2’dir, 0–100 arasında değiştirilebilir ve Oranı kaydet ile ortak kayda alınır. Hammadde Tüketim Tablosu, örnek Hammadde Tüketim Raporu.xls dosyasındaki Hammadde İhtiyaç sayfasının Ambar stoğu (kg), Hammadde Kodu, Hammadde Çap, Tarih, İhtiyaç ve Kalan düzenini temel alır. Stokları güncelle sarı girişleri açar: Güncelleme Tarihi ve her hammadde için Ambar stoğu (kg). Kullanıcı CPM’den gün başı bakiyesini elle alır; dosyadaki örnek stoklar güncel kabul edilmez ve otomatik doldurulmaz. Boş stok bilinmiyor, 0 stok yok demektir. Tarih kaydedilmeden sonuç tablosu açılmaz. Stokları kaydet sonrasında 30, 90, 180 veya 366 takvim günü, stok tarihinden itibaren gösterilir; başlangıç 90 gündür. Hammadde kodu veya açıklama aranabilir. Ürünler Ürün Ağırlıkları’ndaki Hammadde koduyla birleşir; aynı çeliği kullanan ürün ve tezgâhların günlük ihtiyaçları tek satırda toplanır. Başlangıç hammadde listesi örnek tablodaki 10 kod/çaptan oluşur ve Ürün Ağırlıkları’ndaki ek kodlarla genişler. Çap, hammadde açıklamasındaki Ø değerinden, yoksa örnek tablonun çap bilgisinden gösterilir; eşleşmeyi çap değil kod belirler. Günlük ihtiyaç (kg) = Torna günlük üretim adedi × (1 + Iskarta Oranı / 100) × Hammadde ağırlığı (g) / 1000. Örnek: 1.000 adet, 50 g ve %2 için 51 kg. Tüm şarj ilk güne yüklenmez; üretim adedi, gösterilen başlangıç/bitiş arasındaki çalışılabilir saatlere dağıtılır. Vardiya, pazar, resmi tatil ve bakım dikkate alınır; hazırlık süresinde tüketim yoktur. Günlük adetler kümülatif tam adet farkıyla hesaplanır; ıskarta için ayrıca tam adede yuvarlama yapılmaz. Mevcut Torna işinde yalnız Kalan adet, bugünden veya daha ilerideki başlangıçtan planlı bitişe dağıtılır. Kalanı sıfır işler, tamamlanan üretim/arşiv, yarı mamül ve Delme/Çapak Alma/GKM tüketilmez. Planlı şarjlarda yalnız tarihli planlanan işler alınır; tarihsiz planlanamayan şarj sayısı ayrıca uyarılır. Güncelleme tarihinden önceki üretim düşülmez. İlk Kalan = girilen stok − ilk gün ihtiyacı; sonraki günlerde önceki Kalan − günlük ihtiyaç. Negatif bakiye açığı göstermeye devam eder. Pozitif bakiye yeşil, sıfır veya negatif kırmızıdır. Tam sıfıra indiği gün Stok tükeniyor yazarken o günün ihtiyacının karşılandığı belirtilir; İlk eksik, bakiyenin ilk negatif olduğu tarihtir. Dönem boyunca yeterli yalnız gösterilen plan ve dönem içindir; gelecekte süresiz yeterlilik anlamına gelmez. Eksik ağırlık veya eşleşmede Hesap eksik ve bilinen ihtiyaç yanında yıldız görünür, güvenilir Kalan yerine çizgi gösterilir. Stok girilmemişse Stok girilmedi yazılır. Geçmişte bitmiş görünen ama kalan adedi olan mevcut işlerde üretim tarihlerini güncelleme uyarısı vardır. Plan güncel değil uyarısında sonuç ön izlemedir; plan otomatik yenilenmez. Plan çalıştırılmamışsa yalnız mevcut işler gösterilir. Geçmiş Güncelleme Tarihi kullanıldığında tamamlanan üretimin fiili tüketiminin dahil olmadığı ve CPM bakiyesini güncellemek gerektiği açıklanır. Bu, tarayıcıdaki plan üzerinden bir tahmindir; CPM bağlantısı, gerçek ambar hareket kaydı veya e-posta uyarısı değildir. Ağırlık, oran ve stok değişiklikleri kayıtlı planın tarihlerini değiştirmez ve güncel olmayan plan durumunu temizlemez. Ortak stok tarihi, kg değerleri ve oran sunucuda yetkili yönetici kaydıyla saklanır; sayfa yenilemede korunur, eski istemci/yedek eksik alanı silmez ve senaryo uygulama güncel değerleri korur. Ayarlar Excel yedeği bunları içerir. Ravi tarayıcı sonucunu ve tarihli sunucu stok girdisini ayrı kaynaklar olarak açıklar; sunucuda ikinci bir tüketim hesabı veya canlı Excel okuması yoktur.",
+      "body": "Ayarlar → Hammadde Bilgileri yalnız yöneticilere açıktır; Ürün Ağırlıkları ve Hammadde Tüketim Tablosu adlı iki alt sekme içerir. Ürün Ağırlıkları’nda Iskarta Oranı (%) başlangıçta 2’dir, 0–100 arasında değiştirilebilir ve Oranı kaydet ile ortak kayda alınır. Hammadde Tüketim Tablosu, örnek Hammadde Tüketim Raporu.xls dosyasındaki Hammadde İhtiyaç sayfasının Ambar stoğu (kg), Hammadde Kodu, Hammadde Çap, Tarih, İhtiyaç ve Kalan düzenini temel alır. Stokları güncelle sarı girişleri açar: Güncelleme Tarihi ve her hammadde için Ambar stoğu (kg). Kullanıcı CPM’den gün başı bakiyesini elle alır; dosyadaki örnek stoklar güncel kabul edilmez ve otomatik doldurulmaz. Boş stok bilinmiyor, 0 stok yok demektir. Tarih kaydedilmeden sonuç tablosu açılmaz. Stokları kaydet sonrasında 30, 90, 180 veya 366 takvim günü, stok tarihinden itibaren gösterilir; başlangıç 90 gündür. Hammadde kodu veya açıklama aranabilir. Ürünler Ürün Ağırlıkları’ndaki Hammadde koduyla birleşir; aynı çeliği kullanan ürün ve tezgâhların günlük ihtiyaçları tek satırda toplanır. Başlangıç hammadde listesi örnek tablodaki 10 kod/çaptan oluşur ve Ürün Ağırlıkları’ndaki ek kodlarla genişler. Çap, hammadde açıklamasındaki Ø değerinden, yoksa örnek tablonun çap bilgisinden gösterilir; eşleşmeyi çap değil kod belirler. Günlük ihtiyaç (kg) = Torna günlük üretim adedi × (1 + Iskarta Oranı / 100) × Hammadde ağırlığı (g) / 1000. Örnek: 1.000 adet, 50 g ve %2 için 51 kg. Tüm şarj ilk güne yüklenmez; üretim adedi, gösterilen başlangıç/bitiş arasındaki çalışılabilir saatlere dağıtılır. Vardiya, pazar, resmi tatil ve bakım dikkate alınır; hazırlık süresinde tüketim yoktur. Günlük adetler kümülatif tam adet farkıyla hesaplanır; ıskarta için ayrıca tam adede yuvarlama yapılmaz. Mevcut Torna işinde yalnız Kalan adet, bugünden veya daha ilerideki başlangıçtan planlı bitişe dağıtılır. Kalanı sıfır işler, tamamlanan üretim/arşiv, yarı mamül ve Delme/Çapak Alma/GKM tüketilmez. Planlı şarjlarda yalnız tarihli planlanan işler alınır; tarihsiz planlanamayan şarj sayısı ayrıca uyarılır. Güncelleme tarihinden önceki üretim düşülmez. İlk Kalan = girilen stok − ilk gün ihtiyacı; sonraki günlerde önceki Kalan − günlük ihtiyaç. Negatif bakiye açığı göstermeye devam eder. Pozitif bakiye yeşil, sıfır veya negatif kırmızıdır. Tam sıfıra indiği gün Stok tükeniyor yazarken o günün ihtiyacının karşılandığı belirtilir; İlk eksik, bakiyenin ilk negatif olduğu tarihtir. Dönem boyunca yeterli yalnız gösterilen plan ve dönem içindir; gelecekte süresiz yeterlilik anlamına gelmez. Eksik ağırlık veya eşleşmede Hesap eksik ve bilinen ihtiyaç yanında yıldız görünür, güvenilir Kalan yerine çizgi gösterilir. Stok girilmemişse Stok girilmedi yazılır. Geçmişte bitmiş görünen ama kalan adedi olan mevcut işlerde üretim tarihlerini güncelleme uyarısı vardır. Plan güncel değil uyarısında sonuç ön izlemedir; plan otomatik yenilenmez. Plan çalıştırılmamışsa yalnız mevcut işler gösterilir. Geçmiş Güncelleme Tarihi kullanıldığında tamamlanan üretimin fiili tüketiminin dahil olmadığı ve CPM bakiyesini güncellemek gerektiği açıklanır. Bu, tarayıcıdaki plan üzerinden bir tahmindir; CPM bağlantısı, gerçek ambar hareket kaydı veya e-posta uyarısı değildir. Ağırlık, oran ve stok değişiklikleri kayıtlı planın tarihlerini değiştirmez ve güncel olmayan plan durumunu temizlemez. Ortak stok tarihi, kg değerleri ve oran sunucuda yetkili yönetici kaydıyla saklanır; sayfa yenilemede korunur, eski istemci/yedek eksik alanı silmez ve senaryo uygulama güncel değerleri korur. Ayarlar Excel yedeği bunları içerir. Ravi tarayıcı sonucunu ve tarihli sunucu stok girdisini ayrı kaynaklar olarak açıklar; sunucuda ikinci bir tüketim hesabı veya canlı Excel okuması yoktur. Parametreler → Torna’daki Vardiyalık üretim bir vardiyanın kapasitesidir; buradaki günlük üretim adedi ise kayıtlı planın o gün çalışılabilir saatlere dağıtılan miktarıdır. Vardiyalık giriş birimine geçiş, aynı hızla kaydedilmiş planın günlük kg tahminini değiştirmez.",
       "userSources": [
         "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları → Iskarta Oranı (%) / Oranı kaydet",
         "Hammadde Tüketim Tablosu → Stokları güncelle → sarı Güncelleme Tarihi / Ambar stoğu (kg) → Stokları kaydet",
@@ -1294,6 +1582,367 @@
           "symbol": "mergeScenarioWithLiveOperations"
         }
       ]
+    },
+    {
+      "id": "downstream-planning-methods",
+      "title": "Delme, Çapak Alma ve GKM planlama yöntemleri",
+      "aliases": [
+        "planlama yöntemi",
+        "aynı tip setup kampanyası",
+        "en erken hazır işi al",
+        "D-02 rezervasyonu",
+        "proses sıralaması"
+      ],
+      "body": "Delme, Çapak Alma ve GKM için Parametreler → Planlama yöntemi alanında Aynı tip / setup kampanyası veya En erken hazır işi al seçilir. Delme başlangıçta kampanya, Çapak Alma ve GKM en erken hazır yöntemindedir; mevcut kaydedilmiş seçim esas alınır. İki yöntemde de çalışan işler, açık manuel yerleşimler, gerçek yarı mamul ve önceki prosesin hazır olma zamanı korunur. İncelenip kaydedilmiş kuyruk sırası, çalışan işler ve D-02 rezervi sonrasında önceliklidir; böyle bir sıra yoksa daha erken hazır iş önce değerlendirilir. Eşit hazır zamanda yarı mamul, mevcut Torna çıktısı ve yeni Torna planı sırasıyla gelir. Kampanya seçimi bu eşitlikte setup anahtarı ve tip sırası ekler; gelecek bir aynı-tip iş için her hazır iş bekletilmez. Uygun aktif kaynaklarda vardiya ve adet/vardiya hızıyla süre hesaplanır; en erken bitiş, sonra kaynak önceliği ve kimliği seçilir.\nDelme: ilk hazırlık 3 saat; aynı ürün 0, aynı delik çapı 1, farklı delik çapı 3, Piston ↔ Center Pin geçişi 5 saattir. D-02 Center Pin rezervasyonları korunur. Piston yalnız geri dönüş hazırlığı dahil sığan boşluğu kullanabilir.\nÇapak Alma: ilk veya farklı ürün hazırlığı 1 saat, aynı ürün 0 saattir. B-01-S1 ve B-01-S2 ayrı kapasitelerdir; B-01 ortak bakım kaydı ikisini etkiler. Eski varsayılan Center Pin rotasında bu proses yoktur; Yeni tip akışında açıkça Aktif seçilebilir.\nGKM: setup 0 saattir; uygun aktif kaynak ve önceki prosesin hazır oluşu belirleyicidir. Torna taşımasında Üretim akışını düzenle → Sonraki proseslerde de öne al seçimi GKM dahil kalan adımlara ayrı ayrı incelenen öncelik verebilir. Yalnız bu prosesi değiştir yeni bir sonraki-proses önceliği vermez.\nEski varsayılan rotada planlanan Torna çıktısı Delme için bir fabrika iş günü bekler; gerçekten bırakılmış yarı mamulün kayıtlı hazır zamanı kullanılır. Diğer beklemeler ürün rotasından gelir. Sonunda Paketleme & Final Kontrol için bir fabrika iş günü eklenir. Tam şarjın planı, küçük ilk aktarım parçası geldi diye tüm parçalar bitmiş kabul edilerek erkene çekilmez. Blokeli/belirsiz yarı mamul otomatik ilerlemez. Eksik rota, hız veya uygun kaynak uyarısı başarılı teslimat diye anlatılmaz. Seçili şarjın kesin tarihi için Şarj Yolculuğu ve Teslimat Planı’ndaki mevcut sonucu ve eski-plan uyarısını doğrula. Yeni tip akışında açıkça seçilmiş rotalarda pasif prosesler atlanır; aileye ait eski varsayılan sıra zorunlu değildir. Tanımlı beklemeler son aktif öncüden hesaplanır. Teslimat son aktif proses ve Paketleme & Final Kontrol sonrasındadır; GKM yalnız Aktif seçildiyse gereklidir. Torna pasif tip için yeni Torna üretimi açılmaz; mevcut gerçek yarı mamul esas alınır. Eski tipler ve gerçekleşen kayıtlar otomatik değiştirilmez.\nYarım üretimden çıkan parçalar için her iki otomatik yöntem de sonraki adımları dışarıda bırakır. Açıkça manuel eklenmiş adım ve mevcut iş korunur. Ara verilen prosesin kalan işi aynı kaynakta devam işi olarak tutulur; otomatik plana dön bu devam kaydını silmez.",
+      "sources": [
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "scheduleStage"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "calculateDownstreamSetup"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "buildDownstreamProcessPlan"
+        },
+        {
+          "path": "frontend/components/ProcessParametersEditor.tsx"
+        },
+        {
+          "path": "frontend/lib/delivery-calendar.ts",
+          "symbol": "routedDeliveryReadyAt"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        },
+        {
+          "path": "frontend/lib/process-master-data.ts",
+          "symbol": "productProcessRoute"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "advanceStage"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completedDeliveryRouteEnd"
+        },
+        {
+          "path": "frontend/lib/delivery-readiness.ts",
+          "symbol": "buildDeliveryReadinessEvents"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
+        },
+        {
+          "path": "frontend/lib/route-placement.ts",
+          "symbol": "previewRoutePlacement"
+        }
+      ],
+      "implementationNotes": "Verified scheduleStage prioritization: current, resumeAfterCurrent, drilling family reservation, reviewed queueOrder, effective readiness, source class, optional campaign setup/product order, release/ID. Resource candidates are restricted by current/override or parameter priority and sorted by feasible end, configured priority, ID. Setup hours are fixed by calculateDownstreamSetup; unitsPerShift and calendar capacities are runtime inputs. Per-charge reviewed priority uses route-placement.ts; no global final-delivery optimizer is implemented. See frontend/docs/planning-algorithms.md for the complete paired Torna/downstream guide. Explicit ProcessProduct.route is authoritative for newly created types; see new-product-type for the five-step workflow and completedDeliveryRouteEnd for its actual-delivery gate.",
+      "userSources": [
+        "Parametreler → Delme / Çapak Alma / GKM → Planlama yöntemi",
+        "Tezgahlar → mevcut iş ve kaynak kuyrukları",
+        "Şarj Yolculuğu → KALAN PLAN / GERÇEKLEŞEN",
+        "Teslimat Planı → teslimata hazır tarihler",
+        "Parametreler → Yeni tip → Aktif / Pasif → Hammadde bilgileri",
+        "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler → Yarım kalan işler",
+        "Üretim akışını düzenle → Öncelikli planla / Mevcut yerleşimi koru / Elle yerleştir"
+      ]
+    },
+    {
+      "id": "manual-batch",
+      "title": "Manuel şarj ekleme: tip, tezgah, adet ve kuyruk sırası",
+      "aliases": [
+        "manuel şarj",
+        "yeni tip görünmüyor",
+        "siparişsiz üretim",
+        "R902972557",
+        "şarj ekle",
+        "kuyruk sırası"
+      ],
+      "body": "Planlama’da Manuel şarj ekle düğmesi çizelgenin üzerinde görünür; Planlama araçları bölümünü açmak gerekmez. Tezgahlar → Torna → Manuel şarj ekle aynı formu açar. Tip no ara ve Tip no listesi Parametreler’de tanımlı tüm ürünleri kullanır; pozitif sipariş şartı yoktur. Yeni tip sipariş verilmemiş olsa da seçilebilir. Tezgah seçenekleri ürünün Parametreler’deki planlanabilir tezgah listesinden gelir; aktiflik, vardiya, kapasite, uygunluk ve pozitif ürün hızı kontrol edilir. Kullanılamayan tezgahın nedeni seçenekte görünür. Standart şarj büyüklüğü, hammadde çapı veya ürün ailesi eksikse form açıklama gösterir ve kayıt engellenir. Adet, tip seçilince parametredeki standart şarj büyüklüğüyle dolar; kullanıcı herhangi bir pozitif tam sayı girebilir. Bu açık manuel tercihte tam şarj katı zorunlu değildir: 1.980 standart için 1.970 girilirse tek bir 1.970 adetlik şarj eklenir. Otomatik planlamanın yarım şarj yuvarlama kuralı değişmez. Kuyruk sırası 1’den başlar, varsayılan Kuyruğun sonu olur. Tezgah değişince o tezgahın sıraları güncellenir. Kilitli veya üretime geçmiş işlerin önüne ekleme yapılamaz. Şarjı kuyruğa ekle yalnız seçilen sıradan sonraki kilitsiz Torna işlerini aynı takvim ve setup hesabıyla yeniden yerleştirir; önceki işler, diğer tezgahların tarihleri, mevcut üretim ve tamamlanan proses kayıtları korunur. Manuel yerleştirme plan bitiş tarihini aşabilir; sipariş terminine yetiştiği anlamına gelmez. Yeniden yerleştirilecek kuyrukta geçersiz adet varsa kayıt reddedilir, şarj düşürülmez. Bu bir üretime başlama veya teslimat işlemi değildir; sonraki proseslerin rota ve hazır olma kuralları sürer. Manuel ekleme sipariş adedi yaratmaz veya değiştirmez. Siparişi olmayan tipin eklenen üretimi kuyrukta görünür; sipariş karşılama toplamlarına yeni talep olarak katılmaz. Henüz otomatik plan çalıştırılmamışken de manuel eklenebilir. Yeniden hesaplama uyarısı varsa eklemeden sonra korunur; eski sipariş/teslimat hesabı güncel gibi anlatılmaz. Manuel giriş kendi başına otomatik plana kilit koymaz; sonraki otomatik çalıştırmada korunması gereken şarj için mevcut kuyruk kilitleme işlemi kullanılmalıdır. Parametre veya kuyruk pencere açıkken değişirse form yeniden açılmalıdır. Hata pencerede görünür ve eski plan kaydedilmeden korunur. Vazgeç veya Esc kayıt oluşturmaz. Başarı ortak kayıt, Geri al/Yinele ve yeniden yükleme yoluyla izlenir.",
+      "sources": [
+        {
+          "path": "frontend/features/planning/shared/ManualBatchDialog.tsx",
+          "symbol": "ManualBatchDialog"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "addBatchManually"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "manualBatchMachineChoices"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "manualBatchProductError"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "manualBatchProtectedCount"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "manualBatchPlanSignature"
+        },
+        {
+          "path": "frontend/features/planning/PlanningApplication.tsx",
+          "symbol": "PlanningApplication"
+        },
+        {
+          "path": "frontend/features/planning/board/PlanningView.tsx",
+          "symbol": "PlanningView"
+        },
+        {
+          "path": "frontend/lib/parameters.ts",
+          "symbol": "addProductType"
+        }
+      ],
+      "implementationNotes": "ManualBatchDialog replaces QuickManualBatchDialog and the separate MachinesView Torna dialog. It lists seed.products without positive-order filtering, reports entryPoint/query/selection/quantity/parameter errors/one-based position/protection/dirty/stale through manual-batch context, and uses the same domain resource choices as addBatchManually. Parameter preferences are authoritative; absent preferences use eligibleMachines/alternativeMachines. Invalid inactive/zero-shift/missing-rate resources remain disabled choices. addBatchManually validates positive safe-integer quantity, exact bounded insertion index and optional captured manualBatchPlanSignature. It creates one unique UUID charge with orderQuantity=0 when no matching positive demand exists. It anchors only a temporary scheduling-machine copy at the preceding recorded batch, recalculates the inserted charge and flexible suffix through recalculateManualScenario, and combines unchanged prefix/other resources/unplanned records using scenarioResultFromBatches with original seed/planRun. The temporary anchor never replaces persisted currentJob. manualBatchProtectedCount forbids insertions before the last locked or WIP/current-process-referenced batch. addManualBatch commits through commitOperationalChange with preserveDirty=true and propagates errors to the form. Existing persistence and undo boundaries remain; no artificial order is added, no stock/WIP mutation or process-ready bypass occurs. Manual requested pieces remain exact; automatic half-charge rounding is unchanged. The prior active-order and full-multiple regression expectations were intentionally changed to the user-requested manual behavior. No live snapshot of R902972557 was assumed; parameter-only synthetic regression reproduces the former restriction.",
+      "userSources": [
+        "Planlama → Manuel şarj ekle",
+        "Tezgahlar → Torna → Manuel şarj ekle",
+        "Tip no ara / Tip no / Tezgah / Adet / Standart şarj / Kuyruk sırası / Şarjı kuyruğa ekle",
+        "Parametreler → Tezgah önceliği ve vardiyalık üretim, Şarj büyüklüğü, Çap ve Ürün ailesi",
+        "Geri al / Yinele; planı yeniden çalıştırın uyarısı"
+      ]
+    },
+    {
+      "id": "turning-shift-production",
+      "title": "Torna vardiyalık üretim adedi: günlük 900 → vardiyalık 300",
+      "aliases": [
+        "torna vardiyalık üretim",
+        "vardiya başına adet",
+        "günlük üretim",
+        "900 300",
+        "üçe bölme",
+        "vardiyalık hız",
+        "varsayılan vardiyalık üretim"
+      ],
+      "body": "Parametreler → Torna’da Tezgah önceliği ve vardiyalık üretim sütunundaki Vardiyalık üretim ve Varsayılan vardiyalık üretim adet/vardiya olarak gösterilir ve girilir. Yeni tip → Yeni tip tanımla formundaki Vardiyalık üretim de aynı birimdedir. Önceden üç vardiyaya göre girilmiş günlük 900 adet, artık 300 adet/vardiya görünür. Bu örnek güncel bir ürünün canlı değeri değildir. Tezgahın zaten vardiyalık tutulan hızı tekrar üçe bölünmez; dönüşüm toplam kapasiteyi veya kayıtlı plan tarihlerini değiştirmez. Bundan sonra 300 girilirse bir vardiyada 300, normal kapasite çarpanı ile üç vardiyada 900 adet anlamına gelir. 900 girilirse 900 adet/vardiya olarak kabul edilir. Gerçek planlama ayrıca tezgahın vardiya sayısı, kapasite çarpanı, tarihli vardiya değişikliği, tatil, pazar, bakım ve setup süresini dikkate alır. Sıfır vardiyada üretim olmaz. Tezgaha özel hız varsa o değer gösterilir; eksikse ürünün vardiyalık hızı, o da pozitif değilse üç vardiyalık günlük varsayılanın üçte biri kullanılır. Varsayılan vardiyalık üretim ürünün günlük varsayılanının üçte biridir. Tezgah seç ile eklenen tezgaha bu varsayılan önerilir. Varsayılanı değiştirmek mevcut tezgaha özel hızları değiştirmez; Yeni tip oluşturulurken ilk tezgahın hızı ürün varsayılanını da belirler. Değiştir ilgili alanı açar, değişen satır Kaydet ile uygulanır; değişiklik yoksa Kapat alanı kapatır. Boş, sıfır, negatif veya sonlu olmayan üretim adedi kaydedilemez. Kesirli vardiyalık hız kabul edilir; ekranda en fazla altı ondalık basamak gösterilir, düzenleme alanı tam değeri kullanır. Bölme tam çıkmıyorsa kayıtta tam adede yuvarlanmaz. Kaydet girdileri günceller, mevcut kuyruk ve kilitleri saklar, Girdiler değişti — planı yeniden çalıştırın uyarısını gösterir; kuyruk kendiliğinden yeniden hesaplanmaz. Yenilemede kayıtlı plan ve yeniden hesaplama uyarısı korunur. Eski kayıtlar ve Parametreler Excel yedekleri kendi birimleriyle uyumludur; yeniden açmak veya içe aktarmak hızları tekrar üçe bölmez. Planlama’daki Hesaplanan hız / gün ile Hammadde Tüketim Tablosu’ndaki günlük adet ve kg sonuçları günlük kapsamlarını korur.",
+      "userSources": [
+        "Parametreler → Torna → Tezgah önceliği ve vardiyalık üretim → Vardiyalık üretim (adet/vardiya)",
+        "Parametreler → Torna → Varsayılan vardiyalık üretim / Tezgah seç / Değiştir / Kaydet / Kapat",
+        "Parametreler → Torna → Yeni tip → Yeni tip tanımla → Vardiyalık üretim / Tipi oluştur",
+        "Planlama → Hesaplanan hız (/ gün); Girdiler değişti — planı yeniden çalıştırın",
+        "Parametreler Excel yedeği; Ayarlar → Hammadde Bilgileri → Hammadde Tüketim Tablosu"
+      ],
+      "implementationNotes": "User-requested input/display unit change on 2026-09-13. productParameterDraft reads Machine.rates (already pieces/shift), falling back through Product.shiftRate then Product.dailyRate / STANDARD_DAILY_SHIFTS (3); defaultShiftRate always derives from Product.dailyRate / 3. validateProductParameterDraft validates positive finite shift inputs and their three-shift product against overflow. applyProductParameterDraft stores Machine.rates and Product.shiftRate directly, and dailyRate/parameterDailyRate = defaultShiftRate * 3. addProductType and initialNewTypeWizardDraft use the same per-shift contract. No persisted schema migration, seed rewrite, backup format change or engine change. ParametersView uses unrounded strings in drafts and formatDecimal(..., 6) for readonly rates; step=any accepts nonintegral legacy conversions. parameters context declares productionRateUnit and the new-product-type context includes selected machines and entered shift values. PlanningApplication.updateSeed retains manualBatches, marks planNeedsRecalculation and clears lastAutomaticPlan/planRunSequence. parameterPackage/applyParameterPackage keep stored units. machineRunHours divides quantity by Machine.rates/shiftHours*capacityFactor; addMachineCapacityHours uses machineDayCapacity. Regression: existing 900 displays 300, explicit new 300 stores daily 900, all five goals retain expected quantities/dates for 1/2/3 shifts; fractional 1000/3 survives save/backup/reload; independent overrides, locks/current work/stale reload, and invalid input no-mutation. Live production or model output was not used as evidence.",
+      "sources": [
+        {
+          "path": "frontend/lib/parameters.ts",
+          "symbol": "productParameterDraft"
+        },
+        {
+          "path": "frontend/lib/parameters.ts",
+          "symbol": "validateProductParameterDraft"
+        },
+        {
+          "path": "frontend/lib/parameters.ts",
+          "symbol": "applyProductParameterDraft"
+        },
+        {
+          "path": "frontend/lib/parameters.ts",
+          "symbol": "addProductType"
+        },
+        {
+          "path": "frontend/features/planning/parameters/ParametersView.tsx",
+          "symbol": "ParametersView"
+        },
+        {
+          "path": "frontend/features/planning/parameters/NewProductTypeDialog.tsx",
+          "symbol": "NewProductTypeDialog"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "initialNewTypeWizardDraft"
+        },
+        {
+          "path": "frontend/features/planning/PlanningApplication.tsx",
+          "symbol": "PlanningApplication"
+        },
+        {
+          "path": "frontend/lib/data-packages.ts",
+          "symbol": "parameterPackage"
+        },
+        {
+          "path": "frontend/lib/data-packages.ts",
+          "symbol": "applyParameterPackage"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "machineRunHours"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "machineDayCapacity"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "addMachineCapacityHours"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        }
+      ]
+    },
+    {
+      "id": "new-product-type",
+      "title": "Yeni tip: beş adım, aktif/pasif prosesler ve hammadde",
+      "aliases": [
+        "yeni tip",
+        "tip ekleme",
+        "aktif pasif",
+        "proses atlama",
+        "GKM yok",
+        "çapak alma yok",
+        "hammadde bilgileri"
+      ],
+      "body": "Parametreler → Yeni tip, sırayla Torna parametresi, Delme parametresi, Çapak Alma parametresi, GKM parametresi ve Hammadde bilgileri adlı beş adımı açar. Her proses başlangıçta Aktif gelir; kullanıcı Aktif veya Pasif seçer. Pasif proses kapasite istemez ve bu tipin rotasında atlanır. En az bir proses Aktif olmalıdır. Tip numarası, Ürün ailesi ve Standart şarj büyüklüğü ilk adımda girilir. Aktif Torna için uygun aktif tezgahlar, tercih sırası ve Adet / vardiya girilir. Aktif Delme, Çapak Alma ve GKM için uygun aktif iş merkezleri, tercih sırası, Adet / vardiya, Matkap çapı / setup anahtarı veya Setup anahtarı ve Önceki prosesten sonra bekleme (iş günü) girilir. Hızlar adet/vardiyadır; Torna günlük karşılığı üç vardiya üzerinden saklanır. Bekleme 0–365 tam iş günüdür; başlangıç Delme 1, Çapak Alma 0 ve GKM 1’dir, değiştirilebilir. Pozitif iş günü beklemesi fabrika takviminde sonraki ilgili iş gününün başlangıcına gider; sıfır önceki bitiş anını korur. Son adım Hammadde çapı, Hammadde kodu, Hammadde açıklaması, Hammadde ağırlığı (g) ve isteğe bağlı Ürün açıklaması ister. Gram bir adet üretim için gereken hammadde miktarıdır. Bu kayıt ambar stoğu veya stok tarihini değiştirmez. Geri ve İleri girilen bilgileri pencere açıkken korur; Vazgeç, Esc veya kapatma kayıt oluşturmaz. Tipi oluştur tüm beş adımı güncel veriyle yeniden doğrulayıp tip, sipariş kataloğu, aktif proses parametreleri ve gram eşleşmesini birlikte kaydeder. Eksik aktif parametre, uygunsuz kaynak, geçersiz sayı veya mevcut tip kodu kaydı engeller. Sipariş adedi kendiliğinden eklenmez. Kayıtlı plan ve kilitler korunur; planı yeniden çalıştırın uyarısı gelir. Sunucuya kayıt başarısı veya bağlantı/çakışma durumu ayrıca ortak kayıt göstergesinden kontrol edilir. Hammadde bilgileri mevcut yetki kuralıyla yalnız yönetici tarafından kaydedilir; bu tam akışın kaydı yönetici gerektirir. Diğer kullanıcılar Siparişler → Yeni tip ile parametre bekleyen sipariş tipi ekleyebilir. Yeni tipin aktif prosesleri Torna → Delme → Çapak Alma → GKM sırasını korur; aile seçimi pasif bir prosesi geri eklemez. Torna pasifse otomatik veya manuel yeni Torna işi açılmaz; sonraki prosesler kayıtlı gerçek yarı mamul ve onun hazır zamanı üzerinden ilerler. Bu akış dışarıdan yarı mamul girişi veya kendiliğinden stok yaratmaz. Son aktif proses tamamlandıktan sonra bir fabrika iş günü Paketleme & Final Kontrol beklemesi uygulanır. GKM pasifse teslimat için GKM kaydı aranmaz, ancak tüm aktif proseslerin gerçek tamamlanması gerekir. Eksik aktif rota veya kapasite teslimata hazır kabul edilmez. Eski tiplerin kayıtlı rotaları ve gerçekleşen işler otomatik değiştirilmez. Aktif/Pasif seçimi bu yeni tip oluşturma akışına aittir; mevcut tipin rotasını sonradan değiştiren bir pencere değildir.",
+      "userSources": [
+        "Parametreler → Yeni tip → Torna parametresi / Delme parametresi / Çapak Alma parametresi / GKM parametresi / Hammadde bilgileri",
+        "Aktif / Pasif; İleri / Geri / Vazgeç / Tipi oluştur",
+        "Tip numarası, Ürün ailesi, Standart şarj büyüklüğü, Adet / vardiya, Önceki prosesten sonra bekleme (iş günü)",
+        "Hammadde çapı, Hammadde kodu, Hammadde açıklaması, Hammadde ağırlığı (g)",
+        "Şarj Yolculuğu → son aktif proses → Paketleme & Final Kontrol; Teslimat Planı; ortak kayıt ve eski plan uyarısı"
+      ],
+      "sources": [
+        {
+          "path": "frontend/features/planning/parameters/NewProductTypeDialog.tsx",
+          "symbol": "NewProductTypeDialog"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "validateNewTypeWizard"
+        },
+        {
+          "path": "frontend/lib/new-product-type.ts",
+          "symbol": "createProductTypeFromWizard"
+        },
+        {
+          "path": "frontend/lib/process-master-data.ts",
+          "symbol": "productProcessRoute"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "buildDownstreamProcessPlan"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "advanceStage"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completedDeliveryRouteEnd"
+        },
+        {
+          "path": "frontend/lib/delivery-readiness.ts",
+          "symbol": "buildDeliveryReadinessEvents"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "isMachineEligibleForProduct"
+        },
+        {
+          "path": "frontend/features/planning/PlanningApplication.tsx",
+          "symbol": "PlanningApplication"
+        },
+        {
+          "path": "backend/app/database.py",
+          "symbol": "protected_settings_changed"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "updateMachineCurrentJob"
+        }
+      ],
+      "implementationNotes": "NewTypeWizardDraft is dialog-local and registered via useRaviScreenContext. ProcessProduct.route is an optional ordered active ProcessKind list; missing route preserves legacy family defaults. Only active downstream parameter records are written. createProductTypeFromWizard revalidates latest seed and validates weights on an isolated clone before publishing affected collections. PlanningApplication.createProductType enforces existing admin material permission and uses commitOperationalChange, preserving result/manualBatches, undo and stale status. The backend remains the authority for protected_settings_changed; no role or permission expansion. Torna UI uses the shared per-shift draft contract. scheduleStage uses explicit route predecessors and waits; the first real WIP operation uses recorded readyAt. completedDeliveryRouteEnd requires all custom active actual steps while legacy records retain the GKM gate. New-type creation does not migrate existing routes or provide external WIP intake. Weights use the existing protected productWeights collection; warehouse settings are untouched. updateMachineCurrentJob rejects a new Torna current job for an explicitly passive type while retaining corrections to already-recorded current work."
+    },
+    {
+      "id": "production-interruptions",
+      "title": "Mevcut işi değiştir: yarım üretim, kalan şarj ve manuel proses onayı",
+      "aliases": [
+        "mevcut işi değiştir",
+        "üretim oldu mu",
+        "üretime ara verildi",
+        "yarım kalan iş",
+        "çelik bitti",
+        "yarım şarj",
+        "ara verme nedeni"
+      ],
+      "body": "Tezgahlar → Torna, Delme, Çapak Alma ve GKM’de Mevcut işi değiştir, önce Üretim oldu mu? sorusunu sorar. Evet, üretim yapıldı seçilirse Üretilen adet ve İşe ara verme nedeni zorunludur. Adet bu mevcut işe atanan miktardan küçük, sıfırdan büyük tam sayı olmalıdır; önceki ara vermelerde kaydedilmiş parçaları yeniden girmeyin. Tamamı üretildiyse ilgili prosesi bitirin. Hayır, üretim yapılmadı seçilirse adet ve neden gerekmez; üretim veya yarı mamül miktarı eklenmez. Yeni şarj seçilip Seçili şarjı mevcut yap ile kayıt tamamlanır. Torna’da aynı tezgahın planlı kuyruğundan seçim yapılır; başka iş yoksa önce Manuel şarj ekle kullanılır. Kilitli Torna kuyruğu için önce kilitleri kaldırmak gerekir. Geçersiz adet, eksik neden, uygun olmayan iş veya pencere açıkken değişen kayıt işlemi engeller; eski üretim korunur.\nÖrneğin 600 adetlik Torna işinde 200 adet üretildiyse yalnız 200 adet fiili Torna üretimi ve yarı mamül kaydedilir, 400 adet aynı şarj/iş emriyle yeni mevcut işin arkasına döner. Kalan 400 adet tekrar standart şarja yuvarlanmaz. Şarj Yolculuğu’nda Üretime ara verildi. etiketi, proses/tezgah, ara verme tarihi, o ara vermede üretilen ve kalan adet ile neden görünür. Üretilen parça ve Torna’da kalan iş ayrı satırlardır; toplamları aynı şarjın parçalarını temsil eder. Yarı mamül yalnız fiilen üretilen adedi gösterir. Delme, Çapak Alma veya GKM’de aynı işlem yalnız üretilen adedi sonraki aşamaya ayırır; kalan adet önceki aşamada kalır.\nAra verilen üretim tamamlanana kadar sonraki prosesler otomatik plana alınmaz. Tezgahlar → ilgili proses → Manuel şarj → Planlı proses işi içinden Yarım üretim (manuel) seçilir; Kuyruk sırası ve yerleşim incelemesiyle yalnız seçilen proses planlanır. Üretim akışını düzenle bu şarjlarda Yalnız bu prosesi değiştir kapsamını kullanır; otomatik rota önceliği ve hedef teslim tarihi atanmaz. Sıradaki işi üretime al sırasında Üretim sonlanmadı, yine de üretime alayım mı? sorusuna Evet, üretime al ile onay gerekir. Kuyruktan veya yarı mamülden doğrudan proses tamamlama da yarım üretim onayını ister. Bir proses için verilen onay sonraki prosesi kendiliğinden başlatmaz. Yalnız mevcut gerçek yarı mamül işlenebilir; önceki proses ve normal kontrol/yıkama beklemeleri korunur. Beklemeyi tamamla yalnız gerçekten tamamlanmış önceki adımın kontrol onayıdır. Eksik bekleme onayı veya malzeme, yarım üretim onayıyla atlanmaz.\nKalan Torna işi sürükleme/oklarla kuyruğun sonuna taşınabilir; silinemez, kalan adedi veya iş emri plan satırından değiştirilemez. Planı Temizle ve yeniden planlama bu işi korur; sipariş ihtiyacı olmasa, tezgah pasif olsa veya yeni plan penceresine sığmasa bile kayıtlı tezgah kuyruğundan düşürmez. Tarih ve kapasite yetersizliği üretim yapılabileceği anlamına gelmez; korunan kayıt ve yeniden hesaplama uyarısı değerlendirilmelidir. Yeni otomatik üretim miktarında hem üretilen parça hem kalan korunan iş bir kez sayılır; termin gecikmesi ikinci üretim gerekçesi değildir. Başka tezgahların kilitli işleri değiştirilmez.\nTavsiyeler’de Yarım kalan işler, plan temiz veya yeniden hesaplama bekliyor olsa da görünür ve Göz ardı et ile gizlenmez. Şarjı incele yolculuğu açar. İş yeniden başladığında hatırlatma sürer; kalan üretim tamamlanınca kapanır. Birden fazla ara verme geçmişi yolculukta kalır. Kayıtlar ortak üretim durumu, Geri al/Yinele, yeniden açılış ve senaryo yükleme sınırlarında korunur. Eski senaryo kapanmış yarım işi yeniden açamaz. Yarım üretim kaydını taşımayan eski bir uygulamanın operasyon yazısı reddedilir ve güncel ortak verinin yüklenmesi istenir. Çevrimdışı veya çakışan kayıt sunucuda tamamlanmış sayılmaz; Ravi tarayıcıdaki durumu tarihli sunucu kaydından ayırır.",
+      "userSources": [
+        "Tezgahlar → Torna / Delme / Çapak Alma / GKM → Mevcut işi değiştir",
+        "Üretim oldu mu? → Üretilen adet / İşe ara verme nedeni",
+        "Şarj Yolculuğu → Üretime ara verildi.; Yarı mamül → adet",
+        "Tezgahlar → Manuel şarj → Yarım üretim (manuel) → Sıradaki işi üretime al",
+        "Planı Temizle; Tavsiyeler → Yarım kalan işler → Şarjı incele"
+      ],
+      "sources": [
+        {
+          "path": "frontend/lib/production-interruption-actions.ts",
+          "symbol": "replaceTurningCurrentJob"
+        },
+        {
+          "path": "frontend/lib/production-interruptions.ts"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "replaceProcessCurrentJob"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "scheduleStage"
+        },
+        {
+          "path": "frontend/lib/process-planning.ts",
+          "symbol": "startProcessCurrentJob"
+        },
+        {
+          "path": "frontend/lib/wip-ledger.ts",
+          "symbol": "completeWipOperation"
+        },
+        {
+          "path": "frontend/lib/planning.ts",
+          "symbol": "clearPlanKeepingLocks"
+        },
+        {
+          "path": "frontend/lib/route-placement.ts"
+        },
+        {
+          "path": "frontend/lib/charge-journey-status.ts",
+          "symbol": "chargeJourneyInterruptions"
+        },
+        {
+          "path": "frontend/lib/planning-advice.ts",
+          "symbol": "buildPlanningAdvice"
+        },
+        {
+          "path": "frontend/features/planning/machines/CurrentJobSwitchDialog.tsx"
+        },
+        {
+          "path": "frontend/components/ProcessPlanningView.tsx"
+        },
+        {
+          "path": "frontend/features/planning/session/production-actions.ts",
+          "symbol": "createProductionActions"
+        },
+        {
+          "path": "backend/app/database.py",
+          "symbol": "save_planning_state"
+        },
+        {
+          "path": "backend/app/ravi/tools.py",
+          "symbol": "inspect_state"
+        }
+      ],
+      "implementationNotes": "productionInterruptions is operational state; each event owns a stable chargeId and optional turningBatch recovery record. Machine.currentJob.batchId/interruptionId preserve resumed identity, WipLot.interruptionIds carry material ancestry through partial splits. No workOrder-only joins. protectedInterruptedBatches/withInterruptedBatches include finite committed pieces before residual rounding and filter obsolete/current copies. Partial output history uses a separate id so its WIP never suppresses the physical remaining turning batch. Full completion resolves events by charge and process; repeated pauses have separate quantities. scheduleStage permits direct manual overrides/current jobs for partial lots but rejects inherited route priorities and automatic later steps. Candidate previews inject only the selected lot/operation, never the whole candidate inventory. No completion or delivery forecast is invented for intentionally paused stages. All writes go through the existing authenticated operational commit and optimistic version boundary; Ravi inspection is read-only and projects Turkish fields with server provenance."
     }
   ]
 }

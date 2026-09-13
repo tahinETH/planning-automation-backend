@@ -26,7 +26,7 @@ class Source(Arguments):
 
 
 class Inspect(Arguments):
-    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "overrides"]
+    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "production_interruptions", "overrides"]
     query: str = Field(default="", max_length=100)
     offset: int = Field(default=0, ge=0, le=100000)
     week_offset: int = Field(default=0, ge=0, le=1000)
@@ -89,6 +89,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
         "batches": seed.get("manualBatches", []), "calendar": seed.get("calendarEvents", []) + seed.get("holidays", []),
         "process_resources": (seed.get("processMasterData") or {}).get("resources", []),
         "process_products": (seed.get("processMasterData") or {}).get("products", []),
+        "production_interruptions": seed.get("productionInterruptions", []),
         "process_current_jobs": seed.get("processCurrentJobs", []), "overrides": seed.get("customerOrderOverrides", []),
     }
     query = knowledge.normalize(args.query.strip())
@@ -96,7 +97,14 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
         str(row.get(key, "")) for key in ("id", "product", "materialCode", "machineId", "resourceId", "workOrder", "sourceBatchId", "name")))]
     selected = []
     for row in rows[args.offset:args.offset + 12]:
-        if args.collection == "raw_material_stocks":
+        if args.collection == "production_interruptions":
+            projected = {"Şarj / iş emri": row.get("workOrder"), "Tip no": row.get("product"),
+                         "Proses": row.get("process"), "Tezgah": row.get("resourceId"),
+                         "Üretilen adet": row.get("producedQuantity"), "Kalan adet": row.get("remainingQuantity"),
+                         "İşe ara verme nedeni": row.get("reason"), "Ara verme tarihi": row.get("occurredAt"),
+                         "Yeniden başlama tarihi": row.get("resumedAt"), "Kalan üretimin tamamlanma tarihi": row.get("completedAt"),
+                         "Birim": "adet; tarihler Excel seri gün", "Ekran": "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler"}
+        elif args.collection == "raw_material_stocks":
             materials = seed.get("rawMaterialSettings") or {}
             projected = {"Hammadde Kodu": row.get("materialCode"), "Ambar stoğu (kg)": row.get("kg"),
                          "Güncelleme Tarihi": materials.get("stockDate"), "Iskarta Oranı (%)": materials.get("scrapPercent", 2),

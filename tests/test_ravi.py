@@ -132,6 +132,18 @@ def test_turkish_retrieval_and_actual_formula_sources():
     assert knowledge.search_source("buildDeliveryPlanPayload")[0]["path"] == "frontend/lib/delivery-plan.ts"
 
 
+def test_turning_shift_rate_guidance_is_retrievable_with_visible_units():
+    results = knowledge.search_topics("Torna günlük 900 vardiyalık 300 üretim adedi")
+    assert "turning-shift-production" in [topic["id"] for topic in results[:3]]
+    topic = ToolSession(None, False).execute("read_knowledge", '{"topic_id":"turning-shift-production"}')
+    assert "300 adet/vardiya" in topic["body"]
+    assert "tekrar üçe bölünmez" in topic["body"]
+    assert "Girdiler değişti — planı yeniden çalıştırın" in topic["body"]
+    assert any("Varsayılan vardiyalık üretim" in source for source in topic["userSources"])
+    assert "implementationNotes" not in topic and "sources" not in topic
+    assert "machineShiftRates" not in topic["body"]
+
+
 def test_provider_failure_is_sanitized_and_admission_released(client, monkeypatch):
     async def fail(*_args):
         raise httpx.HTTPError("test-provider-secret")
@@ -305,3 +317,16 @@ def test_mid_stream_cancellation_closes_provider_and_releases_user(client, monke
         await stream.aclose()
         assert closed and 'mid-stream-user' not in service._active
     asyncio.run(cancel())
+
+
+def test_interrupted_production_inspection_uses_visible_labels_and_keeps_server_provenance():
+    snapshot = {"seed": {"productionInterruptions": [{"id": "pause-1", "workOrder": "HALF-001", "product": "R01", "process": "turning", "resourceId": "C-01", "producedQuantity": 200, "remainingQuantity": 400, "reason": "Çelik bitti", "occurredAt": 46278, "turningBatch": {"internal": "not projected"}}]}, "updatedAt": "saved-time"}
+    before = copy.deepcopy(snapshot)
+    result = inspect_state(snapshot, Inspect(collection="production_interruptions", query="HALF-001"))
+    assert result["source"] == "persisted-server"
+    assert result["updatedAt"] == "saved-time"
+    assert result["rows"][0]["Üretilen adet"] == 200
+    assert result["rows"][0]["Kalan adet"] == 400
+    assert result["rows"][0]["İşe ara verme nedeni"] == "Çelik bitti"
+    assert "turningBatch" not in result["rows"][0]
+    assert snapshot == before

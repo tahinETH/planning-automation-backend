@@ -332,6 +332,7 @@ def _insert_planning_history(
 
 
 OPERATIONAL_ROOT_FIELDS = (
+    "productionInterruptions",
     "productionHistory",
     "wipLots",
     "wipMovements",
@@ -345,8 +346,11 @@ def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] |
     if current is None:
         return incoming
     merged = json.loads(json.dumps(incoming, ensure_ascii=False))
+    changed_inputs = False
     for field in OPERATIONAL_ROOT_FIELDS:
         if field in current:
+            if field != "planningEvents" and merged.get(field) != current[field]:
+                changed_inputs = True
             merged[field] = current[field]
 
     current_machines = {
@@ -361,9 +365,13 @@ def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] |
         if live_machine is None:
             continue
         if "currentJob" in live_machine:
+            changed_inputs |= machine.get("currentJob") != live_machine["currentJob"]
             machine["currentJob"] = live_machine["currentJob"]
         if "operationalAvailableStart" in live_machine:
+            changed_inputs |= machine.get("operationalAvailableStart") != live_machine["operationalAvailableStart"]
             machine["operationalAvailableStart"] = live_machine["operationalAvailableStart"]
+    if changed_inputs or ("planNeedsRecalculation" not in incoming and current.get("planNeedsRecalculation")):
+        merged["planNeedsRecalculation"] = True
     return merged
 
 
@@ -401,6 +409,13 @@ def _insert_production_archive_snapshot(
     }
 
 
+def has_route_commitments(seed: dict[str, Any]) -> bool:
+    return any(isinstance(batch, dict) and batch.get("routeCommitted") for batch in seed.get("manualBatches", [])) or any(
+        isinstance(item, dict) and (item.get("routeMode") or item.get("queueOrder") is not None)
+        for item in seed.get("processOperationOverrides", [])
+    )
+
+
 def save_planning_state(
     seed: dict[str, Any],
     expected_updated_at: str | None = None,
@@ -409,6 +424,7 @@ def save_planning_state(
     actor_id: str = "",
     actor_name: str = "",
     can_manage_settings: bool = False,
+    route_placement_version: int = 0,
 ) -> dict[str, Any]:
     timestamp = now_iso()
     with connection() as db:
@@ -418,12 +434,16 @@ def save_planning_state(
         current_updated_at = current["updatedAt"] if current else ""
         if not force and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if route_placement_version < 1 and (has_route_commitments(seed) or current and has_route_commitments(current["seed"])):
+            raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
         if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
         if "productWeights" in seed:
             validate_product_weights(seed["productWeights"])
         if "rawMaterialSettings" in seed:
             validate_raw_material_settings(seed["rawMaterialSettings"])
+        if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
+            raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
@@ -432,6 +452,13 @@ def save_planning_state(
             updated_by_id=excluded.updated_by_id,updated_by_name=excluded.updated_by_name""",
             (serialized_seed, timestamp, actor_id, actor_name),
         )
+        # Order dates/milestones must commit with the seed and its version.
+        # A separate browser PUT /orders can otherwise outlive a 409 conflict.
+        if "orders" in saved_seed:
+            orders = saved_seed["orders"]
+            if not isinstance(orders, list) or any(not isinstance(order, dict) or not isinstance(order.get("id"), str) or not order["id"] for order in orders):
+                raise ValueError("Sipariş kayıtları ve kimlikleri geçerli olmalıdır")
+            _save_orders(db, orders, timestamp)
         history_entry = _insert_planning_history(db, saved_seed, serialized_seed, timestamp, actor_id=actor_id, actor_name=actor_name)
         archive_snapshot = _insert_production_archive_snapshot(db, saved_seed, timestamp, mode)
     return {"seed": saved_seed, "updatedAt": timestamp, "updatedBy": {"id": actor_id, "name": actor_name}, "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}

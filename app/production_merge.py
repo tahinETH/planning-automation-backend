@@ -4,9 +4,10 @@ from typing import Any
 
 
 OPERATIONS = {
+    "productionInterruptions",
     "machines", "productionHistory", "wipLots", "wipMovements", "planningEvents",
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
-    "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
+    "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
     "orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders",
 }
 

@@ -250,6 +250,7 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             actor_id=user.id,
             actor_name=user.name,
             can_manage_settings=user.is_admin,
+            route_placement_version=payload.routePlacementVersion,
         )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
