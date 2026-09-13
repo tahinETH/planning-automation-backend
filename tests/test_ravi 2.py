@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import hashlib
+import re
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -187,7 +188,7 @@ def test_actual_http_adapter_uses_backend_key_and_v4(monkeypatch):
 def test_packaged_backend_sources_are_current_even_in_backend_only_checkout():
     backend = Path(__file__).resolve().parents[1]
     packaged = knowledge.source_map()["modules"]
-    current = {f"backend/{path.relative_to(backend).as_posix()}": path for path in (backend / "app").rglob("*.py") if " 2." not in path.name}
+    current = {f"backend/{path.relative_to(backend).as_posix()}": path for path in (backend / "app").rglob("*.py") if not re.search(r" \d+\.", path.name)}
     assert set(current) == {name for name in packaged if name.startswith("backend/")}
     for name, path in current.items():
         assert packaged[name]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest(), f"Stale Ravi source: {name}"
