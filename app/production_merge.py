@@ -1,4 +1,5 @@
 """Three-way source refresh. Local edits win; related operational state moves together."""
+from .turning_queue_identity import reconcile_turning_seed
 from copy import deepcopy
 from typing import Any
 
@@ -15,7 +16,7 @@ OPERATIONS = {
 def merge_production_refresh(source: dict[str, Any], local: dict[str, Any] | None,
                              baseline: dict[str, Any] | None) -> dict[str, Any]:
     if local is None:
-        return deepcopy(source)
+        return reconcile_turning_seed(deepcopy(source))
     # On the first pull there is no evidence that local work is disposable.
     base = baseline or {}
     missing = object()
@@ -27,4 +28,4 @@ def merge_production_refresh(source: dict[str, Any], local: dict[str, Any] | Non
         value = local.get(key, missing) if keep_local else source.get(key, missing)
         if value is not missing:
             merged[key] = deepcopy(value)
-    return merged
+    return reconcile_turning_seed(merged)

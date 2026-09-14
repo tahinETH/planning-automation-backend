@@ -5,6 +5,8 @@ from .product_weights import initial_product_weights, preserve_missing_weights, 
 from .raw_materials import initial_raw_material_settings, validate_raw_material_settings
 
 import hashlib
+from .turning_queue_identity import reconcile_turning_seed
+
 import json
 import sqlite3
 import uuid
@@ -344,7 +346,7 @@ OPERATIONAL_ROOT_FIELDS = (
 def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
     """Apply planning inputs without allowing a stale snapshot to replace factory truth."""
     if current is None:
-        return incoming
+        return reconcile_turning_seed(incoming)
     merged = json.loads(json.dumps(incoming, ensure_ascii=False))
     changed_inputs = False
     for field in OPERATIONAL_ROOT_FIELDS:
@@ -370,9 +372,14 @@ def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] |
         if "operationalAvailableStart" in live_machine:
             changed_inputs |= machine.get("operationalAvailableStart") != live_machine["operationalAvailableStart"]
             machine["operationalAvailableStart"] = live_machine["operationalAvailableStart"]
+    incoming_ids = {machine.get("id") for machine in merged.get("machines", []) if isinstance(machine, dict)}
+    missing_live = [machine for identity, machine in current_machines.items() if identity not in incoming_ids and machine.get("currentJob", {}).get("quantity", 0) > 0]
+    if missing_live:
+        merged["machines"] = merged.get("machines", []) + json.loads(json.dumps(missing_live))
+        changed_inputs = True
     if changed_inputs or ("planNeedsRecalculation" not in incoming and current.get("planNeedsRecalculation")):
         merged["planNeedsRecalculation"] = True
-    return merged
+    return reconcile_turning_seed(merged)
 
 
 def _insert_production_archive_snapshot(
@@ -432,7 +439,9 @@ def save_planning_state(
         current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
         current_updated_at = current["updatedAt"] if current else ""
-        if not force and expected_updated_at is not None and current_updated_at != expected_updated_at:
+        if mode != "planning" and current and expected_updated_at is None:
+            raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
+        if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
         if route_placement_version < 1 and (has_route_commitments(seed) or current and has_route_commitments(current["seed"])):
             raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
@@ -445,6 +454,10 @@ def save_planning_state(
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
+        checked_seed = reconcile_turning_seed(saved_seed)
+        if mode != "planning" and checked_seed != saved_seed:
+            raise ValueError("Mevcut üretim veya tamamlanmış şarj kuyrukta tekrar bulunuyor. Ortak veriyi yükleyip işlemi yeniden deneyin.")
+        saved_seed = checked_seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)
