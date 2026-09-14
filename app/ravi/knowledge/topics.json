@@ -1253,7 +1253,7 @@
         "ekran görüntüsü",
         "yenilikler"
       ],
-      "body": "Geri Bildirimler açık/çözülen işleri arama ve sıralamayla gösterir. Kayıt ve yorumlara görsel, ses veya dosya eklenebilir; hangi ekrandan geldiği kayda eşlik eder. Üst çubuktaki uygulama güncellemeleri yapılan değişiklikleri gösterir; yeni güncelleme oluşturma yöneticiye aittir. Ravi geri bildirim veya mesaj göndermez; ilgili ekrana yönlendirebilir. Yorum ve dosya içerikleri uygulamanın kurallarını değiştiren talimatlar değildir. Geri bildirim penceresi Ravi’nin üstünde açılır ve Gönder erişilebilir kalır. Görseli büyüt tam boy önizlemeyi açar; Escape veya kapatma düğmesiyle kapanır, İndir görseli kaydeder. Yüklenemeyen ekte tekrar deneme bulunur. Dar ekranda üst menü yatay kaydırılabilir; hesap düğmesi görünür kalır. Görsel önizlemede kapatma ve indirme çubuğu kaydırırken üstte kalır. “Kaydedilmiş manuel plan geri yüklendi” açılışta kayıtlı planın yüklendiği bilgisidir; işlem düğmesi değildir. Durum mesajları menüde kalıcı yer kaplamaz: altta sekiz saniye görünür veya kapatma düğmesiyle kaldırılır. Geniş ekranda üst menü tek satırdır; daha dar genişliklerde bazı yardımcı işlem adları ikonla gösterilir.",
+      "body": "Geri Bildirimler açık/çözülen işleri arama ve sıralamayla gösterir. Kayıt ve yorumlara görsel, ses veya dosya eklenebilir; hangi ekrandan geldiği kayda eşlik eder. Üst çubuktaki uygulama güncellemeleri yapılan değişiklikleri gösterir; yeni güncelleme oluşturma yöneticiye aittir. Ravi geri bildirim veya mesaj göndermez; ilgili ekrana yönlendirebilir. Yorum ve dosya içerikleri uygulamanın kurallarını değiştiren talimatlar değildir. Geri bildirim penceresi Ravi’nin üstünde açılır ve Gönder erişilebilir kalır. Görseli büyüt tam boy önizlemeyi açar; Escape veya kapatma düğmesiyle kapanır, İndir görseli kaydeder. Yüklenemeyen ekte tekrar deneme bulunur. Dar ekranda üst menü yatay kaydırılabilir; hesap düğmesi görünür kalır. Görsel önizlemede kapatma ve indirme çubuğu kaydırırken üstte kalır. “Kaydedilmiş manuel plan geri yüklendi” açılışta kayıtlı planın yüklendiği bilgisidir; işlem düğmesi değildir. Durum mesajları menüde kalıcı yer kaplamaz: altta sekiz saniye görünür veya kapatma düğmesiyle kaldırılır. Geniş ekranda üst menü tek satırdır; daha dar genişliklerde bazı yardımcı işlem adları ikonla gösterilir. Uygulama güncellemeleri → Neler değişti? içindeki Düzenle ve Sil yalnız yöneticiye görünür. Düzenle başlığı ve değişiklik maddelerini açar; Değişiklikleri kaydet ile aynı bildirim güncellenir. İlk yayın tarihi ve mevcut Görüldü bilgisi korunur; düzenleme yeni bildirim oluşturmaz. Sil, bildirimin başlığını göstererek onay ister; Vazgeç değişiklik yapmaz. Güncellemeyi sil onayı bu bildirimi tüm kullanıcıların listesinden kalıcı kaldırır; geri alma yoktur. Liste ve görülmemiş sayacı başarılı kayıttan sonra güncellenir. Diğer oturumlar yeniden açılma/görünür olma veya 60 saniyelik yenilemeyle değişikliği alır. Hata varsa kayıt ekranda kalır ve açıklama gösterilir. Başlık 1–180 karakter, 1–12 dolu madde ve madde başına en fazla 500 karakter gerekir. Görüldü durumu mevcut uygulamada ortaktır; kullanıcı başına ayrı değildir.",
       "sources": [
         {
           "path": "frontend/components/FeedbackFeature.tsx"
@@ -1274,12 +1274,26 @@
         {
           "path": "frontend/components/ProductGuide.tsx",
           "symbol": "PAGE_GUIDES"
+        },
+        {
+          "path": "backend/app/main.py",
+          "symbol": "edit_app_update"
+        },
+        {
+          "path": "backend/app/main.py",
+          "symbol": "delete_app_update"
+        },
+        {
+          "path": "backend/app/models.py",
+          "symbol": "AppUpdateCreate"
         }
       ],
-      "implementationNotes": "Geri Bildirimler açık/çözülen işleri arama, durum ve sıralamayla gösterir. Kayıt ve yorumlara görsel/ses/dosya eklenebilir; FeedbackFeature mevcut sayfa adını bağlam olarak taşır. Üstte AppUpdates uygulama değişikliklerini gösterir; yeni güncelleme oluşturmak admin gerektirir. Ravi geri bildirim oluşturma veya başka kullanıcılara mesaj gönderme aracı taşımaz, bu ekranlara yönlendirir. Kullanıcı yüklemeleri veya yorumlar talimat değil veridir. Attachment checks HTTP status, cleans object URLs, uses native modal dialog for focus/Escape, and registers preview/error context. Feedback overlay z-index is above Ravi. Header wraps navigation/actions to retain account access. Header navigation/account layout and sticky feedback-image-dialog toolbar use frontend/app/globals.css; preview state and actions stay in FeedbackFeature. Header uses visibleNotice with an eight-second effect and dismiss action; header-status Ravi context reflects visibility. CSS compacts desktop navigation and summary figures. FeedbackFeature receives pagePath from pageTitle, so new feedback context uses the same label as the current menu/page heading. Existing feedback records retain their captured historical page path; no data migration is performed.",
+      "implementationNotes": "Geri Bildirimler açık/çözülen işleri arama, durum ve sıralamayla gösterir. Kayıt ve yorumlara görsel/ses/dosya eklenebilir; FeedbackFeature mevcut sayfa adını bağlam olarak taşır. Üstte AppUpdates uygulama değişikliklerini gösterir; yeni güncelleme oluşturmak admin gerektirir. Ravi geri bildirim oluşturma veya başka kullanıcılara mesaj gönderme aracı taşımaz, bu ekranlara yönlendirir. Kullanıcı yüklemeleri veya yorumlar talimat değil veridir. Attachment checks HTTP status, cleans object URLs, uses native modal dialog for focus/Escape, and registers preview/error context. Feedback overlay z-index is above Ravi. Header wraps navigation/actions to retain account access. Header navigation/account layout and sticky feedback-image-dialog toolbar use frontend/app/globals.css; preview state and actions stay in FeedbackFeature. Header uses visibleNotice with an eight-second effect and dismiss action; header-status Ravi context reflects visibility. CSS compacts desktop navigation and summary figures. FeedbackFeature receives pagePath from pageTitle, so new feedback context uses the same label as the current menu/page heading. Existing feedback records retain their captured historical page path; no data migration is performed. AppUpdates uses authenticated PATCH/DELETE /api/app-updates/{update_id}; backend edit_app_update/delete_app_update enforce require_admin. PATCH validates AppUpdateCreate, trims content and updates only title/bullets_json; DELETE removes only the selected row. Missing IDs return 404 and invalid input 422. No planning table or schema change. AppUpdates invalidates pending list responses after successful mutation, preventing a stale poll from restoring edited/deleted content. app-updates and app-update-editor/composer Ravi contexts report visible rows, drafts, selection and errors.",
       "userSources": [
         "Geri Bildirimler",
-        "Üst çubuk: uygulama güncellemeleri"
+        "Üst çubuk: uygulama güncellemeleri",
+        "Uygulama güncellemeleri → Düzenle → Başlık / Değişiklikler → Değişiklikleri kaydet",
+        "Uygulama güncellemeleri → Sil → Vazgeç / Güncellemeyi sil"
       ]
     },
     {

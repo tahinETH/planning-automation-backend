@@ -13,6 +13,38 @@ from app.database import connection
 from app.main import app
 
 
+def test_app_update_edit_delete_permissions_validation_and_persistence():
+    with TestClient(app) as client:
+        admin = {"Authorization": f"Bearer {create_test_session('test-password')}"}
+        # Use the authenticated role dependency; do not trust a client-supplied role.
+        from app.auth import CurrentUser, current_user
+        app.dependency_overrides[current_user] = lambda: CurrentUser(id="reader", name="Reader", email="reader@example.com", role="user")
+        try:
+            for method in [client.patch, client.delete]:
+                kwargs = {"json": {"title": "Denied", "bullets": ["Denied"]}} if method == client.patch else {}
+                assert method("/api/app-updates/missing", **kwargs).status_code == 403
+        finally:
+            app.dependency_overrides.pop(current_user, None)
+        created = client.post("/api/app-updates", headers=admin, json={"title": "Original", "bullets": ["Old"]}).json()
+        url = f"/api/app-updates/{created['id']}"
+        assert client.patch(url, json={"title": "Denied", "bullets": ["Denied"]}).status_code == 401
+        assert client.delete(url).status_code == 401
+        seen = client.post(f"{url}/seen", headers=admin).json()
+        for payload in [{"title": " ", "bullets": ["Text"]}, {"title": "Title", "bullets": [" "]}, {"title": "Title", "bullets": ["x" * 501]}, {"title": "Title", "bullets": ["x"] * 13}]:
+            assert client.patch(url, headers=admin, json=payload).status_code == 422
+        unchanged = next(item for item in client.get("/api/app-updates", headers=admin).json() if item["id"] == created["id"])
+        assert unchanged == seen
+        edited = client.patch(url, headers=admin, json={"title": " Corrected ", "bullets": [" New text ", "Second"]})
+        assert edited.status_code == 200
+        assert edited.json() == {**seen, "title": "Corrected", "bullets": ["New text", "Second"]}
+        assert edited.json() in client.get("/api/app-updates", headers=admin).json()
+        assert client.delete(url, headers=admin).status_code == 200
+        assert all(item["id"] != created["id"] for item in client.get("/api/app-updates", headers=admin).json())
+        assert client.delete(url, headers=admin).status_code == 404
+        assert client.patch(url, headers=admin, json={"title": "Title", "bullets": ["Text"]}).status_code == 404
+        assert client.post(f"{url}/seen", headers=admin).status_code == 404
+
+
 def test_feedback_lifecycle():
     Path(os.environ["DATABASE_PATH"]).unlink(missing_ok=True)
     with TestClient(app) as client:

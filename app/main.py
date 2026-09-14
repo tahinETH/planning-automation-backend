@@ -93,6 +93,31 @@ def mark_app_update_seen(update_id: str, _: CurrentUser = Depends(current_user))
         return app_update_record(db, update_id)
 
 
+@app.patch("/api/app-updates/{update_id}")
+def edit_app_update(update_id: str, payload: AppUpdateCreate, _: CurrentUser = Depends(require_admin)):
+    title = payload.title.strip()
+    bullets = [bullet.strip() for bullet in payload.bullets if bullet.strip()]
+    if not title or not bullets:
+        raise HTTPException(status_code=422, detail="Başlık ve en az bir değişiklik maddesi gerekli")
+    if any(len(bullet) > 500 for bullet in bullets):
+        raise HTTPException(status_code=422, detail="Değişiklik maddeleri 500 karakteri geçemez")
+    with connection() as db:
+        if app_update_record(db, update_id) is None:
+            raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
+        db.execute("UPDATE app_updates SET title=?,bullets_json=? WHERE id=?",
+                   (title, json.dumps(bullets, ensure_ascii=False), update_id))
+        return app_update_record(db, update_id)
+
+
+@app.delete("/api/app-updates/{update_id}")
+def delete_app_update(update_id: str, _: CurrentUser = Depends(require_admin)):
+    with connection() as db:
+        deleted = db.execute("DELETE FROM app_updates WHERE id=?", (update_id,))
+        if deleted.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
+    return {"ok": True}
+
+
 @app.get("/api/orders")
 def get_orders(_: CurrentUser = Depends(current_user)):
     return order_details()
