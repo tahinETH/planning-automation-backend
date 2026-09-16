@@ -18,7 +18,7 @@ from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_up
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .delivery_reports import DeliveryReportError, report_snapshot
-from .models import DeliveryReportRequest, DeliveryReportExportRequest
+from .models import DeliveryReportRequest, DeliveryReportExportRequest, TurningIdentityResolutionPayload
 from .models import AppUpdateCreate, CalendarEventExportPayload, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .calendar_export import build_calendar_event_workbook
 from .overview_export import build_overview_workbook
@@ -303,6 +303,18 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
     except ProtectedSettingsChange as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/planning-state/identity-resolution")
+def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: CurrentUser = Depends(current_user)):
+    try:
+        return save_planning_state({}, payload.expectedUpdatedAt, mode="operational",
+            actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin,
+            route_placement_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
+    except PlanningStateConflict as error:
+        raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Güncel kayıtları yükleyip incelemeyi tekrarlayın.", "current": error.current}) from error
+    except (ValueError, ProtectedSettingsChange) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 

@@ -113,3 +113,122 @@ def test_omitting_a_live_machine_cannot_evade_queue_identity_protection():
     saved=database.preserve_live_operations(incoming,live)
     assert saved['machines']==live['machines']
     assert saved['manualBatches']==[]
+
+
+from app.turning_queue_identity import inspect_turning_queue, turning_identity_scope, assert_turning_identity_transition, repair_turning_identity
+
+
+def conflict_fixture():
+    seed = fixture()
+    seed['machines'][0]['currentJob'].update(batchId='other-current', product='OTHER', workOrder='OTHER-WO')
+    seed['manualBatches'][0].update(id='ambiguous', quantity=1000)
+    seed['productionHistory'] = [dict(id='legacy', product='R902745116', workOrder='WO-A', originalQuantity=2000, machineId='C-99', process='turning', inventoryStatus='semi-finished')]
+    seed['wipLots'] = [dict(id='root', sourceHistoryEntryId='legacy', product='R902745116', workOrder='WO-A', availableQuantity=2000, completedSteps=[], readyAt=46000)]
+    seed['wipMovements'], seed['processCurrentJobs'], seed['processOperationOverrides'] = [], [], []
+    return seed
+
+
+def test_identity_inspection_follows_descendants_with_inconsistent_product_labels():
+    seed = conflict_fixture()
+    seed['wipLots'].append(dict(id='child', parentLotId='root', sourceHistoryEntryId='other-history', sourceBatchId='linked-charge', product='WRONG-LABEL'))
+    seed['processCurrentJobs'].append(dict(batchId='linked-charge', wipLotId='child', product='WRONG-LABEL'))
+    before = copy.deepcopy(seed)
+    inspected, scope = inspect_turning_queue(seed), turning_identity_scope(seed)
+    assert inspected['conflicts'][0]['reason'] == 'legacy-ambiguous'
+    assert inspected['conflicts'][0]['records'][0]['id'] == 'legacy'
+    assert 'child' in scope['lotIds'] and 'linked-charge' in scope['batchIds'] and 'other-history' in scope['historyIds']
+    assert seed == before
+    changed = copy.deepcopy(seed); changed['wipLots'][1]['availableQuantity'] = 1
+    with pytest.raises(ValueError, match='İncele ve düzelt'):
+        assert_turning_identity_transition(seed, changed)
+
+
+def test_unrelated_operational_records_may_change_while_conflict_scope_is_unchanged():
+    seed = conflict_fixture(); changed = copy.deepcopy(seed)
+    changed['productionHistory'].append(dict(id='unrelated', product='OTHER-PRODUCT', workOrder='OTHER-WO', completedQuantity=200))
+    changed['wipLots'].append(dict(id='unrelated-lot', sourceHistoryEntryId='unrelated', product='OTHER-PRODUCT', availableQuantity=200))
+    changed['orders'].append(dict(id='other-order', product='OTHER-PRODUCT', quantity=200, dueDate='2026-09-30'))
+    assert_turning_identity_transition(seed, changed)
+    assert changed['manualBatches'] == seed['manualBatches']
+    assert changed['machines'] == seed['machines']
+
+
+@pytest.mark.parametrize('edit', ['void', 'unlock', 'quantity', 'readyAt', 'route', 'remove', 'complete', 'calendar'])
+def test_ordinary_operations_cannot_erase_or_change_conflict_evidence(edit):
+    seed = conflict_fixture(); changed = copy.deepcopy(seed)
+    if edit == 'void': changed['productionHistory'][0]['inventoryStatus'] = 'voided'
+    if edit == 'unlock': changed['manualBatches'][0]['locked'] = False
+    if edit == 'quantity': changed['manualBatches'][0]['quantity'] = 600
+    if edit == 'readyAt': changed['wipLots'][0]['readyAt'] += 1
+    if edit == 'route': changed['processOperationOverrides'] = [dict(batchId='root', process='gkm', resourceId='G-01')]
+    if edit == 'remove': changed['manualBatches'] = []
+    if edit == 'complete': changed['machines'][0]['currentJob']['quantity'] = 0
+    if edit == 'calendar': changed['calendarEvents'] = [dict(id='holiday', start=46000, end=46001)]
+    with pytest.raises(ValueError, match='İncele ve düzelt'):
+        assert_turning_identity_transition(seed, changed)
+
+
+def test_new_conflict_or_exact_duplicate_cannot_enter_an_unrelated_scope():
+    seed = conflict_fixture(); changed = copy.deepcopy(seed)
+    unrelated = dict(seed['manualBatches'][0], id='new', machineId='C-88', product='OTHER-PRODUCT', workOrder='OTHER-WO')
+    changed['manualBatches'].extend([unrelated, dict(unrelated, product='OTHER-PRODUCT-2')])
+    with pytest.raises(ValueError, match='yeni bir'):
+        assert_turning_identity_transition(seed, changed)
+    assert len([c for c in inspect_turning_queue(changed)['conflicts'] if c['reason'] == 'duplicate-queue-id']) == 2
+    with pytest.raises(ValueError, match='tek bir'):
+        repair_turning_identity(changed, dict(batchId='new', action='work-order', workOrder='FIXED', reason='Reviewed'))
+    duplicate = copy.deepcopy(seed)
+    duplicate['manualBatches'].append(unrelated)
+    duplicate['productionHistory'].append(dict(id='known', sourceBatchId='new', product=unrelated['product']))
+    with pytest.raises(ValueError, match='tekrar bulunuyor'):
+        assert_turning_identity_transition(seed, duplicate)
+
+
+def test_reviewed_work_order_repair_preserves_quantity_locks_and_another_conflict():
+    seed = conflict_fixture()
+    seed['manualBatches'].append(dict(seed['manualBatches'][0], id='second', product='SECOND', workOrder='SECOND-WO', machineId='C-88'))
+    seed['productionHistory'].append(dict(id='second-history', product='SECOND', workOrder='SECOND-WO', originalQuantity=2000, machineId='C-89'))
+    before = copy.deepcopy(seed)
+    repaired = repair_turning_identity(seed, dict(batchId='ambiguous', action='work-order', workOrder='VERIFIED-NEW', reason='Original ticket checked'))
+    assert repaired['manualBatches'][0]['workOrder'] == 'VERIFIED-NEW'
+    assert inspect_turning_queue(repaired)['conflicts'][0]['batchId'] == 'second'
+    assert dict(repaired['manualBatches'][0], workOrder=seed['manualBatches'][0]['workOrder']) == seed['manualBatches'][0]
+    assert repaired['productionHistory'] == seed['productionHistory'] and repaired['wipLots'] == seed['wipLots']
+    assert seed == before
+    with pytest.raises(ValueError, match='İncele ve düzelt'):
+        assert_turning_identity_transition(seed, repaired)
+
+
+def test_duplicate_removal_requires_explicit_confirmation_even_for_locked_rows_and_keeps_physical_records():
+    seed = conflict_fixture()
+    request = dict(batchId='ambiguous', action='remove-duplicate', reason='Compared the original ticket')
+    with pytest.raises(ValueError, match='doğrulayın'):
+        repair_turning_identity(seed, request)
+    result = repair_turning_identity(seed, dict(request, confirmedDuplicate=True))
+    assert result['manualBatches'] == []
+    assert result['productionHistory'] == seed['productionHistory'] and result['wipLots'] == seed['wipLots']
+    assert seed['manualBatches'][0]['locked'] is True
+
+
+def test_repair_rejects_no_op_blank_reason_and_referenced_rows_without_mutation():
+    seed = conflict_fixture()
+    request = dict(batchId='ambiguous', action='work-order', workOrder='NEW', reason='Verified')
+    with pytest.raises(ValueError, match='neden'):
+        repair_turning_identity(seed, dict(request, reason=' '))
+    with pytest.raises(ValueError, match='Farklı'):
+        repair_turning_identity(seed, dict(request, workOrder='WO-A'))
+    seed['processOperationOverrides'] = [dict(batchId='ambiguous')]
+    before = copy.deepcopy(seed)
+    with pytest.raises(ValueError, match='bağlı'):
+        repair_turning_identity(seed, request)
+    assert seed == before
+
+
+def test_unrelated_interruption_recovery_remains_mandatory_while_another_conflict_exists():
+    seed = conflict_fixture()
+    remainder = dict(seed['manualBatches'][0], id='remainder', product='OTHER', workOrder='OTHER-WO', machineId='C-88', quantity=400, interruptionId='pause')
+    seed['manualBatches'].append(remainder)
+    seed['productionInterruptions'] = [dict(id='pause', chargeId='remainder', process='turning', resourceId='C-88', product='OTHER', workOrder='OTHER-WO', producedQuantity=200, remainingQuantity=400, turningBatch=remainder)]
+    changed = copy.deepcopy(seed); changed['manualBatches'] = [b for b in changed['manualBatches'] if b['id'] != 'remainder']
+    with pytest.raises(ValueError, match='Yarım kalan'):
+        assert_turning_identity_transition(seed, changed)

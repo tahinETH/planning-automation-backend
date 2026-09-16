@@ -5,7 +5,7 @@ from .product_weights import initial_product_weights, preserve_missing_weights, 
 from .raw_materials import initial_raw_material_settings, validate_raw_material_settings
 
 import hashlib
-from .turning_queue_identity import reconcile_turning_seed
+from .turning_queue_identity import reconcile_turning_seed, inspect_turning_queue, assert_turning_identity_transition, repair_turning_identity
 
 import json
 import sqlite3
@@ -343,7 +343,7 @@ OPERATIONAL_ROOT_FIELDS = (
 )
 
 
-def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
+def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] | None, *, reconcile: bool = True) -> dict[str, Any]:
     """Apply planning inputs without allowing a stale snapshot to replace factory truth."""
     if current is None:
         return reconcile_turning_seed(incoming)
@@ -379,7 +379,7 @@ def preserve_live_operations(incoming: dict[str, Any], current: dict[str, Any] |
         changed_inputs = True
     if changed_inputs or ("planNeedsRecalculation" not in incoming and current.get("planNeedsRecalculation")):
         merged["planNeedsRecalculation"] = True
-    return reconcile_turning_seed(merged)
+    return reconcile_turning_seed(merged) if reconcile else merged
 
 
 def _insert_production_archive_snapshot(
@@ -432,11 +432,30 @@ def save_planning_state(
     actor_name: str = "",
     can_manage_settings: bool = False,
     route_placement_version: int = 0,
+    identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = now_iso()
     with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
         current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+        unresolved = bool(current and inspect_turning_queue(current["seed"])["conflicts"])
+        if (unresolved or identity_resolution is not None) and (expected_updated_at is None or expected_updated_at != (current["updatedAt"] if current else "")):
+            raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if identity_resolution is not None:
+            if current is None:
+                raise ValueError("Düzeltilecek ortak plan bulunamadı.")
+            seed = repair_turning_identity(current["seed"], identity_resolution)
+            target = next(b for b in current["seed"].get("manualBatches", []) if b.get("id") == identity_resolution["batchId"])
+            detail = f'İş emri {target.get("workOrder", "")} → {identity_resolution.get("workOrder", "")}' if identity_resolution["action"] == "work-order" else "Doğrulanmış mükerrer kuyruk kaydı kaldırıldı; üretim kayıtları korundu"
+            seed["planningEvents"] = [{"id": f"identity-review-{uuid.uuid4()}", "createdAt": timestamp,
+                "type": "work-order" if identity_resolution["action"] == "work-order" else "remove",
+                "machineId": target.get("machineId", ""), "batchId": target["id"],
+                "message": f'{target.get("product", "")} · {detail}. Neden: {identity_resolution["reason"].strip()} · {actor_name}',
+            }, *seed.get("planningEvents", [])][:200]
+            seed["planNeedsRecalculation"] = True
+            seed.pop("lastAutomaticPlan", None)
+            seed.pop("planRunSequence", None)
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
         current_updated_at = current["updatedAt"] if current else ""
         if mode != "planning" and current and expected_updated_at is None:
@@ -453,11 +472,18 @@ def save_planning_state(
             validate_raw_material_settings(seed["rawMaterialSettings"])
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
-        saved_seed = preserve_live_operations(seed, current["seed"] if current else None) if mode == "planning" else seed
-        checked_seed = reconcile_turning_seed(saved_seed)
-        if mode != "planning" and checked_seed != saved_seed:
-            raise ValueError("Mevcut üretim veya tamamlanmış şarj kuyrukta tekrar bulunuyor. Ortak veriyi yükleyip işlemi yeniden deneyin.")
-        saved_seed = checked_seed
+        saved_seed = preserve_live_operations(seed, current["seed"] if current else None, reconcile=not unresolved) if mode == "planning" else seed
+        if identity_resolution is not None:
+            # The server built and validated the complete repair from its own revision.
+            pass
+        elif unresolved:
+            assert_turning_identity_transition(current["seed"], saved_seed)
+            saved_seed = {**saved_seed, "planNeedsRecalculation": True}
+        else:
+            checked_seed = reconcile_turning_seed(saved_seed)
+            if mode != "planning" and checked_seed != saved_seed:
+                raise ValueError("Mevcut üretim veya tamamlanmış şarj kuyrukta tekrar bulunuyor. Ortak veriyi yükleyip işlemi yeniden deneyin.")
+            saved_seed = checked_seed
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)

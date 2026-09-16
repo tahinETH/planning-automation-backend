@@ -71,6 +71,15 @@ class PlanningStatePayload(BaseModel):
     mode: Literal["planning", "operational"] = "planning"
 
 
+class TurningIdentityResolutionPayload(BaseModel):
+    expectedUpdatedAt: str = Field(min_length=1)
+    batchId: str = Field(min_length=1, max_length=200)
+    action: Literal["work-order", "remove-duplicate"]
+    workOrder: str = Field(default="", max_length=200)
+    reason: str = Field(min_length=1, max_length=2000)
+    confirmedDuplicate: bool = False
+
+
 class DemandImportHistoryPayload(BaseModel):
     id: str = Field(min_length=1, max_length=160)
     importedAt: str

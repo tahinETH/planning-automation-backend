@@ -10,37 +10,45 @@ function activeLotInterruptions(seed, lot) {
 
 // lib/turning-queue-identity.ts
 function reconcileTurningQueue(seed, batches) {
-  const key = (value) => (value ?? "").trim().toUpperCase();
+  const inspected = inspectTurningQueue(seed, batches);
+  if (inspected.conflicts.length) throw new Error(inspected.conflicts[0].message);
+  return inspected.reconciledBatches;
+}
+var identityKey = (value) => String(value ?? "").trim().toUpperCase();
+var identityMessage = (batch) => `${batch.machineId} \xB7 ${batch.workOrder || batch.product}: mevcut \xFCretim/ar\u015Fiv ile kuyruktaki \u015Farj kimli\u011Fi belirsiz. \u0130\u015F emri ve \u015Farj kay\u0131tlar\u0131n\u0131 kontrol edin; i\u015Flem uygulanmad\u0131.`;
+function inspectTurningQueue(seed, batches = seed.manualBatches ?? []) {
   const records = [
-    ...seed.machines.filter((m) => m.currentJob.quantity > 0).map((m) => ({
-      id: m.currentJob.batchId,
-      product: m.currentJob.product,
-      workOrder: m.currentJob.workOrder,
-      quantity: m.currentJob.originalQuantity ?? m.currentJob.quantity,
-      machineId: m.id
-    })),
-    ...(seed.productionHistory ?? []).filter((h) => (!h.process || h.process === "turning") && h.inventoryStatus !== "voided" && !h.interruptionIds?.length).map((h) => ({ id: h.sourceBatchId === h.id ? void 0 : h.sourceBatchId, product: h.product, workOrder: h.workOrder, quantity: h.originalQuantity, machineId: h.machineId })),
-    ...(seed.wipLots ?? []).filter((lot) => lot.sourceBatchId && lot.sourceBatchId !== lot.sourceHistoryEntryId && !seed.productionHistory?.some((h) => h.id === lot.sourceHistoryEntryId && h.inventoryStatus === "voided")).map((lot) => ({ id: lot.sourceBatchId, product: lot.product, workOrder: lot.workOrder, quantity: lot.originalQuantity, machineId: "" }))
+    ...seed.machines.filter((m) => m.currentJob.quantity > 0).map((m) => ({ kind: "current", id: m.id, chargeId: m.currentJob.batchId, machineId: m.id, product: m.currentJob.product, workOrder: m.currentJob.workOrder, quantity: m.currentJob.originalQuantity ?? m.currentJob.quantity })),
+    ...(seed.productionHistory ?? []).filter((h) => (!h.process || h.process === "turning") && h.inventoryStatus !== "voided" && !h.interruptionIds?.length).map((h) => ({ kind: "history", id: h.id, chargeId: h.sourceBatchId === h.id ? void 0 : h.sourceBatchId, machineId: h.machineId, product: h.product, workOrder: h.workOrder, quantity: h.originalQuantity, status: h.inventoryStatus })),
+    ...(seed.wipLots ?? []).filter((l) => l.sourceBatchId && l.sourceBatchId !== l.sourceHistoryEntryId && !seed.productionHistory?.some((h) => h.id === l.sourceHistoryEntryId && h.inventoryStatus === "voided")).map((l) => ({ kind: "wip", id: l.id, chargeId: l.sourceBatchId, machineId: "", product: l.product, workOrder: l.workOrder, quantity: l.originalQuantity, status: l.stage }))
   ];
-  const conflict = (batch) => {
-    throw new Error(`${batch.machineId} \xB7 ${batch.workOrder || batch.product}: mevcut \xFCretim/ar\u015Fiv ile kuyruktaki \u015Farj kimli\u011Fi belirsiz. \u0130\u015F emri ve \u015Farj kay\u0131tlar\u0131n\u0131 kontrol edin; i\u015Flem uygulanmad\u0131.`);
-  };
-  const seen = /* @__PURE__ */ new Set();
-  return batches.filter((batch) => {
-    if (seen.has(batch.id)) return conflict(batch);
-    seen.add(batch.id);
-    const exact = records.filter((r) => r.id && r.id === batch.id);
-    if (exact.length) {
-      if (exact.some((r) => key(r.product) !== key(batch.product))) return conflict(batch);
-      return false;
+  const conflicts = [];
+  const reconciledBatches = batches.filter((batch) => {
+    const duplicates = batches.filter((b) => b.id === batch.id);
+    const exact = records.filter((r) => r.chargeId && r.chargeId === batch.id);
+    const legacy = records.filter((r) => !r.chargeId && identityKey(r.workOrder) && identityKey(r.workOrder) === identityKey(batch.workOrder) && identityKey(r.product) === identityKey(batch.product));
+    let reason;
+    let evidence = [];
+    if (duplicates.length > 1) {
+      reason = "duplicate-queue-id";
+      evidence = duplicates.map((b) => ({ kind: "queue", id: b.id, machineId: b.machineId, product: b.product, workOrder: b.workOrder ?? "", quantity: b.quantity }));
+    } else if (exact.length) {
+      if (exact.some((r) => identityKey(r.product) !== identityKey(batch.product))) {
+        reason = "product-mismatch";
+        evidence = exact;
+      } else return false;
+    } else if (!batch.interruptionId && legacy.length) {
+      const candidates = batches.filter((b) => identityKey(b.workOrder) === identityKey(batch.workOrder) && identityKey(b.product) === identityKey(batch.product));
+      if (legacy.length !== 1 || candidates.length !== 1 || legacy[0].quantity !== batch.quantity || legacy[0].machineId !== batch.machineId) {
+        reason = "legacy-ambiguous";
+        evidence = legacy;
+      } else return false;
     }
-    if (batch.interruptionId) return true;
-    const legacy = records.filter((r) => !r.id && key(r.workOrder) && key(r.workOrder) === key(batch.workOrder) && key(r.product) === key(batch.product));
-    if (!legacy.length) return true;
-    const candidates = batches.filter((b) => key(b.workOrder) === key(batch.workOrder) && key(b.product) === key(batch.product));
-    if (legacy.length !== 1 || candidates.length !== 1 || legacy[0].quantity !== batch.quantity || legacy[0].machineId !== batch.machineId) return conflict(batch);
-    return false;
+    if (reason && reason !== "duplicate-queue-id") evidence.push({ kind: "queue", id: batch.id, machineId: batch.machineId, product: batch.product, workOrder: batch.workOrder ?? "", quantity: batch.quantity, status: batch.locked ? "locked" : batch.status });
+    if (reason) conflicts.push({ batchId: batch.id, machineId: batch.machineId, product: batch.product, workOrder: batch.workOrder ?? "", message: identityMessage(batch), reason, records: evidence.map((r) => ({ kind: r.kind, id: r.id, machineId: r.machineId, product: r.product, workOrder: r.workOrder, quantity: r.quantity, ...r.status ? { status: r.status } : {} })) });
+    return true;
   });
+  return { conflicts, reconciledBatches };
 }
 
 // lib/delivery-calendar.ts
