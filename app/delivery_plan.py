@@ -209,6 +209,14 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
     sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
     sheet.sheet_view.showGridLines = True
     sheet.sheet_view.zoomScale = 90
+    if payload.get("verification"):
+        verification = workbook.create_sheet("Rapor doğrulaması")
+        labels = {"revision": "Ortak veri sürümü", "engineVersion": "Hesaplama sürümü", "calculationDate": "Hesaplama günü", "calculatedAt": "Doğrulama zamanı (UTC)", "digest": "Rapor doğrulama kodu"}
+        for index, (key, label) in enumerate(labels.items(), 1):
+            _text(verification.cell(index, 1), label)
+            _text(verification.cell(index, 2), str(payload["verification"].get(key, "")))
+        verification.column_dimensions["A"].width = 28
+        verification.column_dimensions["B"].width = 75
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

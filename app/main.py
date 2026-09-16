@@ -17,6 +17,8 @@ from .config import settings
 from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
+from .delivery_reports import DeliveryReportError, report_snapshot
+from .models import DeliveryReportRequest, DeliveryReportExportRequest
 from .models import AppUpdateCreate, CalendarEventExportPayload, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .calendar_export import build_calendar_event_workbook
 from .overview_export import build_overview_workbook
@@ -151,11 +153,30 @@ def post_order_import_history(payload: DemandImportHistoryPayload, _: CurrentUse
     return save_demand_import_history(payload.model_dump())
 
 
+@app.post("/api/delivery-plan/preview")
+def preview_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = Depends(current_user)):
+    try:
+        return report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate})
+    except DeliveryReportError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
+
+
 @app.post("/api/delivery-plan/export")
-def export_delivery_plan(payload: DeliveryPlanPayload, _: CurrentUser = Depends(current_user)):
+def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = Depends(current_user)):
     template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     try:
-        content = build_delivery_plan(template_path, payload.model_dump())
+        snapshot = report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate}, payload.calculationDate)
+        if snapshot["digest"] != payload.digest:
+            raise DeliveryReportError("Teslimat önizlemesi değişti. Yeniden inceleyin.", 409)
+        if not snapshot["report"]["complete"]:
+            raise DeliveryReportError("Teslim tarihi belirlenemeyen işler var. Tam teslimat planı indirilemez.")
+        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}})
+        # A file is certified against this accepted revision, never claimed live forever.
+        current = planning_state()
+        if not current or current["updatedAt"] != payload.expectedRevision:
+            raise DeliveryReportError("Dosya hazırlanırken plan değişti. Önizlemeyi yenileyin.", 409)
+    except DeliveryReportError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
     except DeliveryPlanError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     filename = f"Teslimat_Plani_{payload.startDate}_{payload.endDate}.xlsx"

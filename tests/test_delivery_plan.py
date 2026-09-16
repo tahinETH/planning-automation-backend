@@ -129,7 +129,7 @@ def test_delivery_plan_uses_corrected_summary_and_weekly_structure():
     assert "#REF!" not in workbook_xml
 
 
-def test_delivery_plan_endpoint_returns_an_excel_download():
+def test_delivery_plan_endpoint_rejects_unverified_legacy_totals():
     payload = {
         "startDate": "2026-07-20", "endDate": "2026-08-30", "category": "Üretim",
         "weeks": delivery_columns(),
@@ -140,9 +140,7 @@ def test_delivery_plan_endpoint_returns_an_excel_download():
         login = client.post("/api/auth/login", json={"password": "test-password"})
         headers = {"Authorization": f"Bearer {login.json()['token']}"}
         response = client.post("/api/delivery-plan/export", headers=headers, json=payload)
-        assert response.status_code == 200
-        assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        assert response.content.startswith(b"PK")
+        assert response.status_code == 422
 
 
 def test_delivery_plan_expands_when_more_than_template_rows_are_active():

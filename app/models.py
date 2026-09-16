@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from datetime import date
 
 
 class FeedbackCreate(BaseModel):
@@ -100,6 +101,24 @@ class DeliveryPlanPayload(BaseModel):
     demandSource: Literal["customer-snapshot", "imported-orders", "manual-orders"] = "manual-orders"
     weeks: list[DeliveryPlanWeek]
     rows: list[DeliveryPlanRow]
+
+
+class DeliveryReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expectedRevision: str = Field(min_length=1, max_length=100)
+    startDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    endDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @field_validator("startDate", "endDate")
+    @classmethod
+    def real_date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+
+class DeliveryReportExportRequest(DeliveryReportRequest):
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    calculationDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class OverviewSummary(BaseModel):
