@@ -346,3 +346,15 @@ def test_interrupted_production_inspection_uses_visible_labels_and_keeps_server_
     assert result["rows"][0]["İşe ara verme nedeni"] == "Çelik bitti"
     assert "turningBatch" not in result["rows"][0]
     assert snapshot == before
+
+
+def test_zero_output_switch_is_not_reported_as_interrupted_production():
+    snapshot = {"seed": {"productionInterruptions": [
+        {"id": "zero", "producedQuantity": 0, "remainingQuantity": 480},
+        {"id": "partial", "producedQuantity": 200, "remainingQuantity": 400},
+    ]}, "updatedAt": "saved-time"}
+    before = copy.deepcopy(snapshot)
+    result = inspect_state(snapshot, Inspect(collection="production_interruptions"))
+    assert len(result["rows"]) == 1
+    assert result["rows"][0]["Üretilen adet"] == 200
+    assert snapshot == before

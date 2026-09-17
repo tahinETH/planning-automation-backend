@@ -5,7 +5,15 @@ var import_node_fs = require("node:fs");
 
 // lib/production-interruptions.ts
 function activeLotInterruptions(seed, lot) {
-  return (seed.productionInterruptions ?? []).filter((item) => !item.completedAt && lot?.interruptionIds?.includes(item.id));
+  return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
+}
+function isProductionInterruption(item) {
+  return item.producedQuantity !== 0;
+}
+function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
+  const records = seed.productionInterruptions ?? [];
+  if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
+  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
 }
 
 // lib/turning-queue-identity.ts
@@ -588,7 +596,7 @@ function describeProcessRoute(seed, job, warnings) {
   const route = productProcessRoute(product);
   const lot = seed.wipLots?.find((l) => l.id === job.wipLotId);
   const chargeId = job.source === "current-turning" ? seed.machines?.find((m) => m.id === job.turningMachineId)?.currentJob.batchId : job.batchId;
-  const pause = seed.productionInterruptions?.find((p) => !p.completedAt && p.chargeId === chargeId);
+  const pause = seed.productionInterruptions?.find((p) => isProductionInterruption(p) && !p.completedAt && p.chargeId === chargeId);
   const partial = activeLotInterruptions(seed, lot).length > 0;
   const issues = [];
   const routeSteps = route.map((process2) => {
@@ -632,7 +640,7 @@ function processQueueEntries(seed, jobs, operations) {
   const rows = /* @__PURE__ */ new Map();
   const intents = (seed.processOperationOverrides ?? []).filter((intent) => intent.routeMode !== "automatic");
   for (const pause of seed.productionInterruptions ?? []) {
-    if (pause.completedAt || pause.process === "turning" || pause.process === "washing" || intents.some((i) => i.batchId === pause.chargeId && i.process === pause.process)) continue;
+    if (!isProductionInterruption(pause) || pause.completedAt || pause.process === "turning" || pause.process === "washing" || intents.some((i) => i.batchId === pause.chargeId && i.process === pause.process)) continue;
     intents.push({ batchId: pause.chargeId, process: pause.process, resourceId: pause.resourceId, requestedStart: pause.occurredAt, resumeAfterCurrent: true, updatedAt: "" });
   }
   for (const intent of intents) {
@@ -812,7 +820,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const interrupted = activeLotInterruptions(seed, source.lot).length > 0;
     const explicitPlacement = seed.processOperationOverrides?.some((item) => item.batchId === source.id && item.process === process2);
     const running = seed.processCurrentJobs?.some((item) => item.batchId === source.id && item.process === process2);
-    if (seed.productionInterruptions?.some((item) => !item.completedAt && item.chargeId === source.id && item.process === source.nextProcess) && !firstRemaining) return [];
+    if (seed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === source.id && item.process === source.nextProcess) && !firstRemaining) return [];
     if (interrupted && !running && !explicitPlacement && !(includeInterruptedCandidates && firstRemaining)) return [];
     if (!predecessor && !firstRemaining) {
       warnings.push({ code: "missing-parameter", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in \xF6nceki rota ad\u0131m\u0131 bulunamad\u0131.` });
@@ -1045,7 +1053,7 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
       quantity: machine.currentJob.quantity,
       workOrder: machine.currentJob.workOrder ?? "",
       releaseAt: machine.currentJob.end,
-      nextProcess: machine.currentJob.interruptionId ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"),
+      nextProcess: hasActiveProductionInterruption(seed, machine.currentJob.batchId, machine.currentJob.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"),
       machine,
       masterProduct
     });
@@ -1057,7 +1065,7 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
       warnings.push({ code: "missing-product", product: batch.product, batchId: batch.id, message: `${batch.product} i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
       continue;
     }
-    sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: batch.interruptionId ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
+    sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
   }
   const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
   sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
@@ -1120,7 +1128,7 @@ function datedEvents(seed, result, processPlan) {
     const lot = seed.wipLots?.find((item) => item.id === job.wipLotId);
     return !lot || lot.stage !== "on-hold" && lot.stage !== "unclassified";
   }).filter((job) => job.quantity > 0 && job.deliveryReadyAt > 0 && (Boolean(processMasterDataForProduct(seed.processMasterData, job.product)?.route) || job.operations.some((operation) => operation.process === "gkm") || (seed.wipLots ?? []).some((lot) => lot.id === job.wipLotId && lot.stage === "delivery-ready"))).map((job) => ({ id: `route:${job.batchId}`, product: job.product.toUpperCase(), quantity: job.quantity, readyAt: job.deliveryReadyAt, source: "routed", routeSource: job.source, wipLotId: job.wipLotId }));
-  const fallbackBatches = result.batches.filter((batch) => !seed.processMasterData && batch.status === "planned" && !batch.interruptionId && batch.quantity > 0 && batch.end > 0 && !representedBatchIds.has(batch.id)).map((batch) => ({ id: `batch:${batch.id}`, product: batch.product.toUpperCase(), quantity: batch.quantity, readyAt: turningDeliveryReadyAt(batch.end), source: "turning-fallback" }));
+  const fallbackBatches = result.batches.filter((batch) => !seed.processMasterData && batch.status === "planned" && !hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) && batch.quantity > 0 && batch.end > 0 && !representedBatchIds.has(batch.id)).map((batch) => ({ id: `batch:${batch.id}`, product: batch.product.toUpperCase(), quantity: batch.quantity, readyAt: turningDeliveryReadyAt(batch.end), source: "turning-fallback" }));
   const fallbackReadyWip = (seed.wipLots ?? []).filter((lot) => !seed.processMasterData && lot.stage === "delivery-ready" && lot.availableQuantity > 0 && lot.readyAt > 0 && !representedLotIds.has(lot.id)).map((lot) => ({ id: `wip:${lot.id}`, product: lot.product.toUpperCase(), quantity: lot.availableQuantity, readyAt: lot.readyAt, source: "wip-fallback" }));
   return [...routed, ...fallbackBatches, ...fallbackReadyWip].filter((event) => Number.isFinite(event.readyAt) && event.readyAt > 0).sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
 }

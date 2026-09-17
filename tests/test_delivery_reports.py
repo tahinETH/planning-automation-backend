@@ -123,3 +123,26 @@ def test_runtime_output_schema_and_bundle_integrity_fail_closed(saved, monkeypat
     with pytest.raises(reports.DeliveryReportError) as error:
         reports.report_snapshot(state["updatedAt"], scope)
     assert error.value.status == 503
+
+
+def test_export_scope_change_requires_fresh_preview_and_download_preserves_state(saved, client):
+    """DEL-EXP01: changed dates cannot reuse a verified file; export is read-only."""
+    import copy
+    from datetime import date, timedelta
+    state, scope = saved
+    before = copy.deepcopy(state)
+    request = {"expectedRevision": state["updatedAt"], **scope}
+    snapshot = client.post("/api/delivery-plan/preview", json=request).json()
+    changed = {**request, "endDate": (date.fromisoformat(scope["endDate"]) + timedelta(days=7)).isoformat()}
+    stale = client.post("/api/delivery-plan/export", json={**changed, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]})
+    assert stale.status_code == 409
+    fresh = client.post("/api/delivery-plan/preview", json=changed).json()
+    exported = client.post("/api/delivery-plan/export", json={**changed, "digest": fresh["digest"], "calculationDate": fresh["calculationDate"]})
+    assert exported.status_code == 200, exported.text
+    assert exported.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert f'Teslimat_Plani_{changed["startDate"]}_{changed["endDate"]}.xlsx' in exported.headers["content-disposition"]
+    assert exported.content.startswith(b"PK")
+    workbook = load_workbook(BytesIO(exported.content))
+    assert workbook["Rapor doğrulaması"]["B5"].value == fresh["digest"]
+    assert workbook.calculation.fullCalcOnLoad is True
+    assert state == before

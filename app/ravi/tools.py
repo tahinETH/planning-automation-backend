@@ -89,7 +89,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
         "batches": seed.get("manualBatches", []), "calendar": seed.get("calendarEvents", []) + seed.get("holidays", []),
         "process_resources": (seed.get("processMasterData") or {}).get("resources", []),
         "process_products": (seed.get("processMasterData") or {}).get("products", []),
-        "production_interruptions": seed.get("productionInterruptions", []),
+        "production_interruptions": [row for row in seed.get("productionInterruptions", []) if row.get("producedQuantity") != 0],
         "process_current_jobs": seed.get("processCurrentJobs", []), "overrides": seed.get("customerOrderOverrides", []),
     }
     query = knowledge.normalize(args.query.strip())
