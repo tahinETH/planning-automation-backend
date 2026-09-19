@@ -211,6 +211,9 @@ function resolvedProductSetupFamily(productCode, storedFamily) {
 }
 
 // lib/process-master-data.ts
+function activeProcessResourceIds(parameter) {
+  return parameter.resourcePriority.filter((id) => !parameter.inactiveResourceIds?.includes(id));
+}
 var PRODUCT_PROCESS_ORDER = ["turning", "drilling", "deburring", "gkm"];
 function productProcessRoute(product) {
   return product.route ?? ["turning", ...product.processes.slice().sort((a, b) => a.sequence - b.sequence).map((item) => item.process)];
@@ -366,6 +369,7 @@ function isMachineEligibleForProduct(seed, machineId, productCode) {
   const code2 = productCode.toUpperCase();
   const product = seed.products.find((item) => item.product.toUpperCase() === code2);
   if (!product) return false;
+  if (product.inactiveMachineIds?.includes(machineId)) return false;
   const preference = seed.preferences.find((rule) => rule.key.toUpperCase() === code2);
   if (preference) return preference.machines.includes(machineId);
   if (diameterNumeric(product.diameter) >= 25.5 && LARGE_DIAMETER_BLOCKED.has(machineId)) return false;
@@ -860,7 +864,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   for (const item of candidates) {
     const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays } = item;
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
-    const resourceCandidates = currentJob ? [currentJob.resourceId] : override ? [override.resourceId] : parameter.resourcePriority;
+    const activeResources = activeProcessResourceIds(parameter);
+    const resourceCandidates = currentJob ? [currentJob.resourceId] : override ? activeResources.filter((id) => id === override.resourceId) : activeResources;
     const evaluated = resourceCandidates.flatMap((resourceId, priority) => {
       const resource = processResource(master, resourceId);
       const unitsPerShift = parameter.unitsPerShift[resourceId];
