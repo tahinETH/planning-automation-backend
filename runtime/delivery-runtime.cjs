@@ -246,6 +246,16 @@ function processLabel(process2) {
 }
 
 // lib/planning.ts
+function shortageExtraChargePolicyForSeed(seed) {
+  return normalizeShortageExtraChargePolicy(seed.activePlanRun?.shortageExtraCharge);
+}
+function normalizeShortageExtraChargePolicy(policy) {
+  const normalized = policy ?? { enabled: true, thresholdPercent: 50 };
+  if (!Number.isFinite(normalized.thresholdPercent) || normalized.thresholdPercent < 0 || normalized.thresholdPercent > 100) {
+    throw new Error("Eksik \u015Farj e\u015Fi\u011Fi 0 ile 100 aras\u0131nda olmal\u0131d\u0131r.");
+  }
+  return { enabled: Boolean(normalized.enabled), thresholdPercent: normalized.thresholdPercent };
+}
 function diameterNumeric(value) {
   const match = value.replace(",", ".").match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : 0;
@@ -1343,6 +1353,7 @@ function quantity(value, label) {
   if (!Number.isFinite(value) || value < 0) fail(`${label} sonlu ve s\u0131f\u0131rdan b\xFCy\xFCk veya e\u015Fit olmal\u0131.`);
 }
 function assertPlanInputs(seed, fixed) {
+  shortageExtraChargePolicyForSeed(seed);
   unique2(seed.orders.map((order) => order.id), "Sipari\u015F");
   unique2(seed.products.map((product) => code(product.product)), "\xDCr\xFCn");
   unique2(seed.machines.map((machine) => machine.id), "Tezgah");
