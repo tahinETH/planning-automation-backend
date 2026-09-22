@@ -10,9 +10,17 @@ function activeLotInterruptions(seed, lot) {
 function isProductionInterruption(item) {
   return item.producedQuantity !== 0 && item.kind !== "partial-completion";
 }
+function isProtectedProductionRemainder(item) {
+  return item.producedQuantity !== 0;
+}
 function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
   const records = seed.productionInterruptions ?? [];
   if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
+  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
+}
+function hasProtectedProductionRemainder(seed, chargeId, interruptionId) {
+  const records = seed.productionInterruptions ?? [];
+  if (records.some((item) => isProtectedProductionRemainder(item) && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
   return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
 }
 
@@ -45,7 +53,7 @@ function inspectTurningQueue(seed, batches = seed.manualBatches ?? []) {
         reason = "product-mismatch";
         evidence = exact;
       } else return false;
-    } else if (!batch.interruptionId && legacy.length) {
+    } else if (!hasProtectedProductionRemainder(seed, batch.id, batch.interruptionId) && legacy.length) {
       const candidates = batches.filter((b) => identityKey(b.workOrder) === identityKey(batch.workOrder) && identityKey(b.product) === identityKey(batch.product));
       if (legacy.length !== 1 || candidates.length !== 1 || legacy[0].quantity !== batch.quantity || legacy[0].machineId !== batch.machineId) {
         reason = "legacy-ambiguous";
