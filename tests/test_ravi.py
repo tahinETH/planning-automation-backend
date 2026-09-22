@@ -358,3 +358,13 @@ def test_zero_output_switch_is_not_reported_as_interrupted_production():
     assert len(result["rows"]) == 1
     assert result["rows"][0]["Üretilen adet"] == 200
     assert snapshot == before
+
+
+def test_released_partial_inspection_explains_transfer_without_claiming_interruption():
+    snapshot = {"seed": {"productionInterruptions": [{"id": "split", "kind": "partial-completion", "workOrder": "638", "producedQuantity": 450, "remainingQuantity": 1470, "reason": "Öncelikli iş", "occurredAt": 46287}]}, "updatedAt": "saved-time"}
+    before = copy.deepcopy(snapshot)
+    result = inspect_state(snapshot, Inspect(collection="production_interruptions"))
+    assert "sonraki prosese" in result["rows"][0]["Durum"]
+    assert result["rows"][0]["İş değiştirme nedeni"] == "Öncelikli iş"
+    assert "İşe ara verme nedeni" not in result["rows"][0]
+    assert snapshot == before

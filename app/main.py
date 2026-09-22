@@ -297,6 +297,7 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             actor_name=user.name,
             can_manage_settings=user.is_admin,
             route_placement_version=payload.routePlacementVersion,
+            production_split_version=payload.productionSplitVersion,
         )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
@@ -311,7 +312,7 @@ def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: Cu
     try:
         return save_planning_state({}, payload.expectedUpdatedAt, mode="operational",
             actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin,
-            route_placement_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
+            route_placement_version=1, production_split_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Güncel kayıtları yükleyip incelemeyi tekrarlayın.", "current": error.current}) from error
     except (ValueError, ProtectedSettingsChange) as error:

@@ -432,6 +432,7 @@ def save_planning_state(
     actor_name: str = "",
     can_manage_settings: bool = False,
     route_placement_version: int = 0,
+    production_split_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = now_iso()
@@ -462,6 +463,12 @@ def save_planning_state(
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if production_split_version < 1 and any(
+            item.get("kind") == "partial-completion"
+            for state in [seed, current["seed"] if current else {}]
+            for item in state.get("productionInterruptions", [])
+        ):
+            raise ValueError("Kısmi üretim aktarımını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if route_placement_version < 1 and (has_route_commitments(seed) or current and has_route_commitments(current["seed"])):
             raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
         if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):

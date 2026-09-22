@@ -1,6 +1,6 @@
 "use strict";
 
-// scripts/delivery-runtime.ts
+// scripts/turning-partial-repair-runtime.ts
 var import_node_fs = require("node:fs");
 
 // lib/production-interruptions.ts
@@ -15,12 +15,38 @@ function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
   if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
   return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
 }
+function protectedInterruptedBatches(seed, batches = []) {
+  const latest = /* @__PURE__ */ new Map();
+  for (const item of seed.productionInterruptions ?? []) if (item.process === "turning" && !item.completedAt && item.turningBatch) latest.set(item.chargeId, item);
+  return [...latest.values()].filter((item) => !seed.machines.some((machine) => machine.currentJob.batchId === item.chargeId && machine.currentJob.quantity > 0)).map((item) => {
+    const matches = (batch) => batch.id === item.chargeId && batch.interruptionId === item.id && batch.quantity === item.remainingQuantity;
+    return { ...batches.find(matches) ?? seed.manualBatches?.find(matches) ?? item.turningBatch };
+  });
+}
+function withInterruptedBatches(seed, batches) {
+  const live = protectedInterruptedBatches(seed, batches);
+  const known = new Set((seed.productionInterruptions ?? []).filter((item) => item.process === "turning").map((item) => item.chargeId));
+  const result = batches.filter((batch) => !known.has(batch.id)).map((batch) => ({ ...batch }));
+  result.push(...live);
+  return result;
+}
 
 // lib/turning-queue-identity.ts
 function reconcileTurningQueue(seed, batches) {
   const inspected = inspectTurningQueue(seed, batches);
   if (inspected.conflicts.length) throw new Error(inspected.conflicts[0].message);
   return inspected.reconciledBatches;
+}
+function recoveredTurningBatches(seed) {
+  const original = seed.manualBatches ?? [];
+  const positions = new Map(original.map((batch, index) => [batch.id, index]));
+  return withInterruptedBatches(seed, original).sort((a, b) => (positions.get(a.id) ?? original.length) - (positions.get(b.id) ?? original.length));
+}
+function reconcileTurningSeed(seed) {
+  const original = seed.manualBatches ?? [];
+  const batches = reconcileTurningQueue(seed, recoveredTurningBatches(seed));
+  if (JSON.stringify(batches) === JSON.stringify(original)) return seed;
+  return { ...seed, manualBatches: batches, lastAutomaticPlan: void 0, planNeedsRecalculation: true };
 }
 var identityKey = (value) => String(value ?? "").trim().toUpperCase();
 var identityMessage = (batch) => `${batch.machineId} \xB7 ${batch.workOrder || batch.product}: mevcut \xFCretim/ar\u015Fiv ile kuyruktaki \u015Farj kimli\u011Fi belirsiz. \u0130\u015F emri ve \u015Farj kay\u0131tlar\u0131n\u0131 kontrol edin; i\u015Flem uygulanmad\u0131.`;
@@ -57,6 +83,91 @@ function inspectTurningQueue(seed, batches = seed.manualBatches ?? []) {
     return true;
   });
   return { conflicts, reconciledBatches };
+}
+function turningIdentityScope(seed, batches = seed.manualBatches ?? []) {
+  const conflicts = inspectTurningQueue(seed, batches).conflicts;
+  const products = new Set(conflicts.flatMap((c) => [c.product, ...c.records.map((r) => r.product)]).map(identityKey).filter(Boolean));
+  const machineIds = new Set(conflicts.flatMap((c) => [c.machineId, ...c.records.map((r) => r.machineId)]).filter(Boolean));
+  const batchIds = new Set(conflicts.map((c) => c.batchId));
+  const lotIds = /* @__PURE__ */ new Set();
+  const historyIds = /* @__PURE__ */ new Set();
+  const add = (set, value) => {
+    if (value) set.add(value);
+  };
+  const related = (product) => products.has(identityKey(product));
+  let size = -1;
+  while (size !== machineIds.size + batchIds.size + lotIds.size + historyIds.size) {
+    size = machineIds.size + batchIds.size + lotIds.size + historyIds.size;
+    for (const b of batches) if (related(b.product) || batchIds.has(b.id) || machineIds.has(b.machineId)) {
+      add(machineIds, b.machineId);
+      add(batchIds, b.id);
+    }
+    for (const m of seed.machines) if (related(m.currentJob.product) || batchIds.has(m.currentJob.batchId ?? "") || machineIds.has(m.id)) {
+      add(machineIds, m.id);
+      add(batchIds, m.currentJob.batchId);
+      add(batchIds, `current:${m.id}`);
+    }
+    for (const h of seed.productionHistory ?? []) if (related(h.product) || historyIds.has(h.id) || historyIds.has(h.sourceEntryId ?? "") || batchIds.has(h.sourceBatchId ?? "") || h.wipAllocations?.some((a) => lotIds.has(a.lotId))) {
+      add(historyIds, h.id);
+      add(historyIds, h.sourceEntryId);
+      add(batchIds, h.sourceBatchId);
+      for (const a of h.wipAllocations ?? []) add(lotIds, a.lotId);
+    }
+    for (const l of seed.wipLots ?? []) if (related(l.product) || lotIds.has(l.id) || lotIds.has(l.parentLotId ?? "") || historyIds.has(l.sourceHistoryEntryId) || batchIds.has(l.sourceBatchId ?? "")) {
+      add(lotIds, l.id);
+      add(lotIds, l.parentLotId);
+      add(historyIds, l.sourceHistoryEntryId);
+      add(batchIds, l.sourceBatchId);
+    }
+    for (const j of seed.processCurrentJobs ?? []) if (related(j.product) || batchIds.has(j.batchId) || lotIds.has(j.wipLotId)) {
+      add(batchIds, j.batchId);
+      add(lotIds, j.wipLotId);
+    }
+    for (const i of seed.productionInterruptions ?? []) if (related(i.product) || batchIds.has(i.chargeId)) {
+      add(batchIds, i.chargeId);
+      if (i.process === "turning") add(machineIds, i.resourceId);
+    }
+  }
+  return { products: [...products].sort(), machineIds: [...machineIds].sort(), batchIds: [...batchIds].sort(), lotIds: [...lotIds].sort(), historyIds: [...historyIds].sort() };
+}
+function structural(value) {
+  return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().filter((k) => item[k] !== void 0).map((k) => [k, item[k]])) : item);
+}
+var frozenConfiguration = ["products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides"];
+function protectedIdentitySnapshot(seed, scope) {
+  const p = (value) => scope.products.includes(identityKey(value));
+  const b = (value) => Boolean(value && scope.batchIds.includes(value));
+  const l = (value) => Boolean(value && scope.lotIds.includes(value));
+  const h = (value) => Boolean(value && scope.historyIds.includes(value));
+  return {
+    configuration: Object.fromEntries(frozenConfiguration.map((k) => [k, seed[k] ?? null])),
+    machines: seed.machines.filter((m) => scope.machineIds.includes(m.id) || p(m.currentJob.product) || b(m.currentJob.batchId)),
+    manualBatches: (seed.manualBatches ?? []).filter((r) => p(r.product) || b(r.id) || scope.machineIds.includes(r.machineId)),
+    productionHistory: (seed.productionHistory ?? []).filter((r) => p(r.product) || h(r.id) || h(r.sourceEntryId) || b(r.sourceBatchId) || r.wipAllocations?.some((a) => l(a.lotId))),
+    wipLots: (seed.wipLots ?? []).filter((r) => p(r.product) || l(r.id) || l(r.parentLotId) || h(r.sourceHistoryEntryId) || b(r.sourceBatchId)),
+    wipMovements: (seed.wipMovements ?? []).filter((r) => l(r.lotId)),
+    productionInterruptions: (seed.productionInterruptions ?? []).filter((r) => p(r.product) || b(r.chargeId) || r.process === "turning" && scope.machineIds.includes(r.resourceId)),
+    processCurrentJobs: (seed.processCurrentJobs ?? []).filter((r) => p(r.product) || b(r.batchId) || l(r.wipLotId)),
+    processOperationOverrides: (seed.processOperationOverrides ?? []).filter((r) => b(r.batchId) || l(r.batchId)),
+    orders: seed.orders.filter((r) => p(r.product))
+  };
+}
+function assertNoReconciledDuplicates(seed) {
+  const checked = reconcileTurningSeed(seed);
+  if (structural(checked.manualBatches ?? []) !== structural(seed.manualBatches ?? [])) throw new Error("Mevcut veya tamamlanm\u0131\u015F \u015Farj kuyrukta tekrar bulunuyor. Ortak veriyi y\xFCkleyin.");
+}
+function assertTurningIdentityTransition(before, next) {
+  const previous = inspectTurningQueue(before).conflicts;
+  if (!previous.length) {
+    assertNoReconciledDuplicates(next);
+    return;
+  }
+  const scope = turningIdentityScope(before);
+  if (structural(protectedIdentitySnapshot(before, scope)) !== structural(protectedIdentitySnapshot(next, scope))) throw new Error("Bu i\u015Flem inceleme bekleyen \u015Farj\u0131 veya ba\u011Fl\u0131 kay\u0131tlar\u0131n\u0131 de\u011Fi\u015Ftiriyor. \xD6nce \u0130ncele ve d\xFCzelt ile \u015Farj kayd\u0131n\u0131 do\u011Frulay\u0131n.");
+  if (structural(recoveredTurningBatches(next)) !== structural(next.manualBatches ?? [])) throw new Error("Yar\u0131m kalan \u015Farj\u0131n kuyruk kayd\u0131 korunmal\u0131d\u0131r. Ortak veriyi y\xFCkleyin.");
+  const inspected = inspectTurningQueue(next);
+  if (structural(previous) !== structural(inspected.conflicts)) throw new Error("\u0130\u015Flem yeni bir \u015Farj kimli\u011Fi \xE7ak\u0131\u015Fmas\u0131 olu\u015Fturuyor. \u0130ncele ve d\xFCzelt ile kay\u0131tlar\u0131 do\u011Frulay\u0131n.");
+  if (inspected.reconciledBatches.length !== (next.manualBatches ?? []).length) throw new Error("Mevcut veya tamamlanm\u0131\u015F \u015Farj kuyrukta tekrar bulunuyor. Ortak veriyi y\xFCkleyin.");
 }
 
 // lib/delivery-calendar.ts
@@ -468,6 +579,11 @@ function withoutObsoletePlanRollForward(batch) {
   const { rolledForwardFrom: _rolledForwardFrom, rolledForwardAt: _rolledForwardAt, ...recordedBatch } = batch;
   return recordedBatch;
 }
+function assertOperationalMachineIdentity(seed, result, machineId) {
+  const baseline = { ...seed, manualBatches: result.batches };
+  assertTurningIdentityTransition(baseline, baseline);
+  if (turningIdentityScope(baseline).machineIds.includes(machineId)) throw new Error(`${machineId}: Bu tezgah inceleme bekleyen \u015Farja ba\u011Fl\u0131. \xD6nce \u0130ncele ve d\xFCzelt ile kay\u0131tlar\u0131 do\u011Frulay\u0131n.`);
+}
 function recalculateManualScenario(seed, sourceBatches, options = { allowPlanEndOverflow: true }) {
   sourceBatches = reconcileTurningQueue(seed, sourceBatches);
   const products = new Map(seed.products.map((product) => [product.product.toUpperCase(), product]));
@@ -591,6 +707,49 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial(factoryDat
 var terminalStages = /* @__PURE__ */ new Set(["delivered", "scrapped"]);
 function activeWipLots(seed) {
   return (seed.wipLots ?? []).filter((lot) => lot.availableQuantity > 0 && !terminalStages.has(lot.stage));
+}
+
+// lib/production-interruption-actions.ts
+function previewTurningPartialRepair(seed, result, request) {
+  const original = seed.productionInterruptions?.find((item) => item.id === request.interruptionId);
+  if (!Number.isSafeInteger(request.producedQuantity) || request.producedQuantity <= 0 || !Number.isSafeInteger(request.remainingQuantity) || request.remainingQuantity <= 0 || !request.reason?.trim() || !original || original.kind === "partial-completion" || original.completedAt || original.resumedAt || original.process !== "turning" || original.workOrder !== request.workOrder || original.product !== request.product || original.resourceId !== request.machineId || original.producedQuantity !== request.producedQuantity || original.remainingQuantity !== request.remainingQuantity) throw new Error("K\u0131smi \xFCretim d\xFCzeltmesi g\xFCncel ara verme kayd\u0131yla uyu\u015Fmuyor.");
+  if (seed.productionInterruptions?.some((item) => item.id !== original.id && item.chargeId === original.chargeId && !item.completedAt)) throw new Error("\u015Earj\u0131n ba\u015Fka a\xE7\u0131k \xFCretim kayd\u0131 var; ayr\u0131 inceleme gerekir.");
+  assertOperationalMachineIdentity(seed, result, request.machineId);
+  const histories = (seed.productionHistory ?? []).filter((h) => h.interruptionIds?.includes(original.id));
+  const lots = (seed.wipLots ?? []).filter((l) => l.interruptionIds?.includes(original.id));
+  const history = histories[0], lot = lots[0];
+  if (histories.length !== 1 || lots.length !== 1 || !history || !lot || history.inventoryStatus !== "semi-finished" || history.machineId !== request.machineId || history.completedQuantity !== request.producedQuantity || history.product !== request.product || history.workOrder !== request.workOrder || lot.sourceHistoryEntryId !== history.id || lot.product !== request.product || lot.workOrder !== request.workOrder || lot.availableQuantity !== request.producedQuantity || lot.deliveredQuantity !== 0 || lot.scrappedQuantity !== 0 || lot.interruptionIds?.length !== 1 || lot.completedSteps.length !== 1 || lot.completedSteps[0].quantity !== request.producedQuantity || lot.completedSteps[0].resourceId !== request.machineId || lot.completedSteps[0].process !== "turning" || lot.nextProcess !== "drilling" || !["quality-hold", "drilling-queue"].includes(lot.stage) || seed.processCurrentJobs?.some((j) => j.wipLotId === lot.id) || seed.processOperationOverrides?.some((o) => o.batchId === lot.id)) throw new Error("Tamamlanan par\xE7alar ilerlemi\u015F veya de\u011Fi\u015Fmi\u015F; kay\u0131t baz\u0131nda inceleyin.");
+  const machine = seed.machines.find((m) => m.id === request.machineId);
+  const matching = result.batches.filter((b) => b.id === original.chargeId);
+  const remainder = matching[0];
+  if (!machine || machine.currentJob.batchId === original.chargeId || matching.length !== 1 || !remainder || remainder.status !== "planned" || remainder.machineId !== machine.id || remainder.quantity !== request.remainingQuantity || remainder.interruptionId !== original.id || remainder.product !== request.product || remainder.workOrder !== request.workOrder)
+    throw new Error("Kalan \xFCretim ayn\u0131 tezgah kuyru\u011Funda do\u011Frulanamad\u0131.");
+  const next = structuredClone(seed);
+  const queue = result.batches.filter((b) => b.machineId === machine.id && b.status === "planned").sort((a, b) => a.planColumn - b.planColumn || a.sequence - b.sequence);
+  const reordered = [remainder, ...queue.filter((b) => b.id !== remainder.id)].map((b, i) => ({ ...b, planColumn: 13 + i }));
+  const local = recalculateManualScenario({ ...next, machines: [next.machines.find((m) => m.id === machine.id)] }, reordered);
+  const nextResult = scenarioResultFromBatches(next, [...local.batches, ...result.batches.filter((b) => b.machineId !== machine.id || b.status !== "planned")]);
+  const repaired = next.productionInterruptions.find((item) => item.id === original.id);
+  repaired.kind = "partial-completion";
+  repaired.turningBatch = { ...nextResult.batches.find((b) => b.id === remainder.id) };
+  next.manualBatches = nextResult.batches;
+  next.planNeedsRecalculation = true;
+  next.lastAutomaticPlan = void 0;
+  next.planRunSequence = void 0;
+  const summary = {
+    workOrder: request.workOrder,
+    product: request.product,
+    machineId: machine.id,
+    producedQuantity: lot.availableQuantity,
+    remainingQuantity: remainder.quantity,
+    previousPosition: queue.findIndex((b) => b.id === remainder.id) + 1,
+    position: 1,
+    queueChanges: queue.map((before) => {
+      const after = nextResult.batches.find((b) => b.id === before.id);
+      return { id: before.id, workOrder: before.workOrder, quantity: before.quantity, locked: Boolean(before.locked), beforePosition: before.planColumn - 12, afterPosition: after.planColumn - 12, beforeStart: before.start, afterStart: after.start, beforeEnd: before.end, afterEnd: after.end };
+    })
+  };
+  return { seed: next, result: nextResult, summary };
 }
 
 // lib/process-route-state.ts
@@ -1456,22 +1615,19 @@ function buildDeliveryReport(inputSeed, result, range, today = factoryDateInput(
   }
 }
 
-// scripts/delivery-runtime.ts
+// scripts/turning-partial-repair-runtime.ts
 try {
   const request = JSON.parse((0, import_node_fs.readFileSync)(0, "utf8"));
-  const seed = request.seed;
-  if (!seed || ![seed.orders, seed.products, seed.machines, seed.preferences].every(Array.isArray)) throw Error("Kay\u0131tl\u0131 plan \u015Femas\u0131 ge\xE7ersiz.");
-  for (const key of ["orders", "products", "machines", "manualBatches", "wipLots", "productionHistory", "processOperationOverrides"]) {
-    const rows = seed[key] ?? [];
-    if (!Array.isArray(rows) || rows.length > 2e4) throw Error("Kay\u0131tl\u0131 plan boyutu veya \u015Femas\u0131 ge\xE7ersiz.");
-  }
-  for (const rows of [seed.wipLots ?? [], seed.productionHistory ?? []]) {
-    const ids = rows.map((row) => row.id);
-    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) throw Error("Malzeme kimlikleri eksik veya tekrarl\u0131.");
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.today)) throw Error("Hesaplama tarihi ge\xE7ersiz.");
-  const result = scenarioResultFromBatches(seed, seed.manualBatches ?? []);
-  process.stdout.write(JSON.stringify(buildDeliveryReport(seed, result, request.range, request.today)));
-} catch {
-  process.stdout.write(JSON.stringify({ error: "Kay\u0131tl\u0131 \xFCretim verisi teslimat hesab\u0131 i\xE7in do\u011Frulanamad\u0131.", payload: null, complete: false, rows: [], events: [], undated: [], undatedQuantity: null }));
+  const { seed, target, range, today } = request;
+  const beforeResult = scenarioResultFromBatches(seed, seed.manualBatches ?? []);
+  const next = previewTurningPartialRepair(seed, beforeResult, target);
+  const before = buildDeliveryReport(seed, beforeResult, range, today);
+  const after = buildDeliveryReport(next.seed, next.result, range, today);
+  if (after.error) throw new Error(after.error);
+  const relevant = after.undated.filter((item) => item.workOrder === target.workOrder && item.product === target.product);
+  if (relevant.length) throw new Error("D\xFCzeltme sonras\u0131 \u015Farj\u0131n teslim tarihi h\xE2l\xE2 belirlenemiyor. Kapasite ve rotay\u0131 inceleyin.");
+  process.stdout.write(JSON.stringify({ seed: next.seed, summary: { ...next.summary, beforeUndated: before.undatedQuantity, afterUndated: after.undatedQuantity, reportComplete: after.complete }, error: "" }));
+} catch (error) {
+  process.stdout.write(JSON.stringify({ error: error instanceof Error ? error.message : "K\u0131smi \xFCretim d\xFCzeltmesi do\u011Frulanamad\u0131." }));
+  process.exitCode = 1;
 }

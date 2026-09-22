@@ -104,6 +104,11 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                          "İşe ara verme nedeni": row.get("reason"), "Ara verme tarihi": row.get("occurredAt"),
                          "Yeniden başlama tarihi": row.get("resumedAt"), "Kalan üretimin tamamlanma tarihi": row.get("completedAt"),
                          "Birim": "adet; tarihler Excel seri gün", "Ekran": "Şarj Yolculuğu → Üretime ara verildi.; Tavsiyeler"}
+            if row.get("kind") == "partial-completion":
+                projected["Durum"] = "Kısmi üretim tamamlandı; üretilen parçalar sonraki prosese aktarılır."
+                projected["İş değiştirme nedeni"] = projected.pop("İşe ara verme nedeni")
+                projected["Kısmi tamamlanma tarihi"] = projected.pop("Ara verme tarihi")
+                projected["Ekran"] = "Şarj Yolculuğu → Kısmi üretim tamamlandı.; Tezgahlar → Torna kuyruğu"
         elif args.collection == "raw_material_stocks":
             materials = seed.get("rawMaterialSettings") or {}
             projected = {"Hammadde Kodu": row.get("materialCode"), "Ambar stoğu (kg)": row.get("kg"),
