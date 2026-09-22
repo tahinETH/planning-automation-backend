@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
+from .production_area import ProductionAreaMiddleware, production_area, validate_seed_area
 from .auth import CurrentUser, create_test_session, current_user, require_admin
 from .config import settings
 from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
@@ -31,12 +32,19 @@ from .ravi.routes import router as ravi_router
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
+    if settings.app_env != "production":
+        token = production_area.set("cubuk-filtre")
+        try:
+            init_database()
+        finally:
+            production_area.reset(token)
     yield
 
 
 app = FastAPI(title="Selsa Planlama API", version="1.0.0", lifespan=lifespan)
 app.include_router(ravi_router)
-app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(ProductionAreaMiddleware)
+app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Production-Area"])
 
 
 def require_feedback(db, feedback_id: str) -> dict[str, Any]:
@@ -190,7 +198,7 @@ def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = 
 @app.post("/api/general-overview/export")
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
-    process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM"}.get(payload.selectedProcess or "")
+    process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM", "gtm": "GTM", "diameter-grinding": "Cap_Taslama", "form-grinding": "Form_Taslama", "measuring": "Olcme", "milling": "Freze", "final-inspection": "Final_Kontrol", "filter-visual": "Goz_Kontrol"}.get(payload.selectedProcess or "")
     if process_name and payload.printRange:
         filename = f"{process_name}_Saha_Plani_Siradaki_10_Is.xlsx" if payload.printRange.mode == "next-jobs" else f"{process_name}_Saha_Plani_{payload.printRange.startDate}_{payload.printRange.endDate}.xlsx"
     else:
@@ -343,6 +351,10 @@ def get_scenario(scenario_id: str, _: CurrentUser = Depends(current_user)):
 
 @app.post("/api/scenarios", status_code=201)
 def post_scenario(payload: ScenarioPayload, _: CurrentUser = Depends(current_user)):
+    try:
+        validate_seed_area(payload.seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     value = payload.model_dump()
     with connection() as db:
         db.execute("""INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json) VALUES(?,?,?,?,?,?)
@@ -366,6 +378,10 @@ def get_revisions(_: CurrentUser = Depends(current_user)):
 
 @app.post("/api/revisions", status_code=201)
 def post_revision(payload: RevisionPayload, _: CurrentUser = Depends(current_user)):
+    try:
+        validate_seed_area(payload.seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     with connection() as db:
         db.execute("""INSERT INTO order_revisions(id,order_id,product,status,created_at,approved_at,original_json,request_json,impact_json,seed_json,result_json)
         VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (payload.id, payload.orderId, payload.product, payload.status, payload.createdAt, payload.approvedAt,

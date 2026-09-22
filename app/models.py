@@ -169,6 +169,7 @@ class OverviewFinding(BaseModel):
 
 
 class OverviewOperationRow(BaseModel):
+    scrapPercent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     materialCode: str = Field(default="", max_length=160)
     unitWeightGrams: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     diameter: str = Field(default="", max_length=80)
@@ -190,7 +191,7 @@ class OverviewOperationResource(BaseModel):
 
 class OverviewOperationPlan(BaseModel):
     scrapPercent: float = Field(default=2, ge=0, le=100, allow_inf_nan=False)
-    process: Literal["turning", "drilling", "deburring", "gkm"]
+    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"]
     label: str = Field(max_length=60)
     totalQuantity: int = Field(ge=0)
     totalJobCount: int = Field(ge=0)
@@ -210,7 +211,7 @@ class OverviewExportPayload(BaseModel):
     createdAt: str = ""
     planState: Literal["planned", "empty"]
     dirty: bool
-    selectedProcess: Literal["turning", "drilling", "deburring", "gkm"] | None = None
+    selectedProcess: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"] | None = None
     printRange: OverviewPrintRange | None = None
     summary: OverviewSummary
     machines: list[OverviewMachine]
@@ -220,7 +221,7 @@ class OverviewExportPayload(BaseModel):
 
 class CalendarEventExportRow(BaseModel):
     eventType: Literal["maintenance", "overtime", "shift-change"]
-    process: Literal["turning", "drilling", "deburring", "gkm"]
+    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"]
     workCenterId: str = Field(min_length=1, max_length=40)
     workCenterName: str = Field(default="", max_length=160)
     name: str = Field(default="", max_length=300)
@@ -243,8 +244,8 @@ class ProductionArchiveExportRow(BaseModel):
     machineName: str = Field(default="", max_length=160)
     workOrder: str = Field(default="", max_length=120)
     product: str = Field(min_length=1, max_length=100)
-    setupFamily: Literal["piston", "center-pin", ""] = ""
-    process: Literal["turning", "drilling", "deburring", "washing", "gkm"]
+    setupFamily: Literal["piston", "center-pin", "cubuk-filtre", ""] = ""
+    process: Literal["turning", "drilling", "deburring", "washing", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"]
     stage: str = Field(default="", max_length=160)
     currentOperation: str = Field(default="", max_length=80)
     nextOperation: str = Field(default="", max_length=80)

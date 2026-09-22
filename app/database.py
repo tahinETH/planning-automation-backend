@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from .config import settings
+from .production_area import area_database_path, production_area, validate_seed_area
 
 
 def now_iso() -> str:
@@ -22,9 +23,10 @@ def now_iso() -> str:
 
 
 @contextmanager
-def connection() -> Iterator[sqlite3.Connection]:
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(settings.database_path)
+def connection(*, shared: bool = False) -> Iterator[sqlite3.Connection]:
+    path = settings.database_path if shared else area_database_path(settings.database_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     db.execute("PRAGMA busy_timeout = 5000")
@@ -435,6 +437,7 @@ def save_planning_state(
     production_split_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    validate_seed_area(seed)
     timestamp = now_iso()
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -684,7 +687,7 @@ def app_user_role(email: str) -> str | None:
     normalized = email.strip().lower()
     if not normalized:
         return None
-    with connection() as db:
+    with connection(shared=True) as db:
         row = db.execute("SELECT role FROM app_user_roles WHERE email=?", (normalized,)).fetchone()
     return str(row["role"]) if row else None
 

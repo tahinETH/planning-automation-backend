@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from ..production_area import production_area
 from contextlib import aclosing, asynccontextmanager
 import json
 import time
@@ -140,7 +141,7 @@ async def chat_events(payload: ChatRequest, user: CurrentUser, streaming: bool =
             context["screens"].pop("settings", None)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT + "\n" + json.dumps({
-                "authenticatedRole": user.role, "knowledgeIndex": index,
+                "authenticatedRole": user.role, "productionArea": production_area.get(), "productionAreaLabel": "Çubuk Filtre" if production_area.get() == "cubuk-filtre" else "Torna", "knowledgeIndex": index,
                 "allowedNavigation": list(session.targets.values()), "relevantKnowledge": [knowledge.for_model(topic) for topic in relevant],
             }, ensure_ascii=False)},
             *[message.model_dump() for message in payload.history],

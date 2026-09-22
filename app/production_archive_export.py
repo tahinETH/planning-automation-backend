@@ -106,8 +106,8 @@ def _build_archive_sheet(workbook: Workbook, section: dict[str, Any], payload: d
         cell.border = Border(bottom=thin)
         sheet.column_dimensions[get_column_letter(column)].width = width
 
-    process_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak alma", "washing": "Yıkama", "gkm": "GKM"}
-    family_labels = {"piston": "Piston", "center-pin": "Center pim"}
+    process_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak alma", "washing": "Yıkama", "gkm": "GKM", "gtm": "GTM", "diameter-grinding": "Çap Taşlama", "form-grinding": "Form Taşlama", "measuring": "Ölçme", "milling": "Freze", "final-inspection": "Final Kontrol", "filter-visual": "Göz Kontrol"}
+    family_labels = {"piston": "Piston", "center-pin": "Center pim", "cubuk-filtre": "Çubuk Filtre"}
     for row_index, item in enumerate(rows, 10):
         values = [
             item.get("completedAt", ""), item.get("machineId", ""), item.get("machineName", ""), item.get("workOrder", ""),

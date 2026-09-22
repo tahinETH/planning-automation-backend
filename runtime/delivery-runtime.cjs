@@ -3,6 +3,41 @@
 // scripts/delivery-runtime.ts
 var import_node_fs = require("node:fs");
 
+// lib/process-master-data.ts
+function activeProcessResourceIds(parameter) {
+  return parameter.resourcePriority.filter((id) => !parameter.inactiveResourceIds?.includes(id));
+}
+var FILTER_PROCESS_ORDER = ["turning", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"];
+function productionProcessOrder(seed) {
+  return seed.productionArea === "cubuk-filtre" ? FILTER_PROCESS_ORDER : PRODUCT_PROCESS_ORDER;
+}
+function effectiveProductRoute(product, turningResourceId) {
+  const route = productProcessRoute(product);
+  return product.family === "cubuk-filtre" && ["L-01", "L-02"].includes(turningResourceId ?? "") ? route.filter((p) => p !== "gtm") : route;
+}
+var PRODUCT_PROCESS_ORDER = ["turning", "drilling", "deburring", "gkm"];
+function productProcessRoute(product) {
+  return product.route ?? ["turning", ...product.processes.slice().sort((a, b) => a.sequence - b.sequence).map((item) => item.process)];
+}
+function turningEnabled(master, product) {
+  return processMasterDataForProduct(master, product)?.route?.includes("turning") ?? true;
+}
+function processMasterDataForProduct(master, productCode) {
+  const code2 = productCode.trim().toUpperCase();
+  return master?.products.find((product) => product.product.toUpperCase() === code2);
+}
+function processProductGroup(product) {
+  return product.productGroup?.trim() || product.family;
+}
+function resourceSupportsProcessProduct(resource, product) {
+  if (resource.eligibleProductGroups === void 0) return true;
+  const group = processProductGroup(product).toLocaleLowerCase("tr-TR");
+  return resource.eligibleProductGroups.some((item) => item.trim().toLocaleLowerCase("tr-TR") === group);
+}
+function processLabel(process2) {
+  return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
+}
+
 // lib/production-interruptions.ts
 function activeLotInterruptions(seed, lot) {
   return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
@@ -112,7 +147,7 @@ function turningDeliveryReadyAt(completionSerial) {
   return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
 }
 function routedDeliveryReadyAt(seed, routeCompletionSerial) {
-  return addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
+  return seed.productionArea === "cubuk-filtre" ? routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
 }
 
 // lib/factory-time.ts
@@ -197,8 +232,8 @@ var product_setup_families_default = {
 };
 
 // lib/setup-families.ts
-var FAMILY_VALUES = /* @__PURE__ */ new Set(["center-pin", "piston"]);
-var catalog = product_setup_families_default;
+var FAMILY_VALUES = /* @__PURE__ */ new Set(["center-pin", "piston", "cubuk-filtre"]);
+var catalog = { ...product_setup_families_default, "cubuk-filtre": [] };
 var familyByProduct = /* @__PURE__ */ new Map();
 for (const family of ["center-pin", "piston"]) {
   for (const rawProduct of catalog[family]) {
@@ -216,33 +251,6 @@ function catalogProductSetupFamily(productCode) {
 }
 function resolvedProductSetupFamily(productCode, storedFamily) {
   return normalizeProductSetupFamily(storedFamily) ?? catalogProductSetupFamily(productCode);
-}
-
-// lib/process-master-data.ts
-function activeProcessResourceIds(parameter) {
-  return parameter.resourcePriority.filter((id) => !parameter.inactiveResourceIds?.includes(id));
-}
-var PRODUCT_PROCESS_ORDER = ["turning", "drilling", "deburring", "gkm"];
-function productProcessRoute(product) {
-  return product.route ?? ["turning", ...product.processes.slice().sort((a, b) => a.sequence - b.sequence).map((item) => item.process)];
-}
-function turningEnabled(master, product) {
-  return processMasterDataForProduct(master, product)?.route?.includes("turning") ?? true;
-}
-function processMasterDataForProduct(master, productCode) {
-  const code2 = productCode.trim().toUpperCase();
-  return master?.products.find((product) => product.product.toUpperCase() === code2);
-}
-function processProductGroup(product) {
-  return product.productGroup?.trim() || product.family;
-}
-function resourceSupportsProcessProduct(resource, product) {
-  if (resource.eligibleProductGroups === void 0) return true;
-  const group = processProductGroup(product).toLocaleLowerCase("tr-TR");
-  return resource.eligibleProductGroups.some((item) => item.trim().toLocaleLowerCase("tr-TR") === group);
-}
-function processLabel(process2) {
-  return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM" }[process2];
 }
 
 // lib/planning.ts
@@ -324,7 +332,17 @@ function productSetupFamily(seed, productCode) {
   const storedFamily = seed.products.find((product) => product.product.trim().toUpperCase() === code2)?.setupFamily;
   return resolvedProductSetupFamily(code2, storedFamily);
 }
-function calculateSetup(seed, previousProduct, previousDiameter, nextProduct, nextDiameter) {
+function calculateSetup(seed, previousProduct, previousDiameter, nextProduct, nextDiameter, machineId) {
+  const configured = seed.products.find((p) => p.product === nextProduct);
+  if (configured?.turningSetupMinutes) {
+    const minutes = configured.turningSetupMinutes[machineId ?? ""];
+    if (!Number.isFinite(minutes)) throw new Error(`${nextProduct} \xB7 ${machineId} setup s\xFCresi eksik.`);
+    return {
+      hours: ((previousProduct === nextProduct ? 0 : minutes) + (configured.handlingMinutes ?? 0)) / 60,
+      type: previousProduct === nextProduct ? "same-product" : "different-diameter",
+      label: "Operasyon rotas\u0131 setup + i\u015F emri haz\u0131rl\u0131\u011F\u0131"
+    };
+  }
   const settings = getSetupSettings(seed);
   const previousCode = previousProduct.trim().toUpperCase();
   const nextCode = nextProduct.trim().toUpperCase();
@@ -516,7 +534,7 @@ function recalculateManualScenario(seed, sourceBatches, options = { allowPlanEnd
       const shiftRate = machine.rates[batch.product.toUpperCase()] ?? 0;
       const dailyRate = shiftRate * machine.shiftFactor * machineCapacityFactor(machine);
       if (dailyRate <= 0) throw new Error(`${context}: \xFCretim h\u0131z\u0131 tan\u0131ml\u0131 de\u011Fil.`);
-      const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter);
+      const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter, machine.id);
       const runHours = machineRunHours(seed, machine, batch.product, batch.quantity);
       const timeline = addMachineCapacityHours(seed, machine, previousEnd, setup.hours + runHours);
       const start = timeline.start;
@@ -615,7 +633,7 @@ function activeWipLots(seed) {
 function describeProcessRoute(seed, job, warnings) {
   const product = processMasterDataForProduct(seed.processMasterData, job.product);
   if (!product) return { routeSteps: [], readinessIssues: [{ code: "missing-product", message: "\xDCr\xFCn rotas\u0131 bulunamad\u0131; miktar korunuyor." }] };
-  const route = productProcessRoute(product);
+  const route = effectiveProductRoute(product, job.turningMachineId);
   const lot = seed.wipLots?.find((l) => l.id === job.wipLotId);
   const chargeId = job.source === "current-turning" ? seed.machines?.find((m) => m.id === job.turningMachineId)?.currentJob.batchId : job.batchId;
   const pause = seed.productionInterruptions?.find((p) => isProductionInterruption(p) && !p.completedAt && p.chargeId === chargeId);
@@ -702,7 +720,7 @@ function validateProcessMasterData(master) {
     if (products.has(product.product)) warnings.push({ code: "duplicate-definition", product: product.product, message: `${product.product} \xFCr\xFCn rotas\u0131 birden fazla tan\u0131mlanm\u0131\u015F.` });
     products.add(product.product);
     const expected = product.route ? product.route.filter((process2) => process2 !== "turning") : product.family === "piston" ? ["drilling", "deburring", "gkm"] : ["drilling", "gkm"];
-    if (product.route && (!product.route.length || product.route.join("|") !== PRODUCT_PROCESS_ORDER.filter((process2) => product.route.includes(process2)).join("|"))) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} aktif proses s\u0131ras\u0131 ge\xE7ersiz.` });
+    if (product.route && (!product.route.length || product.route.join("|") !== (product.family === "cubuk-filtre" ? FILTER_PROCESS_ORDER : PRODUCT_PROCESS_ORDER).filter((process2) => product.route.includes(process2)).join("|"))) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} aktif proses s\u0131ras\u0131 ge\xE7ersiz.` });
     const actual = product.processes.slice().sort((left, right) => left.sequence - right.sequence).map((item) => item.process);
     if (actual.join("|") !== expected.join("|")) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} rotas\u0131 beklenen proses s\u0131ras\u0131yla uyu\u015Fmuyor.` });
     const processKeys = /* @__PURE__ */ new Set();
@@ -849,7 +867,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       return [];
     }
     const effectiveWaitWorkdays = source.masterProduct.route ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : process2 === "drilling" ? source.source === "wip" ? 0 : 1 : parameter.waitWorkdaysBefore;
-    const readyAt = firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays);
+    const readyAt = (firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays)) + (firstRemaining && source.source === "wip" ? 0 : (parameter.leadStages ?? []).reduce((sum, stage) => sum + stage.days, 0));
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
@@ -889,7 +907,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const unitsPerShift = parameter.unitsPerShift[resourceId];
       if (!resource || resource.process !== process2 || !resource.active || resource.defaultShifts <= 0 || !resourceSupportsProcessProduct(resource, source.masterProduct) || !Number.isFinite(unitsPerShift) || unitsPerShift <= 0) return [];
       const queue = queueByResource.get(resourceId);
-      const setup = calculateDownstreamSetup(process2, queue, nextSetup);
+      const setup = parameter.setupMinutesByResource ? { hours: ((queue?.product === source.product ? 0 : parameter.setupMinutesByResource[resourceId]) + (parameter.handlingMinutes ?? 0)) / 60, label: "Operasyon rotas\u0131 haz\u0131rl\u0131\u011F\u0131" } : calculateDownstreamSetup(process2, queue, nextSetup);
+      if (!Number.isFinite(setup.hours)) return [];
       const runHours = currentJob ? Math.max(0, (currentJob.end - currentJob.start) * 24 - currentJob.setupHours) : source.quantity / unitsPerShift * getSetupSettings(seed).shiftHours;
       const requestedStart = Math.max(readyAt, queue?.tail ?? readyAt, override?.requestedStart ?? readyAt, currentJob ? readyAt : resource.availableStart ?? readyAt);
       const timeline = currentJob ? { start: currentJob.start, end: currentJob.end } : addMachineCapacityHours(
@@ -995,7 +1014,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   return scheduled;
 }
 function processLabelForError(process2) {
-  return process2 === "turning" ? "torna" : process2 === "drilling" ? "delme" : process2 === "deburring" ? "\xE7apak alma" : "GKM";
+  return process2 === "gkm" ? "GKM" : processLabel(process2).toLocaleLowerCase("tr-TR");
 }
 function processGapDiagnostics(seed, master, operations) {
   const gaps = [];
@@ -1090,12 +1109,19 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
     }
     sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
   }
+  for (const source of sources) {
+    if (source.masterProduct.family !== "cubuk-filtre") continue;
+    const turningId = source.machine?.id ?? source.batch?.machineId ?? source.lot?.completedSteps.find((s) => s.process === "turning")?.resourceId;
+    const route = effectiveProductRoute(source.masterProduct, turningId);
+    source.masterProduct = { ...source.masterProduct, route, processes: source.masterProduct.processes.filter((p) => route.includes(p.process)) };
+    if (source.source !== "wip" && source.nextProcess) source.nextProcess = route.find((p) => p !== "turning");
+  }
   const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
   sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
   const operationsByKey = /* @__PURE__ */ new Map();
   const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
   for (const operation of baseOperations) operationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
-  const downstream = ["drilling", "deburring", "gkm"].flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates));
+  const downstream = productionProcessOrder(seed).filter((process2) => process2 !== "turning").flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates));
   const operations = [...baseOperations, ...downstream].sort((left, right) => left.start - right.start || left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.id.localeCompare(right.id));
   const jobs = sources.map((source) => {
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));

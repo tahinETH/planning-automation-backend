@@ -72,7 +72,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
     if snapshot is None:
         return {"source": "persisted-server", "available": False, "reason": "Henüz kaydedilmiş ortak plan yok; tarayıcı bağlamını kullan."}
     seed = snapshot["seed"]
-    meta = {"source": "persisted-server", "updatedAt": snapshot["updatedAt"], "available": True}
+    meta = {"source": "persisted-server", "updatedAt": snapshot["updatedAt"], "available": True, "productionArea": seed.get("productionArea", "torna")}
     if args.collection == "summary":
         demand = seed.get("customerDemand") or {}
         return {**meta, "orderCount": len(seed.get("orders", [])), "machineCount": len(seed.get("machines", [])),

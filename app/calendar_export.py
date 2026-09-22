@@ -43,7 +43,7 @@ def build_calendar_event_workbook(payload: dict[str, Any]) -> bytes:
         sheet.column_dimensions[cell.column_letter].width = width
 
     labels = {"maintenance": "Planlı bakım", "overtime": "Mesai", "shift-change": "Vardiya değişikliği"}
-    process_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
+    process_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM", "gtm": "GTM", "diameter-grinding": "Çap Taşlama", "form-grinding": "Form Taşlama", "measuring": "Ölçme", "milling": "Freze", "final-inspection": "Final Kontrol", "filter-visual": "Göz Kontrol"}
     for row_index, row in enumerate(payload.get("rows", []), 6):
         values = [
             labels.get(row.get("eventType"), row.get("eventType", "")),

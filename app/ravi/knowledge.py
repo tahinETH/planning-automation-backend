@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..production_area import production_area
 
 from functools import lru_cache
 import hashlib
@@ -54,7 +55,7 @@ def for_model(topic: dict) -> dict:
 
 
 def navigation_targets(is_admin: bool) -> list[dict]:
-    return [target for target in catalog()["navigation"] if is_admin or not target.get("adminOnly")]
+    return [target for target in catalog()["navigation"] if (is_admin or not target.get("adminOnly")) and (not target.get("productionArea") or target["productionArea"] == production_area.get())]
 
 
 def search_source(query: str) -> list[dict]:
