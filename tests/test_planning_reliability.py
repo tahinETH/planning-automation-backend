@@ -130,39 +130,31 @@ def test_partial_completion_version_gate_and_merge_preserve_release(tmp_path, mo
 def test_reviewed_partial_repair_preview_digest_apply_and_race_are_atomic(tmp_path, monkeypatch):
     from app import database as db_module
     from types import SimpleNamespace
-    import subprocess
     import shutil
     import pytest
-    root = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location('partial_review', root / 'backend/scripts/review_turning_partial.py')
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location('partial_review', root / 'scripts/review_turning_partial.py')
     review = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(review)
     db_path = tmp_path / 'repair.sqlite'
     monkeypatch.setattr(db_module, 'settings', SimpleNamespace(database_path=db_path, upload_dir=tmp_path / 'uploads'))
     db_module.init_database()
-    # Synthetic source with reviewed quantities; no private exports enter the suite.
-    code = r'''
-const fs=require('node:fs');
-const {migratePlanningSeed}=require('./lib/planning-state.ts');
-const {recalculateManualScenario}=require('./lib/planning.ts');
-const {replaceTurningCurrentJob}=require('./lib/production-interruption-actions.ts');
-const seed=migratePlanningSeed(JSON.parse(fs.readFileSync('./data/planning-seed.json')));
-const now=Date.now()/86400000+25569;
-Object.assign(seed,{orders:[],customerDemand:undefined,openingStock:{},productionHistory:[],wipLots:[],wipMovements:[],processCurrentJobs:[],processOperationOverrides:[],productionInterruptions:[],manualBatches:[],calendarEvents:[],restrictions:[]});
-const p=seed.products.find(p=>p.product==='R902719739');seed.products=[p];
-const m=seed.machines.find(m=>m.id==='C-03');seed.machines=[m];m.active=true;m.shiftFactor=3;m.capacityFactor=1;m.rates[p.product]=200;p.eligibleMachines=[m.id];p.generalMachine=m.id;
-m.currentJob={batchId:'original',product:p.product,workOrder:'638',quantity:1920,originalQuantity:1920,remainingQuantity:1920,start:now-3,end:now+1,dailyRate:600,diameter:p.diameter};m.availableStart=now+1;m.operationalAvailableStart=now+1;m.planEnd=now+90;
-const b={id:'next',sequence:1,product:p.product,workOrder:'replacement',quantity:960,orderQuantity:2880,machineId:m.id,diameter:p.diameter,batchSize:960,dailyRate:600,availableStart:now+1,planEnd:now+90,reason:'',explanation:'',planColumn:13,existingQuantity:0,start:now+1,end:now+3,status:'planned'};
-const next=replaceTurningCurrentJob(seed,recalculateManualScenario(seed,[b]),m.id,'next',{produced:true,quantity:450,reason:'priority'},now);
-process.stdout.write(JSON.stringify(next.seed));
-'''
+    # Reviewed synthetic 1,920 = 450 completed + 1,470 queued. This fixture
+    # keeps the backend-only release gate independent of a frontend checkout.
     node = shutil.which('node')
     assert node
-    seed = json.loads(subprocess.check_output([node, '--import', 'tsx', '-e', code], cwd=root / 'frontend', text=True))
+    seed = json.loads((root / 'tests/fixtures/partial-repair-synthetic.json').read_text())
+    assert seed['wipLots'][0]['availableQuantity'] == 450
+    assert seed['manualBatches'][0]['quantity'] == 1470
     saved = db_module.save_planning_state(seed, expected_updated_at='', mode='operational', can_manage_settings=True)
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo('Europe/Istanbul')).date()
+    class FixtureDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 28, 12, tzinfo=ZoneInfo('Europe/Istanbul')).astimezone(tz)
+    monkeypatch.setattr(review, 'datetime', FixtureDateTime)
+    today = FixtureDateTime.now(ZoneInfo('Europe/Istanbul')).date()
     target = {'interruptionId': seed['productionInterruptions'][0]['id'], 'workOrder': '638', 'product': 'R902719739', 'machineId': 'C-03', 'producedQuantity': 450, 'remainingQuantity': 1470, 'reason': 'reviewed handoff'}
     scope = {'startDate': today.isoformat(), 'endDate': (today+timedelta(days=80)).isoformat()}
     original, proposed, checked = review.prepare(db_path, node, target, scope)

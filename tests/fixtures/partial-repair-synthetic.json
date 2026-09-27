@@ -1,0 +1,493 @@
+{
+  "source": "synthetic-partial-repair-regression",
+  "machineCatalogVersion": 1,
+  "orders": [],
+  "products": [
+    {
+      "product": "R902719739",
+      "generalMachine": "C-03",
+      "eligibleMachines": [
+        "C-03"
+      ],
+      "batchSize": 1980,
+      "dailyRate": 345,
+      "shiftRate": 115,
+      "parameterDailyRate": 345,
+      "diameter": "Ø 20,7",
+      "alternativeMachines": [
+        "C-04"
+      ],
+      "moq": 90,
+      "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+      "setupFamily": "center-pin"
+    }
+  ],
+  "preferences": [
+    {
+      "key": "R902719739",
+      "machines": [
+        "C-03"
+      ],
+      "ruleType": "synthetic-fixture",
+      "description": "Reviewed single-machine partial repair",
+      "source": "synthetic"
+    }
+  ],
+  "restrictions": [],
+  "machines": [
+    {
+      "id": "C-03",
+      "name": "CITIZEN 3",
+      "active": true,
+      "availableStart": 46294.975,
+      "planEnd": 46383.375,
+      "note": "None",
+      "shiftFactor": 3,
+      "capacityFactor": 1,
+      "finishOffset": 0,
+      "rates": {
+        "R902745116": 243,
+        "R902745117": 133,
+        "R902745119": 225,
+        "R902745121": 223,
+        "R902745123": 155,
+        "R902745127": 284,
+        "R902745129": 284,
+        "R902745131": 264,
+        "R902745133": 273,
+        "R902745135": 300,
+        "R902745138": 288,
+        "R902747621": 182,
+        "R902745143": 157,
+        "R902745145": 145,
+        "R902745147": 118,
+        "R902745149": 121,
+        "R902970275": 164,
+        "R902970276": 131,
+        "R902745165": 162,
+        "R902745163": 161,
+        "R902745167": 175,
+        "R902970233": 172,
+        "R902745169": 187,
+        "R902747620": 187,
+        "R902745161": 196,
+        "R902970513": 249,
+        "R902970514": 284,
+        "R902970515": 292,
+        "R902970516": 317,
+        "R902970517": 254,
+        "R902970862": 144,
+        "R902970863": 140,
+        "R902974041": 292,
+        "R902972555": 292,
+        "R902972556": 292,
+        "R902719052": 125,
+        "R902719076": 292,
+        "R902719738": 111,
+        "R902719739": 200,
+        "R902719740": 89,
+        "R902719741": 86,
+        "R902719742": 51,
+        "R902719743": 134,
+        "R902719762": 292,
+        "R902719763": 223,
+        "R902719764": 194,
+        "R902719765": 214,
+        "R902719766": 150,
+        "R902719767": 128,
+        "R902719768": 73,
+        "R902719812": 153,
+        "R902725682": 371,
+        "R902729695": 77,
+        "R902729941": 67,
+        "R902744004": 63,
+        "R902747824": 103,
+        "R902748350": 125,
+        "R902970039": 90,
+        "R902970277": 69,
+        "R902970729": 152,
+        "R902970964": 73,
+        "R902974042": 148,
+        "R902375400": 87,
+        "R902200287": 118
+      },
+      "currentJob": {
+        "batchId": "next",
+        "workOrder": "replacement",
+        "product": "R902719739",
+        "quantity": 960,
+        "originalQuantity": 960,
+        "remainingQuantity": 960,
+        "start": 46293.375,
+        "end": 46294.975,
+        "dailyRate": 600,
+        "diameter": "20,7"
+      },
+      "operationalAvailableStart": 46294.975
+    }
+  ],
+  "holidays": [],
+  "savedBatches": [],
+  "rawMaterialSettings": {
+    "scrapPercent": 2,
+    "stockDate": "",
+    "stocks": []
+  },
+  "schemaVersion": 20,
+  "processMasterData": {
+    "version": 2,
+    "transferBatchQuantities": {
+      "drilling": 100
+    },
+    "source": {
+      "kind": "one-time-foundation",
+      "files": [],
+      "calculatedOnce": "synthetic-regression"
+    },
+    "machineCodeStandard": [],
+    "resources": [
+      {
+        "id": "D-02",
+        "sourceProgramId": "D-02",
+        "erpWorkCenterCode": "01-16-09-002",
+        "name": "TBT SL200-2 SELSA",
+        "operationCode": "040",
+        "operationName": "DELME",
+        "process": "drilling",
+        "active": true,
+        "defaultShifts": 3,
+        "eligibleProductGroups": [
+          "piston",
+          "center-pin"
+        ]
+      },
+      {
+        "id": "V-01",
+        "sourceProgramId": "V-01",
+        "erpWorkCenterCode": "01-21-16-001",
+        "name": "GKM-1 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": true,
+        "defaultShifts": 3,
+        "eligibleProductGroups": [
+          "piston",
+          "center-pin"
+        ]
+      },
+      {
+        "id": "V-02",
+        "sourceProgramId": "V-02",
+        "erpWorkCenterCode": "01-21-16-002",
+        "name": "GKM-2 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": true,
+        "defaultShifts": 3,
+        "eligibleProductGroups": [
+          "piston",
+          "center-pin"
+        ]
+      },
+      {
+        "id": "V-03",
+        "sourceProgramId": "V-03",
+        "erpWorkCenterCode": "01-21-16-003",
+        "name": "GKM-3 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": [
+          "piston",
+          "center-pin"
+        ]
+      },
+      {
+        "id": "V-04",
+        "sourceProgramId": "V-04",
+        "erpWorkCenterCode": "01-21-16-004",
+        "name": "GKM-4 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      },
+      {
+        "id": "V-05",
+        "sourceProgramId": "V-05",
+        "erpWorkCenterCode": "01-21-16-005",
+        "name": "GKM-5 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      },
+      {
+        "id": "V-06",
+        "sourceProgramId": "V-06",
+        "erpWorkCenterCode": "01-21-16-006",
+        "name": "GKM-6 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      },
+      {
+        "id": "V-07",
+        "sourceProgramId": "V-07",
+        "erpWorkCenterCode": "01-21-16-007",
+        "name": "GKM-7 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      },
+      {
+        "id": "V-08",
+        "sourceProgramId": "V-08",
+        "erpWorkCenterCode": "01-21-16-008",
+        "name": "GKM-8 TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      },
+      {
+        "id": "V-09",
+        "sourceProgramId": "V-09",
+        "erpWorkCenterCode": "01-21-16-011",
+        "name": "VISION TEKNOSKOP",
+        "operationCode": "290",
+        "operationName": "GÖZ KONTROL",
+        "process": "gkm",
+        "active": false,
+        "defaultShifts": 3,
+        "eligibleProductGroups": []
+      }
+    ],
+    "products": [
+      {
+        "product": "R902719739",
+        "family": "center-pin",
+        "processes": [
+          {
+            "process": "drilling",
+            "sequence": 1,
+            "waitWorkdaysBefore": 0,
+            "setupKey": "Ø3,2",
+            "resourcePriority": [
+              "D-02"
+            ],
+            "unitsPerShift": {
+              "D-02": 1190
+            }
+          },
+          {
+            "process": "gkm",
+            "sequence": 2,
+            "waitWorkdaysBefore": 1,
+            "setupKey": "GKM",
+            "resourcePriority": [
+              "V-01",
+              "V-02",
+              "V-03",
+              "V-04",
+              "V-05",
+              "V-06",
+              "V-07",
+              "V-08",
+              "V-09"
+            ],
+            "unitsPerShift": {
+              "V-01": 1127,
+              "V-02": 1127,
+              "V-03": 1127,
+              "V-04": 1127,
+              "V-05": 1127,
+              "V-06": 1127,
+              "V-07": 1127,
+              "V-08": 1127,
+              "V-09": 1127
+            }
+          }
+        ],
+        "productGroup": "center-pin"
+      }
+    ],
+    "planningStrategies": {
+      "drilling": "campaign",
+      "deburring": "earliest-ready",
+      "gkm": "earliest-ready"
+    }
+  },
+  "processOperationOverrides": [],
+  "setupSettings": {
+    "model": "product-family",
+    "shiftHours": 8,
+    "sameDiameterHours": 1,
+    "differentDiameterHours": 3,
+    "sameFamilyDifferentDiameterHours": 2,
+    "crossFamilyHours": 5
+  },
+  "customerOrderOverrides": [],
+  "productionHistory": [
+    {
+      "id": "history-pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "interruptionIds": [
+        "pause-029e7373-8ba2-43af-869b-6b923f8e98fe"
+      ],
+      "machineId": "C-03",
+      "machineName": "CITIZEN 3",
+      "workOrder": "638",
+      "product": "R902719739",
+      "originalQuantity": 450,
+      "completedQuantity": 450,
+      "start": 46290.375,
+      "plannedEnd": 46294.375,
+      "completedAt": 46293.375,
+      "archivedAt": "2026-09-27T12:03:44.248Z",
+      "process": "turning",
+      "inventoryStatus": "semi-finished",
+      "statusChangedAt": "2026-09-27T12:03:44.248Z",
+      "statusChangeReason": "Üretime ara verildi. priority"
+    }
+  ],
+  "wipLots": [
+    {
+      "id": "wip-history-pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "interruptionIds": [
+        "pause-029e7373-8ba2-43af-869b-6b923f8e98fe"
+      ],
+      "sourceHistoryEntryId": "history-pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "workOrder": "638",
+      "product": "R902719739",
+      "family": "center-pin",
+      "originalQuantity": 450,
+      "availableQuantity": 450,
+      "deliveredQuantity": 0,
+      "scrappedQuantity": 0,
+      "stage": "quality-hold",
+      "nextProcess": "drilling",
+      "readyAt": 46294,
+      "completedSteps": [
+        {
+          "process": "turning",
+          "resourceId": "C-03",
+          "resourceName": "CITIZEN 3",
+          "start": 46290.375,
+          "end": 46293.375,
+          "plannedStart": 46290.375,
+          "plannedEnd": 46294.375,
+          "quantity": 450,
+          "recordedAt": "2026-09-27T12:03:44.248Z"
+        }
+      ],
+      "createdAt": "2026-09-27T12:03:44.248Z",
+      "updatedAt": "2026-09-27T12:03:44.248Z"
+    }
+  ],
+  "productionInterruptions": [
+    {
+      "id": "pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "chargeId": "original",
+      "process": "turning",
+      "resourceId": "C-03",
+      "product": "R902719739",
+      "workOrder": "638",
+      "producedQuantity": 450,
+      "remainingQuantity": 1470,
+      "reason": "priority",
+      "occurredAt": 46293.375,
+      "turningBatch": {
+        "id": "original",
+        "sequence": 2,
+        "product": "R902719739",
+        "workOrder": "638",
+        "quantity": 1470,
+        "orderQuantity": 2880,
+        "machineId": "C-03",
+        "diameter": "20,7",
+        "batchSize": 1980,
+        "dailyRate": 600,
+        "availableStart": 46294.975,
+        "planEnd": 46383.375,
+        "reason": "Üretime ara verildi.",
+        "explanation": "Manuel plan: C-03 kuyruğunda 1. sıra. Aynı ürün · setup yok: 0.0 saat; üretim: 58.8 saat.",
+        "planColumn": 13,
+        "existingQuantity": 0,
+        "start": 46294.975,
+        "end": 46297.425,
+        "status": "planned",
+        "setupHours": 0,
+        "setupType": "same-product",
+        "runHours": 58.8,
+        "interruptionId": "pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+        "locked": false,
+        "manuallyPlaced": true
+      }
+    }
+  ],
+  "wipMovements": [
+    {
+      "lotId": "wip-history-pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "kind": "created",
+      "quantity": 450,
+      "toStage": "quality-hold",
+      "occurredAt": 46293.375,
+      "recordedAt": "2026-09-27T12:03:44.248Z",
+      "note": "Torna tamamlanmasından otomatik yarı mamül kaydı",
+      "id": "wip-move-20260927120344248-1"
+    }
+  ],
+  "openingStock": {},
+  "activePlanningScope": {
+    "startPeriod": "2026-08",
+    "endPeriod": "2026-08"
+  },
+  "processCurrentJobs": [],
+  "manualBatches": [
+    {
+      "id": "original",
+      "sequence": 2,
+      "product": "R902719739",
+      "workOrder": "638",
+      "quantity": 1470,
+      "orderQuantity": 2880,
+      "machineId": "C-03",
+      "diameter": "20,7",
+      "batchSize": 1980,
+      "dailyRate": 600,
+      "availableStart": 46294.975,
+      "planEnd": 46383.375,
+      "reason": "Üretime ara verildi.",
+      "explanation": "Manuel plan: C-03 kuyruğunda 1. sıra. Aynı ürün · setup yok: 0.0 saat; üretim: 58.8 saat.",
+      "planColumn": 13,
+      "existingQuantity": 0,
+      "start": 46294.975,
+      "end": 46297.425,
+      "status": "planned",
+      "setupHours": 0,
+      "setupType": "same-product",
+      "runHours": 58.8,
+      "interruptionId": "pause-029e7373-8ba2-43af-869b-6b923f8e98fe",
+      "locked": false,
+      "manuallyPlaced": true
+    }
+  ],
+  "calendarEvents": [],
+  "planNeedsRecalculation": true
+}
