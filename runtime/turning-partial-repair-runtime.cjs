@@ -1104,7 +1104,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       }
       return options;
     }).sort((left, right) => left.end - right.end || left.priority - right.priority || left.resource.id.localeCompare(right.resource.id));
-    const chosen = evaluated[0];
+    const earliestFinish = evaluated[0];
+    const chosen = process2 === "drilling" && !currentJob && !override && earliestFinish ? evaluated.filter((option) => option.start <= earliestFinish.start + 1e-8).sort((left, right) => left.priority - right.priority || left.end - right.end || left.resource.id.localeCompare(right.resource.id))[0] : earliestFinish;
     if (!chosen) {
       warnings.push({ code: "missing-resource", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in kullan\u0131labilir i\u015F merkezi veya vardiya kapasitesi yok.` });
       continue;
