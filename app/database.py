@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .flow_settings import validate_flow_settings
 
 from .production_merge import merge_production_refresh
 from .product_weights import initial_product_weights, preserve_missing_weights, validate_product_weights
@@ -303,7 +304,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings")
+PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -433,6 +434,7 @@ def save_planning_state(
     actor_id: str = "",
     actor_name: str = "",
     can_manage_settings: bool = False,
+    flow_settings_version: int = 0,
     route_placement_version: int = 0,
     production_split_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
@@ -466,6 +468,12 @@ def save_planning_state(
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if "flowSettings" in seed:
+            validate_flow_settings(seed["flowSettings"])
+            if production_area.get() == "cubuk-filtre" and seed["flowSettings"]["enabled"]:
+                raise ValueError("Saat bazlı akış ayarları yalnız Piston / Center Pin alanında kullanılabilir.")
+        if flow_settings_version < 1 and any((state.get("flowSettings") or {}).get("enabled") for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Saat bazlı akış ayarlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if production_split_version < 1 and any(
             item.get("kind") == "partial-completion"
             for state in [seed, current["seed"] if current else {}]

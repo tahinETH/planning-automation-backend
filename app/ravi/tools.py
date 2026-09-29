@@ -79,7 +79,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 "orderQuantity": sum(max(0, item.get("quantity", 0)) for item in seed.get("orders", [])),
                 "orderSource": bounded({key: demand.get(key) for key in ("sourceFile", "snapshotDate", "importedAt", "activeScope", "calculationModel", "baselineDueDate")}),
                 "orderImport": bounded(seed.get("orderImport")), "activePlanRun": bounded(seed.get("activePlanRun")),
-                "setupSettings": bounded(seed.get("setupSettings")), "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
+                "setupSettings": bounded(seed.get("setupSettings")), "flowSettings": bounded(seed.get("flowSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
     collections = {
         "raw_material_stocks": (seed.get("rawMaterialSettings") or {}).get("stocks", []),
         "product_weights": seed.get("productWeights", []),

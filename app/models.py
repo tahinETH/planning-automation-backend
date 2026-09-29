@@ -65,6 +65,7 @@ class RevisionPayload(BaseModel):
 
 class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
+    flowSettingsVersion: int = 0
     routePlacementVersion: int = 0
     productionSplitVersion: int = 0
     expectedUpdatedAt: str | None = None

@@ -102,6 +102,30 @@ function inspectTurningQueue(seed, batches = seed.manualBatches ?? []) {
   return { conflicts, reconciledBatches };
 }
 
+// lib/flow-settings.ts
+function flowRule(seed, family, from, to) {
+  return seed.productionArea !== "cubuk-filtre" && seed.flowSettings?.enabled ? seed.flowSettings.rules.find((rule) => rule.active && rule.family === family && rule.from === from && rule.to === to) : void 0;
+}
+function addDepartmentWorkMinutes(seed, start, minutes) {
+  if (!minutes) return start;
+  const settings = seed.flowSettings;
+  const shiftHours = Math.max(1, Math.min(24, seed.setupSettings?.shiftHours ?? 8));
+  let cursor = start, remaining = minutes;
+  for (let guard = 0; guard < 36600; guard += 1) {
+    const day = Math.floor(cursor);
+    const sunday = new Date(Date.UTC(1899, 11, 30) + day * 864e5).getUTCDay() === 0;
+    const holiday = seed.holidays.find((item) => Math.floor(item.serial) === day);
+    const override = settings.shiftOverrides.find((item) => item.date === day);
+    const shifts = override?.shifts ?? (holiday ? holiday.workingShifts ?? 0 : sunday ? 0 : settings.defaultShifts);
+    const end = day + Math.min(24, shifts * shiftHours) / 24;
+    const available = Math.max(0, end - cursor) * 1440;
+    if (available + 1e-7 >= remaining) return cursor + remaining / 1440;
+    remaining -= available;
+    cursor = day + 1;
+  }
+  throw new Error("Piston b\xF6l\xFCm\xFC i\xE7in \xE7al\u0131\u015F\u0131labilir bekleme saati bulunamad\u0131. Vardiya ve Mesai Bilgileri\u2019ni kontrol edin.");
+}
+
 // lib/delivery-calendar.ts
 var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 var DAY_MS = 864e5;
@@ -146,7 +170,9 @@ function addFactoryWorkdays(seed, startValue, workdaysValue) {
 function turningDeliveryReadyAt(completionSerial) {
   return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
 }
-function routedDeliveryReadyAt(seed, routeCompletionSerial) {
+function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
+  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
+  if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
   return seed.productionArea === "cubuk-filtre" ? routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
 }
 
@@ -623,6 +649,85 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial(factoryDat
   return rolledMachineIds;
 }
 
+// lib/process-flow.ts
+function curve(seed, resource, start, end, setupHours, quantity2) {
+  const windows = [];
+  let setup = setupHours, hours = 0;
+  if (end - start > 36600 || end <= start || quantity2 <= 0) return void 0;
+  for (let day = Math.floor(start); day <= Math.floor(end); day += 1) {
+    const shifts = machineDayCapacity(seed, resource, day).shifts;
+    let left = Math.max(start, day);
+    const right = Math.min(end, day + shifts * getSetupSettings(seed).shiftHours / 24);
+    const skipped = Math.min(setup, Math.max(0, right - left) * 24);
+    setup -= skipped;
+    left += skipped / 24;
+    if (right > left) {
+      windows.push({ start: left, end: right });
+      hours += (right - left) * 24;
+    }
+  }
+  if (hours <= 1e-8) return void 0;
+  let before = 0;
+  const rate = quantity2 / hours * 24;
+  const segments = windows.map((window) => {
+    const segment = { ...window, before, rate };
+    before += (window.end - window.start) * rate;
+    return segment;
+  });
+  return { segments, quantity: quantity2, start: windows[0].start, end: windows.at(-1).end };
+}
+function produced(curve2, time) {
+  if (time < curve2.start - 1e-10) return 0;
+  if (time >= curve2.end) return curve2.quantity;
+  const segment = curve2.segments.find((item) => time <= item.end) ?? curve2.segments.at(-1);
+  return Math.min(curve2.quantity, segment.before + Math.max(0, time - segment.start) * segment.rate);
+}
+function noStarvation(supply, demand) {
+  const times = [...supply.segments, ...demand.segments].flatMap((item) => [item.start, item.end]);
+  for (const time of times) {
+    if (time < demand.start - 1e-10 || time > demand.end + 1e-10) continue;
+    const needed = Math.min(demand.quantity, produced(demand, time) + Math.min(1, demand.quantity));
+    if (produced(supply, time) + 1e-5 < needed) return false;
+  }
+  for (const segment of demand.segments) {
+    const time = segment.start + (demand.quantity - Math.min(1, demand.quantity) - segment.before) / segment.rate;
+    if (time >= segment.start && time <= segment.end && produced(supply, time) + 1e-5 < demand.quantity) return false;
+  }
+  return true;
+}
+function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedStart, setupHours, runHours, quantity2, targetMinutes) {
+  const machine = { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 };
+  const schedule = (start) => addMachineCapacityHours(calendarSeed, machine, start, setupHours + runHours);
+  const targetEnd = predecessor.end + targetMinutes / 1440;
+  const upstream = predecessor.process === "turning" ? seed.machines.find((item) => item.id === predecessor.resourceId) : seed.processMasterData?.resources.find((item) => item.id === predecessor.resourceId);
+  const upstreamCalendar = predecessor.resourceId.startsWith("B-01-") ? { ...seed, calendarEvents: seed.calendarEvents?.map((event) => event.machineId === "B-01" ? { ...event, machineId: predecessor.resourceId } : event) } : seed;
+  const supply = upstream && !predecessor.current && !(predecessor.process === "turning" && predecessor.source === "current-turning") && !predecessor.actual && predecessor.quantity === quantity2 ? curve(upstreamCalendar, { id: upstream.id, shiftFactor: "shiftFactor" in upstream ? upstream.shiftFactor : upstream.defaultShifts }, predecessor.start, predecessor.end, predecessor.setupHours, quantity2) : void 0;
+  if (!supply) return { ...schedule(Math.max(requestedStart, predecessor.end)), targetEnd, reason: "\xD6nceki prosesin g\xFCvenilir par\xE7a \xE7\u0131k\u0131\u015F e\u011Frisi yok; kay\u0131tl\u0131 biti\u015F sonras\u0131 g\xFCvenli ba\u015Flang\u0131\xE7 kullan\u0131ld\u0131." };
+  const safe = (start) => {
+    const timing = schedule(start);
+    const consumption = curve(calendarSeed, machine, timing.start, timing.end, setupHours, quantity2);
+    return !!consumption && noStarvation(supply, consumption);
+  };
+  let left = Math.max(requestedStart, predecessor.start), right = Math.max(left, predecessor.end);
+  if (!safe(left)) {
+    for (let iteration = 0; iteration < 36; iteration += 1) {
+      const middle = (left + right) / 2;
+      if (safe(middle)) right = middle;
+      else left = middle;
+    }
+    left = right;
+  }
+  const earliest = schedule(left + 1e-8);
+  if (earliest.end > targetEnd + 1e-6) return { ...earliest, targetEnd, reason: "Hedef; par\xE7a beslemesi, setup, vardiya/bak\u0131m veya dolu kuyruk nedeniyle sa\u011Flanam\u0131yor. En erken kesintisiz ve g\xFCvenli biti\u015F g\xF6steriliyor." };
+  right = Math.max(left, targetEnd);
+  for (let iteration = 0; iteration < 36; iteration += 1) {
+    const middle = (left + right) / 2;
+    if (schedule(middle).end <= targetEnd + 1e-7) left = middle;
+    else right = middle;
+  }
+  return { ...schedule(left), targetEnd };
+}
+
 // lib/wip-ledger.ts
 var terminalStages = /* @__PURE__ */ new Set(["delivered", "scrapped"]);
 function activeWipLots(seed) {
@@ -696,7 +801,12 @@ function processQueueEntries(seed, jobs, operations) {
 }
 
 // lib/process-planning.ts
-function calculateDownstreamSetup(process2, previous, next) {
+function calculateDownstreamSetup(process2, previous, next, settings) {
+  if (settings?.enabled && (process2 === "drilling" || process2 === "deburring" || process2 === "gkm")) {
+    const values = settings.setupMinutes[process2];
+    const key = !previous ? "first" : previous.product === next.product ? "sameProduct" : previous.family !== next.family ? "differentFamily" : previous.setupKey === next.setupKey ? "sameKey" : "differentKey";
+    return { hours: values[key] / 60, label: "SETUP S\xFCreleri" };
+  }
   if (process2 === "gkm") return { hours: 0, label: "GKM ge\xE7i\u015Fi \xB7 setup yok" };
   if (!previous) return process2 === "drilling" ? { hours: 3, label: "\u0130lk delme haz\u0131rl\u0131\u011F\u0131" } : { hours: 1, label: "\u0130lk \xE7apak alma haz\u0131rl\u0131\u011F\u0131" };
   if (previous.product === next.product) return { hours: 0, label: "Ayn\u0131 \xFCr\xFCn \xB7 setup yok" };
@@ -842,7 +952,11 @@ function processPlacementOverride(seed, batchId, product, process2, allowInherit
 }
 function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false) {
   const queueByResource = /* @__PURE__ */ new Map();
-  let d02SpareGaps;
+  const spareGaps = /* @__PURE__ */ new Map();
+  const usableResources = (source, parameter) => activeProcessResourceIds(parameter).filter((id) => {
+    const resource = processResource(master, id);
+    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && parameter.unitsPerShift[id] > 0;
+  });
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
@@ -867,16 +981,20 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       return [];
     }
     const effectiveWaitWorkdays = source.masterProduct.route ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : process2 === "drilling" ? source.source === "wip" ? 0 : 1 : parameter.waitWorkdaysBefore;
-    const readyAt = (firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays)) + (firstRemaining && source.source === "wip" ? 0 : (parameter.leadStages ?? []).reduce((sum, stage) => sum + stage.days, 0));
+    const rule = flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
+    const legacyReadyAt = (firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays)) + (firstRemaining && source.source === "wip" ? 0 : (parameter.leadStages ?? []).reduce((sum, stage) => sum + stage.days, 0));
+    const usesRule = rule && !(firstRemaining && source.source === "wip");
+    const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : predecessor?.start ?? source.releaseAt : legacyReadyAt;
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
-    return [{ source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays }];
+    return [{ source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, rule: usesRule ? rule : void 0 }];
   }).sort((left, right) => {
     if (Boolean(left.currentJob) !== Boolean(right.currentJob)) return left.currentJob ? -1 : 1;
     if (Boolean(left.override?.resumeAfterCurrent) !== Boolean(right.override?.resumeAfterCurrent)) return left.override?.resumeAfterCurrent ? -1 : 1;
-    if (process2 === "drilling" && left.source.masterProduct.family !== right.source.masterProduct.family) {
-      return left.source.masterProduct.family === "center-pin" ? -1 : 1;
+    if (process2 === "drilling") {
+      const difference = usableResources(left.source, left.parameter).length - usableResources(right.source, right.parameter).length;
+      if (difference) return difference;
     }
     const leftScheduleAt = Math.max(left.readyAt, left.override?.requestedStart ?? left.readyAt);
     const rightScheduleAt = Math.max(right.readyAt, right.override?.requestedStart ?? right.readyAt);
@@ -898,7 +1016,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   });
   const scheduled = [];
   for (const item of candidates) {
-    const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays } = item;
+    const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, rule } = item;
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
     const activeResources = activeProcessResourceIds(parameter);
     const resourceCandidates = currentJob ? [currentJob.resourceId] : override ? activeResources.filter((id) => id === override.resourceId) : activeResources;
@@ -907,49 +1025,51 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const unitsPerShift = parameter.unitsPerShift[resourceId];
       if (!resource || resource.process !== process2 || !resource.active || resource.defaultShifts <= 0 || !resourceSupportsProcessProduct(resource, source.masterProduct) || !Number.isFinite(unitsPerShift) || unitsPerShift <= 0) return [];
       const queue = queueByResource.get(resourceId);
-      const setup = parameter.setupMinutesByResource ? { hours: ((queue?.product === source.product ? 0 : parameter.setupMinutesByResource[resourceId]) + (parameter.handlingMinutes ?? 0)) / 60, label: "Operasyon rotas\u0131 haz\u0131rl\u0131\u011F\u0131" } : calculateDownstreamSetup(process2, queue, nextSetup);
+      const setup = parameter.setupMinutesByResource ? { hours: ((queue?.product === source.product ? 0 : parameter.setupMinutesByResource[resourceId]) + (parameter.handlingMinutes ?? 0)) / 60, label: "Operasyon rotas\u0131 haz\u0131rl\u0131\u011F\u0131" } : calculateDownstreamSetup(process2, queue, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
       if (!Number.isFinite(setup.hours)) return [];
       const runHours = currentJob ? Math.max(0, (currentJob.end - currentJob.start) * 24 - currentJob.setupHours) : source.quantity / unitsPerShift * getSetupSettings(seed).shiftHours;
       const requestedStart = Math.max(readyAt, queue?.tail ?? readyAt, override?.requestedStart ?? readyAt, currentJob ? readyAt : resource.availableStart ?? readyAt);
-      const timeline = currentJob ? { start: currentJob.start, end: currentJob.end } : addMachineCapacityHours(
+      const timeline = currentJob ? { start: currentJob.start, end: currentJob.end } : rule?.mode === "dynamic" && predecessor ? dynamicFlowTiming(seed, processCalendarSeed(seed, resource.id), resource, predecessor, requestedStart, setup.hours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(
         processCalendarSeed(seed, resource.id),
         { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
         requestedStart,
         setup.hours + runHours
       );
       if (!currentJob && resource.planEnd && timeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) return [];
-      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, d02GapIndex: -1, ...timeline }];
-      if (!currentJob && process2 === "drilling" && resource.id === "D-02" && source.masterProduct.family === "piston") {
-        if (!d02SpareGaps) {
-          const centerPinReservations = scheduled.filter((operation2) => operation2.resourceId === "D-02" && operation2.family === "center-pin").sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
-          d02SpareGaps = centerPinReservations.map((nextCenterPin, index) => {
-            const previousCenterPin = centerPinReservations[index - 1];
+      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, gapIndex: -1, ...timeline }];
+      if (!currentJob && process2 === "drilling" && usableResources(source, parameter).length > 1) {
+        if (!spareGaps.has(resource.id)) {
+          const reservations = scheduled.filter((operation2) => operation2.resourceId === resource.id).sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
+          const gaps = reservations.map((nextReservation, index) => {
+            const previousReservation = reservations[index - 1];
             return {
-              nextCenterPin,
-              cursor: Math.max(previousCenterPin?.end ?? 0, ...scheduled.filter((operation2) => operation2.current && operation2.resourceId === "D-02").map((operation2) => operation2.end)),
-              tail: previousCenterPin ? setupSourceForOperation(previousCenterPin) : void 0
+              nextReservation,
+              cursor: Math.max(previousReservation?.end ?? 0, ...scheduled.filter((operation2) => operation2.current && operation2.resourceId === resource.id).map((operation2) => operation2.end)),
+              tail: previousReservation ? setupSourceForOperation(previousReservation) : void 0
             };
           });
+          spareGaps.set(resource.id, gaps);
         }
         const calendarSeed = processCalendarSeed(seed, resource.id);
-        for (const [gapIndex, gap] of d02SpareGaps.entries()) {
-          const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup);
-          const gapTimeline = addMachineCapacityHours(
+        for (const [gapIndex, gap] of spareGaps.get(resource.id).entries()) {
+          const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
+          const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
+          const gapTimeline = rule?.mode === "dynamic" && predecessor ? dynamicFlowTiming(seed, calendarSeed, resource, predecessor, gapStart, incomingSetup.hours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
-            Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt),
+            gapStart,
             incomingSetup.hours + runHours
           );
           if (resource.planEnd && gapTimeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) continue;
-          const requiredCenterPinSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextCenterPin)).hours;
-          const protectedSetupHoursAfter = Math.max(0, requiredCenterPinSetup - gap.nextCenterPin.setupHours);
+          const requiredReservedSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextReservation), seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings).hours;
+          const protectedSetupHoursAfter = Math.max(0, requiredReservedSetup - gap.nextReservation.setupHours);
           const restored = addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
             gapTimeline.end,
             protectedSetupHoursAfter
           );
-          if (restored.end > gap.nextCenterPin.start + 1e-8) continue;
+          if (restored.end > gap.nextReservation.start + 1e-8) continue;
           options.push({
             resource,
             unitsPerShift,
@@ -957,7 +1077,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
             protectedSetupHoursAfter,
             runHours,
             priority,
-            d02GapIndex: gapIndex,
+            gapIndex,
             ...gapTimeline
           });
         }
@@ -971,6 +1091,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       continue;
     }
     const operation = {
+      flowTargetEnd: "targetEnd" in chosen ? chosen.targetEnd : void 0,
+      flowReason: "reason" in chosen ? chosen.reason : void 0,
       id: `${source.id}:${process2}`,
       batchId: source.id,
       product: source.product,
@@ -999,11 +1121,12 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       wipLotId: source.lot?.id,
       manualOverride: Boolean(override)
     };
+    if (operation.flowReason) warnings.push({ code: "flow-target", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${processLabelForError(process2)}: ${operation.flowReason}` });
     scheduled.push(operation);
     if (override?.routeMode === "keep" && !currentJob && (Math.abs(operation.start - (override.preservedStart ?? override.requestedStart)) > 1e-8 || Math.abs(operation.end - (override.preservedEnd ?? operation.end)) > 1e-8)) warnings.push({ code: "placement-conflict", product: source.product, batchId: source.id, message: `${source.workOrder || source.product} \xB7 ${processLabelForError(process2)} mevcut yerle\u015Fimi de\u011Fi\u015Fen girdilerle korunam\u0131yor. \xDCretim ak\u0131\u015F\u0131n\u0131 d\xFCzenle ile yeniden inceleyin.` });
     operationsByKey.set(`${source.id}:${process2}`, operation);
-    if (chosen.d02GapIndex >= 0 && d02SpareGaps) {
-      const gap = d02SpareGaps[chosen.d02GapIndex];
+    if (chosen.gapIndex >= 0) {
+      const gap = spareGaps.get(chosen.resource.id)[chosen.gapIndex];
       if (gap.lastInserted) gap.lastInserted.protectedSetupHoursAfter = void 0;
       gap.lastInserted = operation;
       gap.cursor = operation.end;
@@ -1128,7 +1251,7 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
     const completion2 = route.at(-1)?.end ?? source.releaseAt;
     const customRouteComplete = !source.masterProduct.route || source.masterProduct.route.length > 0 && !warnings.some((warning) => warning.product === source.product && warning.code === "invalid-route") && source.masterProduct.route.every((process2) => route.some((operation) => (operation.recordedProcess ?? operation.process) === process2)) && source.lot?.stage !== "on-hold" && source.lot?.stage !== "unclassified";
-    const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2) : 0;
+    const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2, source.masterProduct.family, route.at(-1)?.process) : 0;
     return {
       batchId: source.id,
       source: source.source,
