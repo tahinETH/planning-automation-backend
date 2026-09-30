@@ -983,7 +983,6 @@ function processPlacementOverride(seed, batchId, product, process2, allowInherit
 }
 function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false) {
   const queueByResource = /* @__PURE__ */ new Map();
-  let d02SpareGaps;
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
@@ -1057,39 +1056,38 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         requestedStart,
         setup.hours + runHours
       );
-      if (!currentJob && resource.planEnd && timeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) return [];
-      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, d02GapIndex: -1, ...timeline }];
-      if (!currentJob && process2 === "drilling" && resource.id === "D-02" && source.masterProduct.family === "piston") {
-        if (!d02SpareGaps) {
-          const centerPinReservations = scheduled.filter((operation2) => operation2.resourceId === "D-02" && operation2.family === "center-pin").sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
-          d02SpareGaps = centerPinReservations.map((nextCenterPin, index) => {
-            const previousCenterPin = centerPinReservations[index - 1];
-            return {
-              nextCenterPin,
-              cursor: Math.max(previousCenterPin?.end ?? 0, ...scheduled.filter((operation2) => operation2.current && operation2.resourceId === "D-02").map((operation2) => operation2.end)),
-              tail: previousCenterPin ? setupSourceForOperation(previousCenterPin) : void 0
-            };
-          });
-        }
+      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, gapIndex: -1, previousOperation: void 0, ...timeline }].filter((option) => currentJob || !resource.planEnd || option.end <= Math.floor(resource.planEnd) + 1 + 1e-8);
+      if (!currentJob && process2 === "drilling") {
+        const reservations = scheduled.filter((operation2) => operation2.resourceId === resource.id).sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
+        const currentEnd = Math.max(0, ...reservations.filter((operation2) => operation2.current).map((operation2) => operation2.end));
+        const gaps = reservations.map((nextReservation, index) => ({
+          nextReservation,
+          previousOperation: reservations[index - 1],
+          cursor: Math.max(reservations[index - 1]?.end ?? 0, currentEnd),
+          tail: reservations[index - 1] ? setupSourceForOperation(reservations[index - 1]) : void 0
+        }));
         const calendarSeed = processCalendarSeed(seed, resource.id);
-        for (const [gapIndex, gap] of d02SpareGaps.entries()) {
+        for (const [gapIndex, gap] of gaps.entries()) {
+          const nextOverride = processPlacementOverride(seed, gap.nextReservation.batchId, gap.nextReservation.product, process2);
+          if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
           const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup);
+          const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
           const gapTimeline = addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
-            Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt),
+            gapStart,
             incomingSetup.hours + runHours
           );
           if (resource.planEnd && gapTimeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) continue;
-          const requiredCenterPinSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextCenterPin)).hours;
-          const protectedSetupHoursAfter = Math.max(0, requiredCenterPinSetup - gap.nextCenterPin.setupHours);
+          const requiredReservedSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextReservation)).hours;
+          const protectedSetupHoursAfter = Math.max(0, requiredReservedSetup - gap.nextReservation.setupHours);
           const restored = addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
             gapTimeline.end,
             protectedSetupHoursAfter
           );
-          if (restored.end > gap.nextCenterPin.start + 1e-8) continue;
+          if (restored.end > gap.nextReservation.start + 1e-8) continue;
           options.push({
             resource,
             unitsPerShift,
@@ -1097,7 +1095,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
             protectedSetupHoursAfter,
             runHours,
             priority,
-            d02GapIndex: gapIndex,
+            gapIndex,
+            previousOperation: gap.previousOperation,
             ...gapTimeline
           });
         }
@@ -1142,12 +1141,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     scheduled.push(operation);
     if (override?.routeMode === "keep" && !currentJob && (Math.abs(operation.start - (override.preservedStart ?? override.requestedStart)) > 1e-8 || Math.abs(operation.end - (override.preservedEnd ?? operation.end)) > 1e-8)) warnings.push({ code: "placement-conflict", product: source.product, batchId: source.id, message: `${source.workOrder || source.product} \xB7 ${processLabelForError(process2)} mevcut yerle\u015Fimi de\u011Fi\u015Fen girdilerle korunam\u0131yor. \xDCretim ak\u0131\u015F\u0131n\u0131 d\xFCzenle ile yeniden inceleyin.` });
     operationsByKey.set(`${source.id}:${process2}`, operation);
-    if (chosen.d02GapIndex >= 0 && d02SpareGaps) {
-      const gap = d02SpareGaps[chosen.d02GapIndex];
-      if (gap.lastInserted) gap.lastInserted.protectedSetupHoursAfter = void 0;
-      gap.lastInserted = operation;
-      gap.cursor = operation.end;
-      gap.tail = nextSetup;
+    if (chosen.gapIndex >= 0) {
+      if (chosen.previousOperation) chosen.previousOperation.protectedSetupHoursAfter = void 0;
     } else {
       queueByResource.set(chosen.resource.id, { tail: operation.end, ...nextSetup });
     }
