@@ -952,10 +952,9 @@ function processPlacementOverride(seed, batchId, product, process2, allowInherit
 }
 function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false) {
   const queueByResource = /* @__PURE__ */ new Map();
-  const spareGaps = /* @__PURE__ */ new Map();
   const usableResources = (source, parameter) => activeProcessResourceIds(parameter).filter((id) => {
     const resource = processResource(master, id);
-    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && parameter.unitsPerShift[id] > 0;
+    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
   });
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
@@ -1035,23 +1034,20 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         requestedStart,
         setup.hours + runHours
       );
-      if (!currentJob && resource.planEnd && timeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) return [];
-      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, gapIndex: -1, ...timeline }];
-      if (!currentJob && process2 === "drilling" && usableResources(source, parameter).length > 1) {
-        if (!spareGaps.has(resource.id)) {
-          const reservations = scheduled.filter((operation2) => operation2.resourceId === resource.id).sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
-          const gaps = reservations.map((nextReservation, index) => {
-            const previousReservation = reservations[index - 1];
-            return {
-              nextReservation,
-              cursor: Math.max(previousReservation?.end ?? 0, ...scheduled.filter((operation2) => operation2.current && operation2.resourceId === resource.id).map((operation2) => operation2.end)),
-              tail: previousReservation ? setupSourceForOperation(previousReservation) : void 0
-            };
-          });
-          spareGaps.set(resource.id, gaps);
-        }
+      const options = [{ resource, unitsPerShift, setupHours: setup.hours, protectedSetupHoursAfter: 0, runHours, priority, gapIndex: -1, previousOperation: void 0, ...timeline }].filter((option) => currentJob || !resource.planEnd || option.end <= Math.floor(resource.planEnd) + 1 + 1e-8);
+      if (!currentJob && process2 === "drilling") {
+        const reservations = scheduled.filter((operation2) => operation2.resourceId === resource.id).sort((left, right) => left.start - right.start || left.end - right.end || left.id.localeCompare(right.id));
+        const currentEnd = Math.max(0, ...reservations.filter((operation2) => operation2.current).map((operation2) => operation2.end));
+        const gaps = reservations.map((nextReservation, index) => ({
+          nextReservation,
+          previousOperation: reservations[index - 1],
+          cursor: Math.max(reservations[index - 1]?.end ?? 0, currentEnd),
+          tail: reservations[index - 1] ? setupSourceForOperation(reservations[index - 1]) : void 0
+        }));
         const calendarSeed = processCalendarSeed(seed, resource.id);
-        for (const [gapIndex, gap] of spareGaps.get(resource.id).entries()) {
+        for (const [gapIndex, gap] of gaps.entries()) {
+          const nextOverride = processPlacementOverride(seed, gap.nextReservation.batchId, gap.nextReservation.product, process2);
+          if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
           const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
           const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
           const gapTimeline = rule?.mode === "dynamic" && predecessor ? dynamicFlowTiming(seed, calendarSeed, resource, predecessor, gapStart, incomingSetup.hours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(
@@ -1078,6 +1074,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
             runHours,
             priority,
             gapIndex,
+            previousOperation: gap.previousOperation,
             ...gapTimeline
           });
         }
@@ -1126,11 +1123,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     if (override?.routeMode === "keep" && !currentJob && (Math.abs(operation.start - (override.preservedStart ?? override.requestedStart)) > 1e-8 || Math.abs(operation.end - (override.preservedEnd ?? operation.end)) > 1e-8)) warnings.push({ code: "placement-conflict", product: source.product, batchId: source.id, message: `${source.workOrder || source.product} \xB7 ${processLabelForError(process2)} mevcut yerle\u015Fimi de\u011Fi\u015Fen girdilerle korunam\u0131yor. \xDCretim ak\u0131\u015F\u0131n\u0131 d\xFCzenle ile yeniden inceleyin.` });
     operationsByKey.set(`${source.id}:${process2}`, operation);
     if (chosen.gapIndex >= 0) {
-      const gap = spareGaps.get(chosen.resource.id)[chosen.gapIndex];
-      if (gap.lastInserted) gap.lastInserted.protectedSetupHoursAfter = void 0;
-      gap.lastInserted = operation;
-      gap.cursor = operation.end;
-      gap.tail = nextSetup;
+      if (chosen.previousOperation) chosen.previousOperation.protectedSetupHoursAfter = void 0;
     } else {
       queueByResource.set(chosen.resource.id, { tail: operation.end, ...nextSetup });
     }

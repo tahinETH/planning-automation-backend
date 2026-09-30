@@ -382,3 +382,13 @@ def test_scrap_return_guidance_preserves_shipment_provenance_and_explains_limits
         assert any("Yarı mamule geri al" in source for source in topic["userSources"])
         assert "implementationNotes" not in topic and "sources" not in topic
         assert "scrappedQuantity" not in topic["body"]
+
+
+def test_primary_drilling_gap_knowledge_keeps_business_safety_and_user_sources():
+    topic = ToolSession(None, False).execute('read_knowledge', '{"topic_id":"downstream-planning-methods"}')
+    assert 'Ana merkez' in topic['body'] and 'boşluk' in topic['body']
+    assert 'geri dönüş hazırlığı' in topic['body']
+    assert 'başlangıç ve bitişi ötelenmez' in topic['body']
+    assert 'kayıt oluşturmaz' in topic['body']
+    assert topic['userSources']
+    assert 'implementationNotes' not in topic and 'sources' not in topic
