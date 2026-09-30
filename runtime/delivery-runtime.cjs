@@ -431,6 +431,7 @@ function isMachineEligibleForProduct(seed, machineId, productCode) {
   const code2 = productCode.toUpperCase();
   const product = seed.products.find((item) => item.product.toUpperCase() === code2);
   if (!product) return false;
+  if (seed.productionArea === "cubuk-filtre" && !Number.isFinite(product.turningSetupMinutes?.[machineId])) return false;
   if (product.inactiveMachineIds?.includes(machineId)) return false;
   const preference = seed.preferences.find((rule) => rule.key.toUpperCase() === code2);
   if (preference) return preference.machines.includes(machineId);
@@ -980,10 +981,11 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       return [];
     }
     const effectiveWaitWorkdays = source.masterProduct.route ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : process2 === "drilling" ? source.source === "wip" ? 0 : 1 : parameter.waitWorkdaysBefore;
-    const rule = flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
+    const filterGap = seed.productionArea === "cubuk-filtre" ? parameter.finishGapMinutes : void 0;
+    const rule = typeof filterGap === "number" && Number.isFinite(filterGap) && filterGap >= 0 ? { mode: "dynamic", minutes: filterGap } : flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
     const legacyReadyAt = (firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays)) + (firstRemaining && source.source === "wip" ? 0 : (parameter.leadStages ?? []).reduce((sum, stage) => sum + stage.days, 0));
     const usesRule = rule && !(firstRemaining && source.source === "wip");
-    const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : predecessor?.start ?? source.releaseAt : legacyReadyAt;
+    const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : parameter.leadStages?.length ? legacyReadyAt : predecessor?.start ?? source.releaseAt : legacyReadyAt;
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
@@ -1023,6 +1025,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const resource = processResource(master, resourceId);
       const unitsPerShift = parameter.unitsPerShift[resourceId];
       if (!resource || resource.process !== process2 || !resource.active || resource.defaultShifts <= 0 || !resourceSupportsProcessProduct(resource, source.masterProduct) || !Number.isFinite(unitsPerShift) || unitsPerShift <= 0) return [];
+      if (!currentJob && seed.productionArea === "cubuk-filtre" && !Number.isFinite(parameter.setupMinutesByResource?.[resourceId])) return [];
       const queue = queueByResource.get(resourceId);
       const setup = parameter.setupMinutesByResource ? { hours: ((queue?.product === source.product ? 0 : parameter.setupMinutesByResource[resourceId]) + (parameter.handlingMinutes ?? 0)) / 60, label: "Operasyon rotas\u0131 haz\u0131rl\u0131\u011F\u0131" } : calculateDownstreamSetup(process2, queue, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
       if (!Number.isFinite(setup.hours)) return [];
