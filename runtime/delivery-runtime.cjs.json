@@ -20,7 +20,7 @@
     "lib/production-interruptions.ts": "d668fee3d03dfd5f2242eaec486489c099a89bdc1af95cfca4907a8e3bc5ade7",
     "lib/setup-families.ts": "486452f23561a973fcf981fe879ff0f64ea36320d69a02ae7f9d15a3e7c7fe7d",
     "lib/turning-queue-identity.ts": "c2f825552d22e8b5858c2b9f96da964f307337ab6a94030dacd4d273dc2c3086",
-    "lib/wip-ledger.ts": "b24a572c28e25f436624bce4cab2de3c7c0de020b8e74d9fdc184de734fe962d",
+    "lib/wip-ledger.ts": "47004f00348adf94de6b6c8a693fd12346b13df17a4a6d235ccebad53c35c70e",
     "scripts/delivery-runtime.ts": "1102503e038ef068cd483f86262d297f27821816c2c0a5df05c4e7d08478197c"
   }
 }

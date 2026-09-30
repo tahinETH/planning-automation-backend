@@ -368,3 +368,17 @@ def test_released_partial_inspection_explains_transfer_without_claiming_interrup
     assert result["rows"][0]["İş değiştirme nedeni"] == "Öncelikli iş"
     assert "İşe ara verme nedeni" not in result["rows"][0]
     assert snapshot == before
+
+
+def test_scrap_return_guidance_preserves_shipment_provenance_and_explains_limits():
+    results = knowledge.search_topics("ıskartadan geri alma 353 97 256 sevk adedi azalıyor")
+    assert {"archive-deliveries", "processes-wip"} & {topic["id"] for topic in results[:3]}
+    for topic_id in ("archive-deliveries", "processes-wip"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        assert "353 sevk, 97 ıskarta ve sıfır yarı mamul" in topic["body"]
+        assert "aynı şarjın sevk edilmiş adedi azalmaz" in topic["body"]
+        assert "eksik miktar teslimattan veya başka iş emrinden tamamlanmaz" in topic["body"]
+        assert "bakiyeler otomatik onarılmaz" in topic["body"]
+        assert any("Yarı mamule geri al" in source for source in topic["userSources"])
+        assert "implementationNotes" not in topic and "sources" not in topic
+        assert "scrappedQuantity" not in topic["body"]
