@@ -392,3 +392,18 @@ def test_primary_drilling_gap_knowledge_keeps_business_safety_and_user_sources()
     assert 'kayıt oluşturmaz' in topic['body']
     assert topic['userSources']
     assert 'implementationNotes' not in topic and 'sources' not in topic
+
+
+def test_archive_actual_shipment_and_scrap_deletion_guidance():
+    for topic_id in ("archive-deliveries", "processes-wip", "delivery-readiness"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        assert "Proses kontrol ve paketleme tamamlandı." in topic["body"]
+        assert "kayıtlı gerçek bitişlerinden önce" in topic["body"]
+        assert "yalnız teslim edilen miktarın beklemesini kaldırır" in topic["body"]
+        assert "Mevcut teslimat tarihleri kendiliğinden değiştirilmez" in topic["body"]
+        assert any("Teslim / parçala" in source for source in topic["userSources"])
+        if topic_id != "delivery-readiness":
+            assert "ikinci kez düşülmez" in topic["body"]
+            assert "Silme, Yarı mamule geri al değildir" in topic["body"]
+        assert "confirmedDeliveryBuffer" not in topic["body"]
+        assert "implementationNotes" not in topic and "sources" not in topic
