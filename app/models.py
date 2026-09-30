@@ -67,6 +67,7 @@ class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
     routePlacementVersion: int = 0
     productionSplitVersion: int = 0
+    processWipGroupingVersion: int = 0
     expectedUpdatedAt: str | None = None
     force: bool = False
     mode: Literal["planning", "operational"] = "planning"

@@ -38,6 +38,19 @@ def request(message="Teslimat planını nereden indiririm?"):
             "navigation": {"previousView": "orders"}, "planning": {"dirty": True, "syncStatus": "offline"}, "screens": {}}}
 
 
+def test_idle_turning_start_and_historical_journey_plans_have_user_sources():
+    machines = knowledge.for_model(knowledge.read_topic("machines"))
+    journey = knowledge.for_model(knowledge.read_topic("processes-wip"))
+    assert "Sıradaki işi al" in machines["body"]
+    assert "geçmişte başlamış üretimi geriye dönük kaydetmez" in machines["body"]
+    assert any("Sıradaki işi al" in source for source in machines["userSources"])
+    assert "Kayıtlı plan" in journey["body"] and "Güncel plan" in journey["body"]
+    assert "gerçek bitiş" in journey["body"]
+    assert any("Kayıtlı plan / Güncel plan" in source for source in journey["userSources"])
+    for topic in (machines, journey):
+        assert "implementationNotes" not in topic and "sources" not in topic
+
+
 def tool(name, arguments, call_id="call-1"):
     return {"id": call_id, "type": "function", "function": {"name": name, "arguments": json.dumps(arguments)}}
 
@@ -168,6 +181,33 @@ def test_provider_failure_is_sanitized_and_admission_released(client, monkeypatc
     assert response.status_code == 502
     assert "test-provider-secret" not in response.text
     assert not service._active
+
+
+def test_scrap_return_guidance_preserves_shipment_provenance_and_explains_limits():
+    results = knowledge.search_topics("ıskartadan geri alma 353 97 256 sevk adedi azalıyor")
+    assert {"archive-deliveries", "processes-wip"} & {topic["id"] for topic in results[:3]}
+    for topic_id in ("archive-deliveries", "processes-wip"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        assert "353 sevk, 97 ıskarta ve sıfır yarı mamul" in topic["body"]
+        assert "aynı şarjın sevk edilmiş adedi azalmaz" in topic["body"]
+        assert "eksik miktar teslimattan veya başka iş emrinden tamamlanmaz" in topic["body"]
+        assert "bakiyeler otomatik onarılmaz" in topic["body"]
+        assert any("Yarı mamule geri al" in source for source in topic["userSources"])
+        assert "implementationNotes" not in topic and "sources" not in topic
+        assert "scrappedQuantity" not in topic["body"]
+
+
+def test_remaining_quantity_observation_guidance_distinguishes_draft_time_and_calculation():
+    for topic_id in ("machines", "processes-wip"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        for label in ("Son güncelleme", "Türkiye saati", "Henüz kaydedilmedi", "Güncelleme zamanı kayıtlı değil", "Kalan miktar tarihi", "Hesaplanan kapasite"):
+            assert label in topic["body"]
+        assert "kapasite/bitiş hesabını değiştirmez" in topic["body"]
+        assert any("Son güncelleme" in source for source in topic["userSources"])
+        assert "remainingQuantityUpdatedAt" not in topic["body"]
+    rate_topic = ToolSession(None, False).execute("read_knowledge", '{"topic_id":"turning-shift-production"}')
+    assert "Hesaplanan kapasite" in rate_topic["body"]
+    assert "Hesaplanan hız" not in rate_topic["body"]
 
 
 def test_timeout_and_tool_budget(client, monkeypatch):
@@ -406,3 +446,28 @@ def test_archive_actual_shipment_and_scrap_deletion_guidance():
             assert "Silme, Yarı mamule geri al değildir" in topic["body"]
         assert "confirmedDeliveryBuffer" not in topic["body"]
         assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_grouping_and_cascade_knowledge_explains_units_scope_and_user_sources():
+    from app.ravi.tools import inspect_state, Inspect
+    from copy import deepcopy
+    session = ToolSession(None, False)
+    methods = session.execute('read_knowledge', '{"topic_id":"downstream-planning-methods"}')
+    assert "Sıradaki operasyonları otomatik güncelle" in methods["body"]
+    assert "Delme ile arkasındaki" in methods["body"]
+    assert "seçili tek şarjla sınırlı değildir" in methods["body"]
+    machines = session.execute('read_knowledge', '{"topic_id":"machines"}')
+    assert "500 + 1.000 = 1.500" in machines["body"]
+    assert "Çalışan işe sonradan gelen parçalar eklenmez" in machines["body"]
+    assert "700 sonraki operasyonda, 800 önceki operasyonda" in machines["body"]
+    assert "Adet / vardiya" in machines["body"]
+    assert any("Birleştir ve üretime al" in source for source in machines["userSources"])
+    assert "sources" not in machines and "implementationNotes" not in machines
+    snapshot = {"updatedAt": "synthetic-server-snapshot", "seed": {"processCurrentJobs": [{"workOrder": "1500", "product": "SYNTHETIC", "resourceId": "D-01", "process": "drilling", "originalQuantity": 1500, "remainingQuantity": 1500, "wipAllocations": [{"lotId": "first", "quantity": 500}, {"lotId": "second", "quantity": 1000}]}]}}
+    before = deepcopy(snapshot)
+    inspected = inspect_state(snapshot, Inspect(collection="process_current_jobs"))
+    row = inspected["rows"][0]
+    assert row["Orijinal"] == 1500 and row["Birleştirilmiş iş"] is True
+    assert [item["Adet"] for item in row["Parça kayıtları"]] == [500, 1000]
+    assert "Tezgahlar" in row["Ekran"]
+    assert snapshot == before

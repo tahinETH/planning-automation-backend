@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .process_wip_group import has_grouped_process_work, validate_grouped_process_work
 
 from .production_merge import merge_production_refresh
 from .product_weights import initial_product_weights, preserve_missing_weights, validate_product_weights
@@ -433,6 +434,7 @@ def save_planning_state(
     can_manage_settings: bool = False,
     route_placement_version: int = 0,
     production_split_version: int = 0,
+    process_wip_grouping_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     timestamp = now_iso()
@@ -463,6 +465,8 @@ def save_planning_state(
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if process_wip_grouping_version < 1 and any(has_grouped_process_work(state) for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Birleştirilmiş proses işlerini korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if production_split_version < 1 and any(
             item.get("kind") == "partial-completion"
             for state in [seed, current["seed"] if current else {}]
@@ -480,6 +484,7 @@ def save_planning_state(
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None, reconcile=not unresolved) if mode == "planning" else seed
+        validate_grouped_process_work(saved_seed)
         if identity_resolution is not None:
             # The server built and validated the complete repair from its own revision.
             pass

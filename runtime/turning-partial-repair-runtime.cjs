@@ -3,6 +3,24 @@
 // scripts/turning-partial-repair-runtime.ts
 var import_node_fs = require("node:fs");
 
+// lib/factory-time.ts
+var FACTORY_TIME_ZONE = "Europe/Istanbul";
+function factoryDateParts(value) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACTORY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(value);
+  const part = (type) => Number(parts.find((item) => item.type === type)?.value ?? 0);
+  return { year: part("year"), month: part("month"), day: part("day") };
+}
+function factoryDateInput(value = /* @__PURE__ */ new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const { year, month, day } = factoryDateParts(date);
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 // lib/production-interruptions.ts
 function activeLotInterruptions(seed, lot) {
   return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
@@ -224,24 +242,6 @@ function turningDeliveryReadyAt(completionSerial) {
 }
 function routedDeliveryReadyAt(seed, routeCompletionSerial) {
   return addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
-}
-
-// lib/factory-time.ts
-var FACTORY_TIME_ZONE = "Europe/Istanbul";
-function factoryDateParts(value) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: FACTORY_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(value);
-  const part = (type) => Number(parts.find((item) => item.type === type)?.value ?? 0);
-  return { year: part("year"), month: part("month"), day: part("day") };
-}
-function factoryDateInput(value = /* @__PURE__ */ new Date()) {
-  const date = value instanceof Date ? value : new Date(value);
-  const { year, month, day } = factoryDateParts(date);
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 // data/product-setup-families.json
@@ -721,6 +721,31 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial(factoryDat
   return rolledMachineIds;
 }
 
+// lib/process-wip-group.ts
+function sameWipCharge(left, right) {
+  if (left.product !== right.product || left.family !== right.family || left.workOrder !== right.workOrder) return false;
+  if (left.sourceBatchId || right.sourceBatchId) return Boolean(left.sourceBatchId && left.sourceBatchId === right.sourceBatchId);
+  return Boolean(left.workOrder.trim());
+}
+function groupedCurrentJobLots(seed, job) {
+  const allocations = job.wipAllocations;
+  if (!allocations) return [];
+  const invalid = () => {
+    throw new Error("Birle\u015Ftirilmi\u015F i\u015Fin yar\u0131 mam\xFCl kay\u0131tlar\u0131 de\u011Fi\u015Fti; ortak veriyi yenileyip par\xE7alar\u0131 kontrol edin.");
+  };
+  if (![job.readyAt, job.start, job.end].every((value) => Number.isFinite(value) && value > 0) || job.end < job.start || job.start < job.readyAt) invalid();
+  if (allocations.length < 2 || allocations[0].lotId !== job.wipLotId || job.batchId !== job.wipLotId || new Set(allocations.map((item) => item.lotId)).size !== allocations.length) invalid();
+  const lots = allocations.map((item) => {
+    const matches = seed.wipLots?.filter((lot2) => lot2.id === item.lotId) ?? [];
+    if (matches.length !== 1) invalid();
+    const lot = matches[0];
+    if (!lot || !Number.isSafeInteger(item.quantity) || item.quantity <= 0 || lot.availableQuantity !== item.quantity || lot.nextProcess !== job.process || lot.stage === "on-hold" || lot.stage === "unclassified" || lot.stage === "delivered" || lot.stage === "scrapped" || lot.product !== job.product || lot.workOrder !== job.workOrder || lot.family !== job.family || !Number.isFinite(lot.rolledForwardFrom ?? lot.readyAt) || (lot.rolledForwardFrom ?? lot.readyAt) > job.start) return invalid();
+    return lot;
+  });
+  if (!lots.every((lot) => sameWipCharge(lots[0], lot)) || allocations.reduce((sum, item) => sum + item.quantity, 0) !== job.originalQuantity || !Number.isSafeInteger(job.originalQuantity) || !Number.isSafeInteger(job.remainingQuantity) || job.remainingQuantity <= 0 || job.remainingQuantity > job.originalQuantity || lots.some((lot) => seed.processCurrentJobs?.some((other) => other !== job && (other.wipLotId === lot.id || other.wipAllocations?.some((item) => item.lotId === lot.id))))) invalid();
+  return lots;
+}
+
 // lib/wip-ledger.ts
 var terminalStages = /* @__PURE__ */ new Set(["delivered", "scrapped"]);
 function activeWipLots(seed) {
@@ -1010,10 +1035,15 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const readyAt = firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays);
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
-    const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
+    const currentJob = seed.processCurrentJobs?.find((item) => item.process === process2 && (item.batchId === source.id || item.wipAllocations?.some((allocation) => allocation.lotId === source.id)));
     return [{ source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays }];
   }).sort((left, right) => {
     if (Boolean(left.currentJob) !== Boolean(right.currentJob)) return left.currentJob ? -1 : 1;
+    if (left.currentJob === right.currentJob && left.currentJob?.wipAllocations) {
+      const head = left.currentJob.batchId;
+      if (left.source.id === head) return -1;
+      if (right.source.id === head) return 1;
+    }
     if (Boolean(left.override?.resumeAfterCurrent) !== Boolean(right.override?.resumeAfterCurrent)) return left.override?.resumeAfterCurrent ? -1 : 1;
     if (process2 === "drilling" && left.source.masterProduct.family !== right.source.masterProduct.family) {
       return left.source.masterProduct.family === "center-pin" ? -1 : 1;
@@ -1039,6 +1069,12 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   const scheduled = [];
   for (const item of candidates) {
     const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays } = item;
+    if (currentJob?.wipAllocations && source.id !== currentJob.batchId) {
+      const shared = operationsByKey.get(`${currentJob.batchId}:${process2}`);
+      if (!shared) throw new Error("Birle\u015Ftirilmi\u015F i\u015Fin ortak operasyonu bulunamad\u0131.");
+      operationsByKey.set(`${source.id}:${process2}`, { ...shared, id: `${source.id}:${process2}`, batchId: source.id, wipLotId: source.id, quantity: source.quantity });
+      continue;
+    }
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
     const activeResources = activeProcessResourceIds(parameter);
     const resourceCandidates = currentJob ? [currentJob.resourceId] : override ? activeResources.filter((id) => id === override.resourceId) : activeResources;
@@ -1140,7 +1176,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     };
     scheduled.push(operation);
     if (override?.routeMode === "keep" && !currentJob && (Math.abs(operation.start - (override.preservedStart ?? override.requestedStart)) > 1e-8 || Math.abs(operation.end - (override.preservedEnd ?? operation.end)) > 1e-8)) warnings.push({ code: "placement-conflict", product: source.product, batchId: source.id, message: `${source.workOrder || source.product} \xB7 ${processLabelForError(process2)} mevcut yerle\u015Fimi de\u011Fi\u015Fen girdilerle korunam\u0131yor. \xDCretim ak\u0131\u015F\u0131n\u0131 d\xFCzenle ile yeniden inceleyin.` });
-    operationsByKey.set(`${source.id}:${process2}`, operation);
+    operationsByKey.set(`${source.id}:${process2}`, currentJob?.wipAllocations ? { ...operation, quantity: source.quantity } : operation);
     if (chosen.gapIndex >= 0) {
       if (chosen.previousOperation) chosen.previousOperation.protectedSetupHoursAfter = void 0;
     } else {
@@ -1197,6 +1233,7 @@ function processGapDiagnostics(seed, master, operations) {
 function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
   const master = seed.processMasterData ?? { version: 0, source: { kind: "one-time-foundation", files: [], calculatedOnce: "" }, machineCodeStandard: [], products: [], resources: [] };
   const warnings = validateProcessMasterData(master);
+  for (const job of seed.processCurrentJobs ?? []) if (job.wipAllocations) groupedCurrentJobLots(seed, job);
   const sources = [];
   for (const lot of (seed.wipLots ?? []).filter((item) => item.availableQuantity > 0 && item.stage !== "delivered" && item.stage !== "scrapped")) {
     const masterProduct = processMasterDataForProduct(master, lot.product);
@@ -1253,7 +1290,10 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
   const downstream = ["drilling", "deburring", "gkm"].flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates));
   const operations = [...baseOperations, ...downstream].sort((left, right) => left.start - right.start || left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.id.localeCompare(right.id));
   const jobs = sources.map((source) => {
-    const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
+    const route = [...baseOperations.filter((operation) => operation.batchId === source.id), ...["drilling", "deburring", "gkm"].flatMap((process2) => {
+      const operation = operationsByKey.get(`${source.id}:${process2}`);
+      return operation && !operation.actual ? [operation] : [];
+    })].sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
     const completion2 = route.at(-1)?.end ?? source.releaseAt;
     const customRouteComplete = !source.masterProduct.route || source.masterProduct.route.length > 0 && !warnings.some((warning) => warning.product === source.product && warning.code === "invalid-route") && source.masterProduct.route.every((process2) => route.some((operation) => (operation.recordedProcess ?? operation.process) === process2)) && source.lot?.stage !== "on-hold" && source.lot?.stage !== "unclassified";
     const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2) : 0;

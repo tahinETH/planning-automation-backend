@@ -1,9 +1,10 @@
 {
   "version": 1,
-  "runtimeSha256": "98054bf49e5ebe29d146192aea9f737b60df6402c181897e0785db168c70ae78",
+  "runtimeSha256": "e38048de1ce0379224983637733161f4c0ad11569d18f36d9b0736e51a376a71",
   "sources": {
     "data/process-master-data.json": "6c2204a4d32ee2e41732831de6d140ba467cada1f289735e9eff578bb12cb756",
     "data/product-setup-families.json": "2858ad1877ec937bc3d75f99e7eecc48494211665dbb4810d9ae8efb69fb155b",
+    "lib/current-job-observation.ts": "b89f4c920cbda33433f1716f2378cddf88cd637703631b67929a7ad798e0fe95",
     "lib/delivery-calendar.ts": "6c202263ec71a5f357bfeac7545653494e2d318d79a5913fc2dd6fc3e94f1d6a",
     "lib/delivery-deduction.ts": "ced7a13e94baa33544c8467df3ebf17be180dc5eb45d36a9e13a946fe549932e",
     "lib/delivery-plan.ts": "8f6c8a260e6c2844df32b027e1e8a8c0033e62d6ec17687ffd07fd12390551bf",
@@ -11,16 +12,17 @@
     "lib/delivery-report.ts": "b9fb5ba310693f028c0828ef3678a4913a08256ebda7988eb239f8fde026156c",
     "lib/factory-time.ts": "195e15818464bf249ca561157e821a3d9b8f0c7bf2790a17e9323ec15744cd77",
     "lib/plan-integrity.ts": "e2e81b8c6638c220f30a7120af125491dbc9a594e6faa3c4610a9429b32db7ae",
-    "lib/planning.ts": "ddbd2fce6a5062e4939f4ad8da74a3db5dfa91ae2c98c65125081f403029a6ee",
-    "lib/process-eligibility.ts": "0f0cca7de413e71e5ee282e223a44d1cd2f90b1f0a5ec7f18ce4ce1db80af9c6",
+    "lib/planning.ts": "d183fc47bb1f607f9aa2d3167523a871c09255bc9a4a0478208b4e683ba0cf8a",
+    "lib/process-eligibility.ts": "1c00748133b1cdc42cae03f9e19c596f51e9a60035c3c79a1c2ff71e6bfb0ecf",
     "lib/process-master-data.ts": "bee63f59e0779f9f0e2d36e4cc7e65ed043f3419f4792eb8d149d554e6ff2940",
-    "lib/process-planning.ts": "5c9c9aa691526c4aa95f90b6752e60054f22bee6fc5cb9c5c434506131cc6d16",
+    "lib/process-planning.ts": "bb52dcb2192bdf26d20b5ee64ed4f4eda73598b46158044af77b66cf05ec07fe",
     "lib/process-route-state.ts": "a4dcb67b2721deea3d9ec7b657a5cc79d5fa6c36c656d4611fc56c3b73422a1f",
+    "lib/process-wip-group.ts": "21182055f8743efd8d7f0ff6777e0eb07843acde9cbcf59402235ebe3bd5e615",
     "lib/production-archive.ts": "df7147f1b8e949324f47ecf0b2897b1dbc9389359a14f35b0c88789e1fcf90d8",
     "lib/production-interruptions.ts": "d668fee3d03dfd5f2242eaec486489c099a89bdc1af95cfca4907a8e3bc5ade7",
     "lib/setup-families.ts": "486452f23561a973fcf981fe879ff0f64ea36320d69a02ae7f9d15a3e7c7fe7d",
     "lib/turning-queue-identity.ts": "c2f825552d22e8b5858c2b9f96da964f307337ab6a94030dacd4d273dc2c3086",
-    "lib/wip-ledger.ts": "0d08ad341407b496e6fd3a03e8c71b6883124796718a38c9a2a6fc71cefadf63",
+    "lib/wip-ledger.ts": "bc9a1499cc10f3850bcd9fffffda996fe380c50b8902f5e9ed4611447e48f65f",
     "scripts/delivery-runtime.ts": "1102503e038ef068cd483f86262d297f27821816c2c0a5df05c4e7d08478197c"
   }
 }

@@ -109,6 +109,13 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 projected["İş değiştirme nedeni"] = projected.pop("İşe ara verme nedeni")
                 projected["Kısmi tamamlanma tarihi"] = projected.pop("Ara verme tarihi")
                 projected["Ekran"] = "Şarj Yolculuğu → Kısmi üretim tamamlandı.; Tezgahlar → Torna kuyruğu"
+        elif args.collection == "process_current_jobs" and row.get("wipAllocations"):
+            projected = {"Şarj / iş emri": row.get("workOrder"), "Tip no": row.get("product"), "Proses": row.get("process"),
+                         "Tezgah": row.get("resourceId"), "Orijinal": row.get("originalQuantity"), "Kalan": row.get("remainingQuantity"),
+                         "Başlangıç": row.get("start"), "Bitiş": row.get("end"), "Birleştirilmiş iş": True,
+                         "Parça kayıtları": bounded([{"Parça kaydı": index + 1, "Adet": item.get("quantity")} for index, item in enumerate(row["wipAllocations"])]),
+                         "Birim": "adet; tarihler Excel seri gün", "Ekran": "Tezgahlar → Mevcut üretim → Birleştirilmiş iş",
+                         "Açıklama": "Kaynak yarı mamül kayıtları ayrı korunur; sonradan gelen parça çalışan işe eklenmez."}
         elif args.collection == "raw_material_stocks":
             materials = seed.get("rawMaterialSettings") or {}
             projected = {"Hammadde Kodu": row.get("materialCode"), "Ambar stoğu (kg)": row.get("kg"),
