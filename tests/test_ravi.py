@@ -471,3 +471,19 @@ def test_grouping_and_cascade_knowledge_explains_units_scope_and_user_sources():
     assert [item["Adet"] for item in row["Parça kayıtları"]] == [500, 1000]
     assert "Tezgahlar" in row["Ekran"]
     assert snapshot == before
+
+
+def test_type_deletion_and_journey_colors_have_visible_sources_and_safe_scope():
+    topic = knowledge.for_model(knowledge.read_topic("delete-product-type"))
+    for label in ["Parametreler → Tip sil", "Tipi sil", "Tüm proseslerde parametre", "yönetici", "Üretim arşivi", "Geri al"]:
+        assert label in topic["body"]
+    assert any("Silinecek tip" in source for source in topic["userSources"])
+    journey = knowledge.for_model(knowledge.read_topic("processes-wip"))
+    assert "hem Tüm akış hem tek proses satırlarının" in journey["body"]
+    assert "Çapak Alma mor" in journey["body"]
+    assert "Gerçekleşen üretim yeşil" in journey["body"]
+    assert any("renk lejantı" in source for source in journey["userSources"])
+    from app.ravi.knowledge import navigation_targets
+    # Only authenticated admin navigation should offer the deletion control.
+    assert "delete-product-type" not in {item["id"] for item in navigation_targets(False)}
+    assert "delete-product-type" in {item["id"] for item in navigation_targets(True)}
