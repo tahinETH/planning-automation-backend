@@ -1674,7 +1674,7 @@ Plan`, kind: "plan" });
       product,
       family: familyByProduct2.get(product) || (() => {
         const family = resolvedProductSetupFamily(product, seed.products?.find((item) => item.product === product)?.setupFamily);
-        return family === "piston" ? "PISTON" : family === "center-pin" ? "CENTER PIN" : "";
+        return family === "piston" ? "PISTON" : family === "center-pin" ? "CENTER PIN" : family === "cubuk-filtre" ? "\xC7UBUK F\u0130LTRE" : "";
       })(),
       orderQuantity: orderQuantityByProduct.get(product) ?? 0,
       weeklyQuantities: weeks.map((week) => {
