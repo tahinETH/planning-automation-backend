@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "topicsSha256": "5d3fd84cff7a5490751407afe87bc092fcf8adf9a9824f48e10eb5fd697395b4",
+  "topicsSha256": "7b581bbc46b413e402c64eca437b16871a86eb759ab6e78d2cf317603fd54af0",
   "modules": {
     "backend/app/__init__.py": {
       "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",

@@ -11,6 +11,20 @@ from app.production_area import production_area
 from app.config import settings
 
 
+def test_cf_i05_staging_proxy_accepts_the_app_file_limit_with_multipart_overhead():
+    from pathlib import Path
+    import re
+    from app.order_import import MAX_XLSX_BYTES
+
+    config = (Path(__file__).parents[1] / 'deploy/api-staging.planning.hfgok.com.nginx').read_text()
+    block = re.search(r'location\s*=\s*/api/order-imports/preview\s*\{([^}]+)\}', config)
+    assert block, 'The order upload needs an explicit staging proxy allowance.'
+    limit = re.search(r'client_max_body_size\s+(\d+)m;', block.group(1))
+    assert limit and MAX_XLSX_BYTES + 64 * 1024 <= int(limit.group(1)) * 1024 * 1024 <= 2 * MAX_XLSX_BYTES
+    assert 'proxy_pass http://127.0.0.1:8003;' in block.group(1)
+    assert 'proxy_set_header X-Forwarded-Proto $scheme;' in block.group(1)
+
+
 def daily_workbook(*, bad_formula=False, duplicate=False, bad_quantity=None):
     def cell(ref, value):
         if isinstance(value, (int, float)):
