@@ -89,6 +89,8 @@ def _parse_integer(value: str, numeric_cell: bool, row_number: int, label: str, 
         number = Decimal(cleaned)
     except InvalidOperation:
         raise OrderImportError(f"{row_number}. satırdaki {label} sayı değil: {value}") from None
+    if not number.is_finite() or abs(number) > 9007199254740991:
+        raise OrderImportError(f"{row_number}. satırdaki {label} güvenli adet sınırını aşıyor.")
     if number < 0 and not allow_negative:
         raise OrderImportError(f"{row_number}. satırdaki {label} negatif olamaz.")
     if number != number.to_integral_value():
@@ -357,22 +359,105 @@ def _parse_simple_order_sheet(values_by_row: dict[int, dict[str, tuple[str, bool
     }
 
 
-def parse_order_xlsx(content: bytes) -> dict:
+def parse_order_xlsx(content: bytes, *, allow_filter_daily: bool = False) -> dict:
     if not content:
         raise OrderImportError("Excel dosyası boş.")
     if len(content) > MAX_XLSX_BYTES:
         raise OrderImportError("Excel dosyası 5 MB sınırını aşıyor.")
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
-            if len(archive.infolist()) > 200 or sum(item.file_size for item in archive.infolist()) > MAX_UNCOMPRESSED_BYTES:
+            if len(archive.infolist()) > 200 or sum(item.file_size for item in archive.infolist()) > (32 * 1024 * 1024 if allow_filter_daily else MAX_UNCOMPRESSED_BYTES):
                 raise OrderImportError("Excel dosyası güvenli boyut sınırlarını aşıyor.")
             shared = _shared_strings(archive)
             confirmed_path = _sheet_path_by_name(archive, "3. Overview (confirmed)")
-            target_path = confirmed_path or _first_sheet_path(archive)
-            values_by_row = _sheet_values(ET.fromstring(archive.read(target_path)), shared)
+            daily_path = _sheet_path_by_name(archive, "Sevkiyat Planı") if allow_filter_daily else None
+            target_path = daily_path or confirmed_path or _first_sheet_path(archive)
+            sheet = ET.fromstring(archive.read(target_path))
+            values_by_row = _sheet_values(sheet, shared)
+            if daily_path:
+                workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+                properties = workbook.find(f"{{{MAIN_NS}}}workbookPr")
+                if properties is not None and properties.attrib.get("date1904") in {"1", "true"}:
+                    raise OrderImportError("Sevkiyat Planı için 1904 tarih sistemi desteklenmiyor.")
+                numeric_columns = {"B"}
+                for column, (label, _) in values_by_row.get(3, {}).items():
+                    if _normalize_header(label) in {"siparis", "teslimat"}:
+                        numeric_columns.add(column)
+                for cell in sheet.iter(f"{{{MAIN_NS}}}c"):
+                    ref = cell.attrib.get("r", "")
+                    match = re.fullmatch(r"([A-Z]+)(\d+)", ref)
+                    if match and int(match[2]) >= 4 and match[1] in numeric_columns and cell.find(f"{{{MAIN_NS}}}f") is not None and not cell.findtext(f"{{{MAIN_NS}}}v"):
+                        raise OrderImportError(f"{ref}: formülün hesaplanmış değeri yok. Excel’de hesaplayıp kaydedin.")
     except OrderImportError:
         raise
     except (zipfile.BadZipFile, KeyError, ET.ParseError):
         raise OrderImportError("Dosya geçerli bir .xlsx çalışma kitabı değil.") from None
 
+    if daily_path:
+        return _parse_daily_dispatch(values_by_row)
     return _parse_confirmed_overview(values_by_row) if confirmed_path else _parse_simple_order_sheet(values_by_row)
+
+# Reviewed labels from the supplied ÇF Sevkiyat Planı. Unknown labels stop import.
+FILTER_DAILY_PRODUCTS = {
+    "C100-DRS": "F.00V.C15.100", "309-RBTR": "F.00V.P01.309",
+    "C002-DRS": "F.00V.C15.002", "081-DRS": "2.433.084.081",
+    "315-BAP": "F.00V.P01.315", "245-CTP": "2.433.084.245", "002-CTP": "F.00Z.S00.002",
+}
+
+def _parse_daily_dispatch(values: dict[int, dict[str, tuple[str, bool]]]) -> dict:
+    headers = values.get(2, {})
+    kinds = values.get(3, {})
+    pairs = []
+    for column, (kind, _) in kinds.items():
+        if _normalize_header(kind) != "siparis":
+            continue
+        label = headers.get(column, ("", False))[0].strip()
+        code = re.sub(r"\s+", "", label).upper()
+        product = FILTER_DAILY_PRODUCTS.get(code)
+        if not product:
+            raise OrderImportError(f"Sevkiyat Planı ürün eşleşmesi eksik: {label}")
+        number = _column_number(column) + 1
+        next_column = ""
+        while number:
+            number, remainder = divmod(number - 1, 26)
+            next_column = chr(65 + remainder) + next_column
+        if _normalize_header(kinds.get(next_column, ("", False))[0]) != "teslimat":
+            raise OrderImportError(f"{column} Sipariş sütununun yanında Teslimat bulunmalıdır.")
+        pairs.append((column, next_column, label, product))
+    if not pairs:
+        raise OrderImportError("Sevkiyat Planı: 2. satırda ürün, 3. satırda Sipariş / Teslimat başlıkları bulunamadı.")
+    rows = []
+    seen_dates = set()
+    for row_number, cells in sorted(values.items()):
+        if row_number < 4:
+            continue
+        day, numeric = cells.get("B", ("", False))
+        if not day.strip():
+            if any(cells.get(column, ("", False))[0].strip() for pair in pairs for column in pair[:2]):
+                raise OrderImportError(f"{row_number}. satırda sipariş/teslimat var, B tarih hücresi boş.")
+            continue
+        try:
+            parsed = date(1899, 12, 30) + timedelta(days=float(day)) if numeric else date.fromisoformat(day[:10])
+        except (ValueError, OverflowError):
+            raise OrderImportError(f"B{row_number} tarihi geçersiz.") from None
+        if numeric and (not float(day).is_integer() or not 1 <= float(day) <= 2958465):
+            raise OrderImportError(f"B{row_number} tam gün tarihi olmalıdır.")
+        iso = parsed.isoformat()
+        if iso in seen_dates:
+            raise OrderImportError(f"Sevkiyat Planı tarihi tekrarlanıyor: {iso}")
+        seen_dates.add(iso)
+        grouped = {}
+        for order_column, delivery_column, label, product in pairs:
+            ordered = _parse_integer(*cells.get(order_column, ("", False)), row_number, "Sipariş")
+            delivered = _parse_integer(*cells.get(delivery_column, ("", False)), row_number, "Teslimat")
+            item = grouped.setdefault(product, {"date": iso, "product": product, "ordered": 0, "delivered": 0, "sourceCells": []})
+            item["ordered"] += ordered
+            item["delivered"] += delivered
+            item["sourceCells"].extend([f"{order_column}{row_number}", f"{delivery_column}{row_number}"])
+        rows.extend(item for item in grouped.values() if item["ordered"] or item["delivered"])
+    if len(rows) > 12000 or any(item["ordered"] > 9007199254740991 or item["delivered"] > 9007199254740991 for item in rows):
+        raise OrderImportError("Sevkiyat Planı satır / adet sınırını aşıyor.")
+    if not rows:
+        raise OrderImportError("Sevkiyat Planı içinde sipariş veya teslimat adedi bulunamadı.")
+    return {"format": "filter-daily", "sheetName": "Sevkiyat Planı", "dailyRows": rows,
+            "mappings": [{"label": label, "product": product, "orderColumn": order, "deliveryColumn": delivery} for order, delivery, label, product in pairs]}

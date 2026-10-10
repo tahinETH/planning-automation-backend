@@ -26,7 +26,7 @@ class Source(Arguments):
 
 
 class Inspect(Arguments):
-    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "production_interruptions", "overrides"]
+    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "process_stock", "daily_demand", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "production_interruptions", "overrides"]
     query: str = Field(default="", max_length=100)
     offset: int = Field(default=0, ge=0, le=100000)
     week_offset: int = Field(default=0, ge=0, le=1000)
@@ -79,8 +79,10 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 "orderQuantity": sum(max(0, item.get("quantity", 0)) for item in seed.get("orders", [])),
                 "orderSource": bounded({key: demand.get(key) for key in ("sourceFile", "snapshotDate", "importedAt", "activeScope", "calculationModel", "baselineDueDate")}),
                 "orderImport": bounded(seed.get("orderImport")), "activePlanRun": bounded(seed.get("activePlanRun")),
-                "setupSettings": bounded(seed.get("setupSettings")), "flowSettings": bounded(seed.get("flowSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
+                "filterWaitShifts": seed.get("filterWaitShifts", 1) if seed.get("productionArea") == "cubuk-filtre" else None, "dailyOrderSource": bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "snapshotDate", "endDate", "importedAt")}), "setupSettings": bounded(seed.get("setupSettings")), "flowSettings": bounded(seed.get("flowSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
     collections = {
+        "daily_demand": (seed.get("dailyCustomerDemand") or {}).get("dailyRows", []),
+        "process_stock": [{"kind": kind, **row} for kind in ("limits", "scrap", "opening") for row in (seed.get("processStockSettings") or {}).get(kind, [])],
         "raw_material_stocks": (seed.get("rawMaterialSettings") or {}).get("stocks", []),
         "product_weights": seed.get("productWeights", []),
         "orders": seed.get("orders", []), "products": seed.get("products", []), "machines": seed.get("machines", []),
@@ -141,6 +143,11 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                               "Date": demand.get("snapshotDate"), "baselineColumn": demand.get("baselineLabel"),
                               "selectedScope": demand.get("activeScope"),
                               "note": "İçe aktarılmış Balance (confirmed) değerleri; dosya canlı açılmadı. Kullanıcı düzeltmeleri ayrıca overrides koleksiyonundadır."}
+    if args.collection == "daily_demand":
+        meta["workbookSource"] = bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "snapshotDate", "endDate", "importedAt")})
+    if args.collection == "process_stock":
+        meta["openingDate"] = (seed.get("processStockSettings") or {}).get("openingDate")
+        meta["calculationNote"] = "Kaydedilmiş grup limitleri, ıskarta yüzdeleri ve şarjlar dışındaki ek stok. Haftalık tahmin veya canlı sayım değildir."
     return {**meta, "collection": args.collection, "total": len(rows), "rows": selected,
             "nextOffset": next_offset if next_offset < len(rows) else None,
             "note": "İç listeler en fazla 40 kayıt; truncated işaretlerini kontrol et." if any(isinstance(value, dict) and value.get("truncated") for row in selected for value in row.values()) else ("CPM’den elle girilmiş gün başı stokları kg cinsindedir; boş bilinmiyor, sıfır stok yok demektir. Canlı CPM bağlantısı veya sunucuda tüketim tahmini yoktur." if args.collection == "raw_material_stocks" else "Hammadde ağırlıkları gram cinsindedir; boş değer bilinmiyor demektir." if args.collection == "product_weights" else "Miktarlar adet; sayısal tarihler Excel serial günleridir.")}

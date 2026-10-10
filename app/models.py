@@ -68,6 +68,7 @@ class PlanningStatePayload(BaseModel):
     flowSettingsVersion: int = 0
     routePlacementVersion: int = 0
     productionSplitVersion: int = 0
+    stockPlanningVersion: int = 0
     expectedUpdatedAt: str | None = None
     force: bool = False
     mode: Literal["planning", "operational"] = "planning"
@@ -222,7 +223,7 @@ class OverviewExportPayload(BaseModel):
 
 class CalendarEventExportRow(BaseModel):
     eventType: Literal["maintenance", "overtime", "shift-change"]
-    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"]
+    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual", "filter-wait"]
     workCenterId: str = Field(min_length=1, max_length=40)
     workCenterName: str = Field(default="", max_length=160)
     name: str = Field(default="", max_length=300)

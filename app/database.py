@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .stock_planning import uses_stock_planning, validate_stock_planning
 from .flow_settings import validate_flow_settings
 
 from .production_merge import merge_production_refresh
@@ -304,7 +305,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings")
+PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -437,6 +438,7 @@ def save_planning_state(
     flow_settings_version: int = 0,
     route_placement_version: int = 0,
     production_split_version: int = 0,
+    stock_planning_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_seed_area(seed)
@@ -468,6 +470,9 @@ def save_planning_state(
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if stock_planning_version < 1 and any(uses_stock_planning(state) for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Günlük sipariş, stok ve bekleme takvimini korumak için uygulamayı yenileyin.")
+        validate_stock_planning(seed)
         if "flowSettings" in seed:
             validate_flow_settings(seed["flowSettings"])
             if production_area.get() == "cubuk-filtre" and seed["flowSettings"]["enabled"]:

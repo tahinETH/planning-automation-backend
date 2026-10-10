@@ -141,11 +141,11 @@ def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_u
 
 @app.post("/api/order-imports/preview")
 async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
+        raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_XLSX_BYTES + 1)
     try:
-        preview = parse_order_xlsx(content)
+        preview = parse_order_xlsx(content, allow_filter_daily=production_area.get() == "cubuk-filtre")
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
@@ -251,8 +251,8 @@ async def import_data_package(scope: str, file: UploadFile = File(...), user: Cu
         raise HTTPException(status_code=404, detail="Veri paketi kapsamı bulunamadı.")
     if scope == "settings" and not user.is_admin:
         raise HTTPException(status_code=403, detail="Ayarlar paketlerini yalnızca yöneticiler içe aktarabilir")
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
+        raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_DATA_PACKAGE_BYTES + 1)
     try:
         data = parse_data_package(content, scope)
@@ -307,6 +307,7 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             flow_settings_version=payload.flowSettingsVersion,
             route_placement_version=payload.routePlacementVersion,
             production_split_version=payload.productionSplitVersion,
+            stock_planning_version=payload.stockPlanningVersion,
         )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error

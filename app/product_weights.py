@@ -26,7 +26,7 @@ def validate_product_weights(rows: object) -> None:
 
 def preserve_missing_weights(incoming: dict, current: dict | None) -> dict:
     # Older clients/packages must not erase administrator-maintained weights.
-    for field in ("productWeights", "rawMaterialSettings", "flowSettings"):
+    for field in ("productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts"):
         if field not in incoming and current and field in current:
             incoming = {**incoming, field: deepcopy(current[field])}
     return incoming
