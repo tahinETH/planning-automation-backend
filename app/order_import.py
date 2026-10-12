@@ -374,6 +374,7 @@ def parse_order_xlsx(content: bytes, *, allow_filter_daily: bool = False) -> dic
             target_path = daily_path or confirmed_path or _first_sheet_path(archive)
             sheet = ET.fromstring(archive.read(target_path))
             values_by_row = _sheet_values(sheet, shared)
+            monthly_plan = _parse_working_days(archive, shared) if daily_path else None
             if daily_path:
                 workbook = ET.fromstring(archive.read("xl/workbook.xml"))
                 properties = workbook.find(f"{{{MAIN_NS}}}workbookPr")
@@ -394,13 +395,16 @@ def parse_order_xlsx(content: bytes, *, allow_filter_daily: bool = False) -> dic
         raise OrderImportError("Dosya geçerli bir .xlsx çalışma kitabı değil.") from None
 
     if daily_path:
-        return _parse_daily_dispatch(values_by_row)
+        preview = _parse_daily_dispatch(values_by_row)
+        if monthly_plan:
+            preview["monthlyPlan"] = monthly_plan
+        return preview
     return _parse_confirmed_overview(values_by_row) if confirmed_path else _parse_simple_order_sheet(values_by_row)
 
 # Reviewed labels from the supplied ÇF Sevkiyat Planı. Unknown labels stop import.
 FILTER_DAILY_PRODUCTS = {
     "C100-DRS": "F.00V.C15.100", "309-RBTR": "F.00V.P01.309",
-    "C002-DRS": "F.00V.C15.002", "081-DRS": "2.433.084.081",
+    "C002-DRS": "F.00V.C15.002", "002-DRS": "F.00V.C15.002", "081-DRS": "2.433.084.081",
     "315-BAP": "F.00V.P01.315", "245-CTP": "2.433.084.245", "002-CTP": "F.00Z.S00.002",
 }
 
@@ -461,3 +465,77 @@ def _parse_daily_dispatch(values: dict[int, dict[str, tuple[str, bool]]]) -> dic
         raise OrderImportError("Sevkiyat Planı içinde sipariş veya teslimat adedi bulunamadı.")
     return {"format": "filter-daily", "sheetName": "Sevkiyat Planı", "dailyRows": rows,
             "mappings": [{"label": label, "product": product, "orderColumn": order, "deliveryColumn": delivery} for order, delivery, label, product in pairs]}
+
+
+MONTH_HEADERS = ["ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"]
+MONTH_COLUMNS = "BCDEFGHIJKLM"
+
+def _month_header(value: str) -> str:
+    return _normalize_header(value).translate(str.maketrans("üğöç", "ugoc"))
+
+def _fill_colors(archive: zipfile.ZipFile, sheet: ET.Element, column: str) -> dict[int, str]:
+    """Solid fill of each cell in one column: an RGB value or ``theme``."""
+    styles = ET.fromstring(archive.read("xl/styles.xml"))
+    fills = []
+    for fill in styles.findall(f"{{{MAIN_NS}}}fills/{{{MAIN_NS}}}fill"):
+        color = fill.find(f"{{{MAIN_NS}}}patternFill/{{{MAIN_NS}}}fgColor")
+        fills.append("" if color is None else color.attrib.get("rgb", "").upper() or ("theme" if "theme" in color.attrib else ""))
+    formats = [int(item.attrib.get("fillId", "0")) for item in styles.findall(f"{{{MAIN_NS}}}cellXfs/{{{MAIN_NS}}}xf")]
+    colors = {}
+    for cell in sheet.iter(f"{{{MAIN_NS}}}c"):
+        match = re.fullmatch(r"([A-Z]+)(\d+)", cell.attrib.get("r", ""))
+        index = int(cell.attrib.get("s", "0"))
+        if match and match[1] == column and index < len(formats) and formats[index] < len(fills):
+            colors[int(match[2])] = fills[formats[index]]
+    return colors
+
+def _parse_working_days(archive: zipfile.ZipFile, shared: list[str]) -> dict | None:
+    """Çalışma Günler: monthly working days and the Çubuk Filtre monthly rows.
+
+    The rows between ``DRS Total`` and ``ÇF Total`` are read. Orange (FF9900)
+    rows are external production; the grey theme-filled rows are internal.
+    """
+    path = _sheet_path_by_name(archive, "Çalışma Günler") or _sheet_path_by_name(archive, "Çalışma Günleri")
+    if not path:
+        return None
+    sheet = ET.fromstring(archive.read(path))
+    values = _sheet_values(sheet, shared)
+    text = lambda row, column: values.get(row, {}).get(column, ("", False))[0].strip()
+    if _normalize_header(text(2, "A")) != "day":
+        raise OrderImportError("Çalışma Günler: 2. satırda aylık iş günü (Day) satırı bulunamadı.")
+    try:
+        working_days = [float(text(2, column)) for column in MONTH_COLUMNS]
+    except ValueError:
+        raise OrderImportError("Çalışma Günler: aylık iş günü sayıları okunamadı.") from None
+    if any(not 0 <= days <= 31 or (days * 2) % 1 for days in working_days):
+        raise OrderImportError("Çalışma Günler: iş günü 0–31 arasında tam veya yarım gün olmalıdır.")
+    header = next((row for row in sorted(values) if [_month_header(text(row, column)) for column in MONTH_COLUMNS] == MONTH_HEADERS), None)
+    if header is None:
+        raise OrderImportError("Çalışma Günler: Ocak–Aralık başlık satırı bulunamadı.")
+    year = next((int(match[1]) for row in range(1, header) if (match := re.match(r"(20\d{2})\s*YILI", text(row, "A").upper()))), None)
+    if year is None:
+        raise OrderImportError("Çalışma Günler: yıl başlığı (ör. 2026 YILI) bulunamadı.")
+    colors = _fill_colors(archive, sheet, "A")
+    rows, inside = [], False
+    for row in range(header + 1, header + 60):
+        label = text(row, "A")
+        key = _normalize_header(label)
+        if key == "drs total":
+            inside = True
+            continue
+        if not inside or not label:
+            continue
+        if _month_header(label) == "cf total":
+            break
+        product = FILTER_DAILY_PRODUCTS.get(re.sub(r"\s+", "", label).upper())
+        if not product:
+            raise OrderImportError(f"Çalışma Günler ürün eşleşmesi eksik: {label}")
+        color = colors.get(row, "")
+        kind = "external" if color.endswith("FF9900") else "internal" if color == "theme" else ""
+        if not kind:
+            raise OrderImportError(f"Çalışma Günler A{row}: satır rengi turuncu (dış üretim) veya gri (iç üretim) olmalıdır.")
+        quantities = [_parse_integer(*values.get(row, {}).get(column, ("", False)), row, "Aylık adet") for column in MONTH_COLUMNS]
+        rows.append({"label": label, "product": product, "kind": kind, "quantities": quantities, "sourceRow": row})
+    if not rows:
+        raise OrderImportError("Çalışma Günler: DRS Total ile ÇF Total arasında ürün satırı bulunamadı.")
+    return {"sheetName": "Çalışma Günler", "year": year, "workingDays": working_days, "rows": rows}

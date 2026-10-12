@@ -1540,6 +1540,8 @@ function effectiveDeliveryTimestamp(entry) {
 // lib/delivery-plan.ts
 var DAY_MS2 = 864e5;
 var MAX_DELIVERY_PLAN_WEEKS = 53;
+var MAX_DELIVERY_PLAN_DAY_COLUMNS = 160;
+var DAY_NAMES = ["Paz", "Pzt", "Sal", "\xC7ar", "Per", "Cum", "Cmt"];
 function serialToIsoDate(serial) {
   return excelSerialToDate(Math.floor(serial)).toISOString().slice(0, 10);
 }
@@ -1607,10 +1609,11 @@ function buildDeliveryPlanPayload(seed, result, range = deliveryPlanDefaultRange
     if (!Number.isFinite(deliveredAt) || deliveredAt < start || deliveredAt >= end + 1) return [];
     return [{ id: entry.id, product: entry.product.trim().toUpperCase(), quantity: Math.max(0, Math.trunc(entry.completedQuantity)), deliveredAt, beforeSnapshot: dailyDemand ? Date.parse(timestamp) <= Date.parse(seed.orderImport?.shipmentsThrough ?? "") : deliveredAt < cutoff }];
   });
-  const weeks = calendarWeeks.flatMap((week) => {
+  const weekColumns = () => calendarWeeks.flatMap((calendarWeek) => {
+    const week = { ...calendarWeek, span: 7 };
     const columns = [];
     const hasActual = delivered.some((entry) => weekStart(entry.deliveredAt) === week.start);
-    if (customerDemand || dailyDemand) {
+    if (customerDemand) {
       if (week.start <= weekStart(cutoff)) columns.push({ ...week, label: `${week.label}
 Sipari\u015F \xF6ncesi
 Ger\xE7ekle\u015Fen`, kind: "actual-before-order" });
@@ -1627,6 +1630,31 @@ Devreden`, kind: "carryover" });
 Plan`, kind: "plan" });
     return columns;
   });
+  const dayColumns = () => {
+    const todaySerial = isoDateToSerial(today);
+    const columns = [];
+    for (let day = start; day <= end; day += 1) {
+      const date = excelSerialToDate(day);
+      const label = `${String(date.getUTCDate()).padStart(2, "0")}.${String(date.getUTCMonth() + 1).padStart(2, "0")} ${DAY_NAMES[date.getUTCDay()]}`;
+      const actual = delivered.filter((entry) => entry.deliveredAt === day);
+      if (actual.some((entry) => entry.beforeSnapshot)) columns.push({ start: day, span: 1, label: `${label}
+Sipari\u015F \xF6ncesi
+Ger\xE7ekle\u015Fen`, kind: "actual-before-order" });
+      if (actual.some((entry) => !entry.beforeSnapshot)) columns.push({ start: day, span: 1, label: `${label}
+Sipari\u015F sonras\u0131
+Ger\xE7ekle\u015Fen`, kind: "actual-after-order" });
+      if (day === todaySerial) columns.push({ start: day, span: 1, label: `${label}
+Devreden`, kind: "carryover" });
+      const planned = completions.some((entry) => Math.floor(entry.readyAt) === day);
+      if (planned || day >= todaySerial && date.getUTCDay() !== 0) columns.push({ start: day, span: 1, label: `${label}
+Plan`, kind: "plan" });
+    }
+    if (!columns.length) columns.push({ start: end, span: 1, label: `${serialToIsoDate(end).slice(8)}.${serialToIsoDate(end).slice(5, 7)}
+Plan`, kind: "plan" });
+    if (columns.length > MAX_DELIVERY_PLAN_DAY_COLUMNS) throw new Error(`G\xFCnl\xFCk teslimat plan\u0131 en fazla ${MAX_DELIVERY_PLAN_DAY_COLUMNS} s\xFCtun i\xE7erebilir. Tarih aral\u0131\u011F\u0131n\u0131 k\u0131salt\u0131n.`);
+    return columns;
+  };
+  const weeks = dailyDemand ? dayColumns() : weekColumns();
   const orderHorizonEnd = weekStart(end) + 6;
   const orderQuantityByProduct = /* @__PURE__ */ new Map();
   const familyByProduct2 = /* @__PURE__ */ new Map();
@@ -1679,8 +1707,8 @@ Plan`, kind: "plan" });
       orderQuantity: orderQuantityByProduct.get(product) ?? 0,
       weeklyQuantities: weeks.map((week) => {
         if (week.kind === "carryover") return carryoverByProduct.get(product) ?? 0;
-        if (week.kind === "actual" || week.kind === "actual-before-order" || week.kind === "actual-after-order") return delivered.filter((entry) => week.kind === "actual" || (week.kind === "actual-before-order" ? entry.beforeSnapshot : !entry.beforeSnapshot)).filter((entry) => entry.product === product && entry.deliveredAt >= Math.max(start, week.start) && entry.deliveredAt < Math.min(end + 1, week.start + 7)).reduce((sum, entry) => sum + entry.quantity, 0);
-        return completions.filter((completion) => completion.product === product && completion.readyAt >= Math.max(start, week.start) && completion.readyAt < Math.min(end + 1, week.start + 7)).reduce((sum, completion) => sum + Math.max(0, Math.trunc(completion.quantity)), 0);
+        if (week.kind === "actual" || week.kind === "actual-before-order" || week.kind === "actual-after-order") return delivered.filter((entry) => week.kind === "actual" || (week.kind === "actual-before-order" ? entry.beforeSnapshot : !entry.beforeSnapshot)).filter((entry) => entry.product === product && entry.deliveredAt >= Math.max(start, week.start) && entry.deliveredAt < Math.min(end + 1, week.start + week.span)).reduce((sum, entry) => sum + entry.quantity, 0);
+        return completions.filter((completion) => completion.product === product && completion.readyAt >= Math.max(start, week.start) && completion.readyAt < Math.min(end + 1, week.start + week.span)).reduce((sum, completion) => sum + Math.max(0, Math.trunc(completion.quantity)), 0);
       })
     }))
   };

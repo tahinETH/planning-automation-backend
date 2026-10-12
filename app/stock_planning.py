@@ -13,7 +13,7 @@ def _date(value):
     return isinstance(value, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)) and date.fromisoformat(value).isoformat() == value
 
 def uses_stock_planning(seed):
-    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterWaitShifts")) or any(
+    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "filterWaitShifts")) or any(
         stage.get("calendarMode") for product in (seed.get("processMasterData") or {}).get("products", [])
         for process in product.get("processes", []) for stage in process.get("leadStages", [])
     )
@@ -58,10 +58,23 @@ def validate_stock_planning(seed):
                     raise ValueError("Stok adedi / ıskarta oranı geçersiz.")
         if any(row["quantity"] for row in data["opening"]) and (not _date(data.get("openingDate")) or date.fromisoformat(data["openingDate"]) > datetime.now(ZoneInfo("Europe/Istanbul")).date()):
             raise ValueError("Stok sayım tarihi geçersiz.")
+    if seed.get("filterMonthlyPlan") is not None:
+        plan = seed["filterMonthlyPlan"]
+        twelve = lambda values: isinstance(values, list) and len(values) == 12
+        if area != "cubuk-filtre" or not isinstance(plan, dict) or type(plan.get("year")) is not int or not 2000 <= plan["year"] <= 2100 or not twelve(plan.get("workingDays")) \
+                or any(type(days) not in (int, float) or not 0 <= days <= 31 or (days * 2) % 1 for days in plan["workingDays"]):
+            raise ValueError("Çalışma Günleri yılı / iş günleri geçersiz.")
+        rows = plan.get("rows")
+        if not isinstance(rows, list) or not 0 < len(rows) <= 60 or any(
+                not isinstance(row, dict) or row.get("product") not in products or row.get("kind") not in ("internal", "external")
+                or not twelve(row.get("quantities")) or not all(_integer(value) for value in row["quantities"]) for row in rows):
+            raise ValueError("Çalışma Günleri ürün satırları geçersiz.")
     if "dailyCustomerDemand" in seed and seed["dailyCustomerDemand"] is not None:
         data = seed["dailyCustomerDemand"]
         if area != "cubuk-filtre" or not isinstance(data, dict) or data.get("format") != "filter-daily" or not all(_date(data.get(key)) for key in ("snapshotDate", "endDate")):
             raise ValueError("Günlük sipariş alanı / tarihleri geçersiz.")
+        if data.get("startDate") is not None and (not _date(data["startDate"]) or data["startDate"] > data["endDate"]):
+            raise ValueError("Günlük sipariş başlangıç tarihi geçersiz.")
         rows = data.get("dailyRows")
         if not isinstance(rows, list) or len(rows) > 12000:
             raise ValueError("Günlük sipariş satırları geçersiz.")

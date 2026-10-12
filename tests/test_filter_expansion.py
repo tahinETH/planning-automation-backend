@@ -25,7 +25,7 @@ def test_cf_i05_staging_proxy_accepts_the_app_file_limit_with_multipart_overhead
     assert 'proxy_set_header X-Forwarded-Proto $scheme;' in block.group(1)
 
 
-def daily_workbook(*, bad_formula=False, duplicate=False, bad_quantity=None):
+def daily_workbook(*, bad_formula=False, duplicate=False, bad_quantity=None, monthly=None):
     def cell(ref, value):
         if isinstance(value, (int, float)):
             return f'<c r="{ref}"><v>{value}</v></c>'
@@ -42,7 +42,32 @@ def daily_workbook(*, bad_formula=False, duplicate=False, bad_quantity=None):
         archive.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
         archive.writestr("xl/worksheets/sheet1.xml", f'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row>{"".join(cells)}</row></sheetData></worksheet>')
         archive.writestr("xl/vbaProject.bin", b"not executed")
+        if monthly is not None:
+            # Styles 1 and 2 are the workbook's orange and grey theme fills; 0 is unfilled.
+            archive.writestr("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sevkiyat Planı " sheetId="1" r:id="rId1"/><sheet name="Çalışma Günler" sheetId="2" r:id="rId2"/></sheets></workbook>')
+            archive.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>')
+            archive.writestr("xl/styles.xml", '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFF9900"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor theme="2" tint="-0.5"/></patternFill></fill></fills><cellXfs><xf fillId="0"/><xf fillId="1"/><xf fillId="2"/></cellXfs></styleSheet>')
+            columns = "BCDEFGHIJKLM"
+            months = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+            def line(number, label, values, style=0):
+                return [cell(f"A{number}", label).replace("<c ", f'<c s="{style}" ', 1), *[cell(f"{column}{number}", value) for column, value in zip(columns, values)]]
+            sheet = [*line(2, "Day", monthly.get("days", [26, 24, 23, 25, 19, 26, 26, 26, 26, 25, 25, 26.5])), cell("A6", "2026 YILI"), *line(8, "tarih", months),
+                     *line(9, "501-RBTR", [9] * 12), *line(18, "DRS Total", [9] * 12),
+                     *line(19, "309-RBTR", [100] * 12, monthly.get("external_style", 1)), *line(23, monthly.get("internal_label", "C100 - DRS"), [200] * 11 + [0], 2), *line(26, "ÇF Total", [300] * 12)]
+            archive.writestr("xl/worksheets/sheet2.xml", f'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row>{"".join(sheet)}</row></sheetData></worksheet>')
     return stream.getvalue()
+
+
+def test_cf_i08_working_days_sheet_reads_days_and_classifies_rows_by_fill_colour():
+    assert "monthlyPlan" not in parse_order_xlsx(daily_workbook(), allow_filter_daily=True)
+    plan = parse_order_xlsx(daily_workbook(monthly={}), allow_filter_daily=True)["monthlyPlan"]
+    assert plan["year"] == 2026 and plan["workingDays"][4] == 19 and plan["workingDays"][11] == 26.5
+    # Rows above DRS Total and the ÇF Total line itself are not Çubuk Filtre product rows.
+    assert [(row["label"], row["product"], row["kind"], row["quantities"][0], row["quantities"][11]) for row in plan["rows"]] == [
+        ("309-RBTR", "F.00V.P01.309", "external", 100, 100), ("C100 - DRS", "F.00V.C15.100", "internal", 200, 0)]
+    for broken in [{"external_style": 0}, {"internal_label": "999 - DRS"}, {"days": [32] + [26] * 11}, {"days": [26.25] + [26] * 11}]:
+        with pytest.raises(OrderImportError):
+            parse_order_xlsx(daily_workbook(monthly=broken), allow_filter_daily=True)
 
 
 def test_cf_i04_daily_parser_merges_pairs_and_keeps_source_cells_without_executing_macros():
@@ -53,6 +78,22 @@ def test_cf_i04_daily_parser_merges_pairs_and_keeps_source_cells_without_executi
     for options in [{"bad_formula": True}, {"duplicate": True}, *[{"bad_quantity": value} for value in [-1, 1.5, "NaN", "Infinity", 9007199254740992]]]:
         with pytest.raises(OrderImportError):
             parse_order_xlsx(daily_workbook(**options), allow_filter_daily=True)
+
+
+def test_cf_i09_saved_working_days_are_validated_for_the_filter_area_only():
+    seed = stock_seed()
+    seed["filterMonthlyPlan"] = {"sheetName": "Çalışma Günler", "year": 2026, "workingDays": [26] * 11 + [26.5], "sourceFile": "x.xlsm", "importedAt": "2026-10-12T09:00:00Z",
+                                 "rows": [{"label": "C100 - DRS", "product": "F.00V.C15.100", "kind": "internal", "quantities": [1] * 12, "sourceRow": 23}]}
+    validate_stock_planning(seed)
+    for mutate in [lambda plan: plan.update(workingDays=[26] * 11), lambda plan: plan["rows"][0].update(kind="other"), lambda plan: plan["rows"][0].update(product="UNKNOWN"),
+                   lambda plan: plan["rows"][0].update(quantities=[-1] * 12), lambda plan: plan.update(year="2026")]:
+        broken = deepcopy(seed)
+        mutate(broken["filterMonthlyPlan"])
+        with pytest.raises(ValueError):
+            validate_stock_planning(broken)
+    seed["productionArea"] = "torna"
+    with pytest.raises(ValueError):
+        validate_stock_planning(seed)
 
 
 def stock_seed():
