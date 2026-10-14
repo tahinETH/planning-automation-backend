@@ -73,6 +73,10 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
 
 
 def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
+    waits = workbook.create_sheet("Proses Bekleme Süreleri")
+    _append_rows(waits, ["Proses", "Bekleme var", "Bekleme süresi (iş günü)"],
+                 [[process, item.get("enabled", False), item.get("workdays", 0)]
+                  for process, item in (data.get("processWaitSettings") or {}).items()])
     materials = data.get("rawMaterialSettings") or {}
     stocks = workbook.create_sheet("Hammadde Stokları")
     _append_rows(stocks, ["Hammadde kodu", "Ambar stoğu (kg)", "Güncelleme Tarihi"],

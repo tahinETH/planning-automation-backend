@@ -141,7 +141,7 @@ function turningIdentityScope(seed, batches = seed.manualBatches ?? []) {
 function structural(value) {
   return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().filter((k) => item[k] !== void 0).map((k) => [k, item[k]])) : item);
 }
-var frozenConfiguration = ["products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides"];
+var frozenConfiguration = ["products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processWaitSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides"];
 function protectedIdentitySnapshot(seed, scope) {
   const p = (value) => scope.products.includes(identityKey(value));
   const b = (value) => Boolean(value && scope.batchIds.includes(value));
@@ -178,11 +178,16 @@ function assertTurningIdentityTransition(before, next) {
   if (inspected.reconciledBatches.length !== (next.manualBatches ?? []).length) throw new Error("Mevcut veya tamamlanm\u0131\u015F \u015Farj kuyrukta tekrar bulunuyor. Ortak veriyi y\xFCkleyin.");
 }
 
+// lib/process-waits.ts
+function processWaitWorkdays(seed, process2) {
+  const item = seed.processWaitSettings?.[process2];
+  return item?.enabled ? item.workdays : 0;
+}
+
 // lib/delivery-calendar.ts
 var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 var DAY_MS = 864e5;
 var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
-var ROUTED_DELIVERY_BUFFER_WORKDAYS = 1;
 function dayOfWeek(serial) {
   return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
 }
@@ -222,8 +227,8 @@ function addFactoryWorkdays(seed, startValue, workdaysValue) {
 function turningDeliveryReadyAt(completionSerial) {
   return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
 }
-function routedDeliveryReadyAt(seed, routeCompletionSerial) {
-  return addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
+function routedDeliveryReadyAt(seed, routeCompletionSerial, _family, lastProcess = "gkm") {
+  return addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
 }
 
 // lib/factory-time.ts
@@ -1006,7 +1011,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       warnings.push({ code: "missing-parameter", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in \xF6nceki rota ad\u0131m\u0131 bulunamad\u0131.` });
       return [];
     }
-    const effectiveWaitWorkdays = source.masterProduct.route ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : process2 === "drilling" ? source.source === "wip" ? 0 : 1 : parameter.waitWorkdaysBefore;
+    const effectiveWaitWorkdays = firstRemaining && source.source === "wip" ? 0 : processWaitWorkdays(seed, predecessorProcess);
     const readyAt = firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays);
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
@@ -1256,7 +1261,7 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
     const completion2 = route.at(-1)?.end ?? source.releaseAt;
     const customRouteComplete = !source.masterProduct.route || source.masterProduct.route.length > 0 && !warnings.some((warning) => warning.product === source.product && warning.code === "invalid-route") && source.masterProduct.route.every((process2) => route.some((operation) => (operation.recordedProcess ?? operation.process) === process2)) && source.lot?.stage !== "on-hold" && source.lot?.stage !== "unclassified";
-    const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2) : 0;
+    const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2, void 0, route.at(-1)?.process ?? "turning") : 0;
     return {
       batchId: source.id,
       source: source.source,
