@@ -184,3 +184,35 @@ def test_reviewed_partial_repair_preview_digest_apply_and_race_are_atomic(tmp_pa
     with pytest.raises(ValueError, match='değişti'):
         review.apply_proposal(db_path, original, proposed, checked, **kwargs)
     assert db_module.planning_state()['updatedAt'] == applied['updatedAt']
+
+
+def test_hold_stock_survives_save_reload_stale_release_and_scenario_merge(tmp_path, monkeypatch):
+    """HOLD-BE01: existing physical pieces retain their explicit manager hold."""
+    from app import database as db_module
+    from types import SimpleNamespace
+    import pytest
+
+    monkeypatch.setattr(db_module, "settings", SimpleNamespace(database_path=tmp_path / "hold.sqlite", upload_dir=tmp_path / "uploads"))
+    db_module.init_database()
+    lot = {"id": "held-drilled", "workOrder": "HOLD-1000", "product": "R902745116", "sourceHistoryEntryId": "actual-cnc", "originalQuantity": 1000, "availableQuantity": 1000, "deliveredQuantity": 0, "scrappedQuantity": 0, "stage": "on-hold", "heldFromStage": "deburring-queue", "heldNextProcess": "deburring", "readyAt": 46266.25, "completedSteps": [{"process": "drilling", "quantity": 1000, "end": 46266.25}]}
+    seed = {"wipLots": [lot], "wipMovements": [{"lotId": lot["id"], "kind": "hold", "quantity": 1000, "occurredAt": 46266.5, "note": "Karar bekliyor"}], "processCurrentJobs": [], "planNeedsRecalculation": True}
+    saved = db_module.save_planning_state(seed, expected_updated_at="", mode="operational")
+    assert db_module.planning_state()["seed"]["wipLots"] == [lot]
+    assert db_module.planning_state()["seed"]["wipMovements"] == seed["wipMovements"]
+    proposed = copy.deepcopy(seed)
+    proposed["wipLots"][0]["stage"] = "deburring-queue"
+    proposed["wipLots"][0]["nextProcess"] = "deburring"
+    proposed["wipLots"][0]["readyAt"] = 46267
+    del proposed["wipLots"][0]["heldFromStage"]
+    del proposed["wipLots"][0]["heldNextProcess"]
+    with pytest.raises(db_module.PlanningStateConflict):
+        db_module.save_planning_state(proposed, expected_updated_at="outdated", mode="operational")
+    assert db_module.planning_state()["seed"]["wipLots"] == [lot]
+    merged = db_module.preserve_live_operations(proposed, saved["seed"])
+    assert merged["wipLots"] == [lot]
+    assert merged["planNeedsRecalculation"] is True
+    released = db_module.save_planning_state(proposed, expected_updated_at=saved["updatedAt"], mode="operational")
+    assert db_module.planning_state()["seed"]["wipLots"] == released["seed"]["wipLots"]
+    assert released["seed"]["wipLots"][0]["availableQuantity"] == 1000
+    assert released["seed"]["wipLots"][0]["completedSteps"] == lot["completedSteps"]
+    assert released["seed"]["wipLots"][0]["stage"] == "deburring-queue"
