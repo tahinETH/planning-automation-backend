@@ -57,18 +57,6 @@ def run_delivery_runtime(seed: dict, scope: dict, today: str) -> tuple[dict, str
         report["payload"] = DeliveryPlanPayload.model_validate(report["payload"]).model_dump()
         if not isinstance(report["undated"], list) or type(report["undatedQuantity"]) is not int or report["undatedQuantity"] < 0:
             raise ValueError("invalid completeness")
-        held = report["held"]
-        if not isinstance(held, list) or type(report["heldQuantity"]) is not int or report["heldQuantity"] < 0:
-            raise ValueError("invalid held exclusions")
-        expected_held = {lot["id"]: lot for lot in seed.get("wipLots", []) if lot.get("stage") == "on-hold" and lot.get("availableQuantity", 0) > 0}
-        if len(held) != len(expected_held) or {row["id"] for row in held} != set(expected_held):
-            raise ValueError("invalid held identities")
-        for row in held:
-            lot = expected_held[row["id"]]
-            if row["source"] != "wip" or type(row["quantity"]) is not int or row["quantity"] != lot["availableQuantity"] or row["product"] != lot["product"] or row["id"] in {item["id"] for item in report["undated"]}:
-                raise ValueError("invalid held quantities")
-        if sum(row["quantity"] for row in held) != report["heldQuantity"]:
-            raise ValueError("invalid held total")
         if report["complete"] != (len(report["undated"]) == 0):
             raise ValueError("invalid completeness")
     except (ValueError, KeyError, TypeError):

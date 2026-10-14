@@ -178,7 +178,7 @@ def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = 
             raise DeliveryReportError("Teslimat önizlemesi değişti. Yeniden inceleyin.", 409)
         if not snapshot["report"]["complete"]:
             raise DeliveryReportError("Teslim tarihi belirlenemeyen işler var. Tam teslimat planı indirilemez.")
-        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "heldLots": snapshot["report"]["held"], "verification": {key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}})
+        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}})
         # A file is certified against this accepted revision, never claimed live forever.
         current = planning_state()
         if not current or current["updatedAt"] != payload.expectedRevision:
