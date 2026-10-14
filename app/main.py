@@ -307,6 +307,7 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             flow_settings_version=payload.flowSettingsVersion,
             route_placement_version=payload.routePlacementVersion,
             production_split_version=payload.productionSplitVersion,
+            process_wait_settings_version=payload.processWaitSettingsVersion,
             stock_planning_version=payload.stockPlanningVersion,
         )
     except PlanningStateConflict as error:
@@ -322,7 +323,7 @@ def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: Cu
     try:
         return save_planning_state({}, payload.expectedUpdatedAt, mode="operational",
             actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin,
-            route_placement_version=1, production_split_version=1, flow_settings_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
+            route_placement_version=1, production_split_version=1, process_wait_settings_version=1, flow_settings_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Güncel kayıtları yükleyip incelemeyi tekrarlayın.", "current": error.current}) from error
     except (ValueError, ProtectedSettingsChange) as error:

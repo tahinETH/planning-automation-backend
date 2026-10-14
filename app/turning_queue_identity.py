@@ -127,7 +127,7 @@ def turning_identity_scope(seed, batches=None):
     return dict(products=sorted(products), machineIds=sorted(machines), batchIds=sorted(batch_ids), lotIds=sorted(lots), historyIds=sorted(histories))
 
 
-_FROZEN_CONFIGURATION = ("products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides")
+_FROZEN_CONFIGURATION = ("products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processWaitSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides")
 
 
 def _protected_identity_snapshot(seed, scope):

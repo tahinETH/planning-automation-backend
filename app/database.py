@@ -305,7 +305,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts")
+PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -438,6 +438,7 @@ def save_planning_state(
     flow_settings_version: int = 0,
     route_placement_version: int = 0,
     production_split_version: int = 0,
+    process_wait_settings_version: int = 0,
     stock_planning_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -464,7 +465,15 @@ def save_planning_state(
             seed["planNeedsRecalculation"] = True
             seed.pop("lastAutomaticPlan", None)
             seed.pop("planRunSequence", None)
+        if "processWaitSettings" in seed:
+            from .process_waits import validate_process_wait_settings
+            validate_process_wait_settings(seed["processWaitSettings"])
+        if process_wait_settings_version < 1 and ("processWaitSettings" in seed or current and "processWaitSettings" in current["seed"]):
+            raise ValueError("Proses bekleme ayarlarını korumak için uygulamayı yenileyin.")
+        if current and "processWaitSettings" in current["seed"] and "processWaitSettings" not in seed:
+            seed = {**seed, "processWaitSettings": current["seed"]["processWaitSettings"]}
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
+
         current_updated_at = current["updatedAt"] if current else ""
         if mode != "planning" and current and expected_updated_at is None:
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")

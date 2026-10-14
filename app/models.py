@@ -68,6 +68,7 @@ class PlanningStatePayload(BaseModel):
     flowSettingsVersion: int = 0
     routePlacementVersion: int = 0
     productionSplitVersion: int = 0
+    processWaitSettingsVersion: int = 0
     stockPlanningVersion: int = 0
     expectedUpdatedAt: str | None = None
     force: bool = False

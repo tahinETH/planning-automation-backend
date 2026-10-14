@@ -176,7 +176,7 @@ function turningIdentityScope(seed, batches = seed.manualBatches ?? []) {
 function structural(value) {
   return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().filter((k) => item[k] !== void 0).map((k) => [k, item[k]])) : item);
 }
-var frozenConfiguration = ["products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides"];
+var frozenConfiguration = ["products", "preferences", "restrictions", "holidays", "calendarEvents", "setupSettings", "processWaitSettings", "processMasterData", "savedBatches", "activePlanningScope", "customerDemand", "openingStock", "demandTargets", "orderImport", "orderImportGrossOrders", "customerOrderOverrides"];
 function protectedIdentitySnapshot(seed, scope) {
   const p = (value) => scope.products.includes(identityKey(value));
   const b = (value) => Boolean(value && scope.batchIds.includes(value));
@@ -213,6 +213,12 @@ function assertTurningIdentityTransition(before, next) {
   if (inspected.reconciledBatches.length !== (next.manualBatches ?? []).length) throw new Error("Mevcut veya tamamlanm\u0131\u015F \u015Farj kuyrukta tekrar bulunuyor. Ortak veriyi y\xFCkleyin.");
 }
 
+// lib/process-waits.ts
+function processWaitWorkdays(seed, process2) {
+  const item = seed.processWaitSettings?.[process2];
+  return item?.enabled ? item.workdays : 0;
+}
+
 // lib/flow-settings.ts
 function flowRule(seed, family, from, to) {
   return seed.productionArea !== "cubuk-filtre" && seed.flowSettings?.enabled ? seed.flowSettings.rules.find((rule) => rule.active && rule.family === family && rule.from === from && rule.to === to) : void 0;
@@ -241,7 +247,6 @@ function addDepartmentWorkMinutes(seed, start, minutes) {
 var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 var DAY_MS = 864e5;
 var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
-var ROUTED_DELIVERY_BUFFER_WORKDAYS = 1;
 function dayOfWeek(serial) {
   return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
 }
@@ -282,9 +287,9 @@ function turningDeliveryReadyAt(completionSerial) {
   return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
 }
 function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
-  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
+  const rule = family && !seed.processWaitSettings ? flowRule(seed, family, lastProcess, "delivery") : void 0;
   if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
-  return seed.productionArea === "cubuk-filtre" ? routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, ROUTED_DELIVERY_BUFFER_WORKDAYS);
+  return seed.productionArea === "cubuk-filtre" ? routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
 }
 
 // lib/factory-time.ts
@@ -1165,9 +1170,9 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       warnings.push({ code: "missing-parameter", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in \xF6nceki rota ad\u0131m\u0131 bulunamad\u0131.` });
       return [];
     }
-    const effectiveWaitWorkdays = source.masterProduct.route ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : process2 === "drilling" ? source.source === "wip" ? 0 : 1 : parameter.waitWorkdaysBefore;
+    const effectiveWaitWorkdays = seed.productionArea === "cubuk-filtre" ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : firstRemaining && source.source === "wip" ? 0 : processWaitWorkdays(seed, predecessorProcess);
     const filterGap = seed.productionArea === "cubuk-filtre" ? parameter.finishGapMinutes : void 0;
-    const rule = typeof filterGap === "number" && Number.isFinite(filterGap) && filterGap >= 0 ? { mode: "dynamic", minutes: filterGap } : flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
+    const rule = typeof filterGap === "number" && Number.isFinite(filterGap) && filterGap >= 0 ? { mode: "dynamic", minutes: filterGap } : seed.processWaitSettings ? void 0 : flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
     let legacyReadyAt;
     try {
       legacyReadyAt = applyProcessLeadStages(seed, firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays), firstRemaining && source.source === "wip" ? [] : parameter.leadStages);
