@@ -24,6 +24,47 @@ function hasProtectedProductionRemainder(seed, chargeId, interruptionId) {
   return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
 }
 
+// lib/cnc-delivery-readiness.ts
+function buildCncDeliveryReadiness(seed, result) {
+  const events = [];
+  const undated = [];
+  function add(id, product, quantity2, workOrder, source, end, blocked = false, wipLotId) {
+    if (!Number.isSafeInteger(quantity2) || quantity2 < 0) throw Error(`${product}: CNC rapor adedi ge\xE7ersiz.`);
+    if (!quantity2) return;
+    if (blocked || !Number.isFinite(end) || (end ?? 0) <= 0) {
+      undated.push({ id, product, quantity: quantity2, workOrder, source, reasons: [{ code: "missing-cnc-end", message: "CNC biti\u015Fi do\u011Frulanamad\u0131 veya \u015Farj blokeli. CNC + 3 g\xFCn tarihi hesaplanamad\u0131." }] });
+    } else {
+      events.push({ id: `cnc:${id}`, product: product.toUpperCase(), quantity: quantity2, readyAt: end + 3, source: "cnc-plus-three", routeSource: source, wipLotId });
+    }
+  }
+  const lots = seed.wipLots ?? [];
+  for (const lot of lots.filter((item) => item.stage !== "delivered" && item.stage !== "scrapped")) {
+    const cnc = lot.completedSteps.find((step) => step.process === "turning");
+    add(lot.id, lot.product, lot.availableQuantity, lot.workOrder, "wip", cnc?.end, lot.stage === "on-hold" || lot.stage === "unclassified", lot.id);
+  }
+  for (const machine of seed.machines.filter((item) => item.currentJob.product && item.currentJob.quantity > 0)) {
+    add(
+      `current:${machine.id}`,
+      machine.currentJob.product,
+      machine.currentJob.quantity,
+      machine.currentJob.workOrder,
+      "current-turning",
+      machine.currentJob.end,
+      hasActiveProductionInterruption(seed, `current:${machine.id}`, machine.currentJob.interruptionId)
+    );
+  }
+  for (const batch of result.batches.filter((item) => item.status === "planned")) {
+    if (!batch.interruptionId && lots.some((lot) => lot.sourceBatchId === batch.id)) continue;
+    add(batch.id, batch.product, batch.quantity, batch.workOrder ?? "", "turning-plan", batch.end, hasActiveProductionInterruption(seed, batch.id, batch.interruptionId));
+  }
+  for (const entry of (seed.productionHistory ?? []).filter((item) => item.inventoryStatus === "semi-finished")) {
+    if (lots.some((lot) => lot.sourceHistoryEntryId === entry.id)) continue;
+    add(`history:${entry.id}`, entry.product, entry.completedQuantity, entry.workOrder, "wip", entry.process === "turning" ? entry.completedAt : void 0);
+  }
+  events.sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
+  return { events, undated, undatedQuantity: undated.reduce((sum, row) => sum + row.quantity, 0) };
+}
+
 // lib/turning-queue-identity.ts
 function reconcileTurningQueue(seed, batches) {
   const inspected = inspectTurningQueue(seed, batches);
@@ -1431,7 +1472,7 @@ function summarizeDeliveryPlan(payload) {
     }
   };
 }
-function buildDeliveryReport(inputSeed, result, range, today = factoryDateInput()) {
+function buildDeliveryReport(inputSeed, result, range, today = factoryDateInput(), basis = "route") {
   try {
     const seed = structuredClone(inputSeed);
     rollForwardUnfinishedProduction(seed, (Date.parse(`${today}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5, { turning: false });
@@ -1467,7 +1508,7 @@ function buildDeliveryReport(inputSeed, result, range, today = factoryDateInput(
     }
     if (turningIssue) projected = { ...result, batches: result.batches.map((batch) => batch.status === "planned" ? { ...batch, start: 0, end: 0 } : batch) };
     else projected = { ...projected, batches: projected.batches.map((batch) => batch.status === "planned" && (!Number.isFinite(batch.start) || !Number.isFinite(batch.end) || batch.start <= 0 || batch.end < batch.start) ? { ...batch, start: 0, end: 0 } : batch) };
-    const readiness = buildDeliveryReadinessProjection(seed, projected);
+    const readiness = basis === "cnc-plus-three" ? buildCncDeliveryReadiness(seed, projected) : buildDeliveryReadinessProjection(seed, projected);
     if (turningIssue) for (const row of readiness.undated.filter((row2) => row2.source === "turning-plan")) row.reasons = [{ code: "turning-projection-blocked", message: turningIssue }];
     const payload = buildDeliveryPlanPayload(seed, projected, range, today, { events: readiness.events, products: readiness.undated.map((row) => row.product) });
     return { ...summarizeDeliveryPlan(payload), ...readiness, payload, error: "", complete: readiness.undated.length === 0 };
@@ -1491,7 +1532,8 @@ try {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.today)) throw Error("Hesaplama tarihi ge\xE7ersiz.");
   const result = scenarioResultFromBatches(seed, seed.manualBatches ?? []);
-  process.stdout.write(JSON.stringify(buildDeliveryReport(seed, result, request.range, request.today)));
+  if (request.basis !== void 0 && !["route", "cnc-plus-three"].includes(request.basis)) throw Error("Rapor hesab\u0131 ge\xE7ersiz.");
+  process.stdout.write(JSON.stringify(buildDeliveryReport(seed, result, request.range, request.today, request.basis ?? "route")));
 } catch {
   process.stdout.write(JSON.stringify({ error: "Kay\u0131tl\u0131 \xFCretim verisi teslimat hesab\u0131 i\xE7in do\u011Frulanamad\u0131.", payload: null, complete: false, rows: [], events: [], undated: [], undatedQuantity: null }));
 }

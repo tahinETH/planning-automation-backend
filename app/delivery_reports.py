@@ -33,7 +33,7 @@ def run_delivery_runtime(seed: dict, scope: dict, today: str) -> tuple[dict, str
             raise ValueError("runtime mismatch")
     except (OSError, ValueError, KeyError):
         raise DeliveryReportError("Teslimat hesaplama bileşeni hazır değil. Sistem yöneticisine bildirin.", 503)
-    data = json.dumps({"seed": seed, "range": scope, "today": today}, ensure_ascii=False, allow_nan=False).encode()
+    data = json.dumps({"seed": seed, "range": {key: scope[key] for key in ("startDate", "endDate")}, "today": today, "basis": scope.get("basis", "route")}, ensure_ascii=False, allow_nan=False).encode()
     if len(data) > MAX_INPUT:
         raise DeliveryReportError("Üretim verisi teslimat hesaplama sınırını aşıyor.", 413)
     # Fixed executable/entrypoint; never invoke a shell or inherit Node injection options.

@@ -146,3 +146,39 @@ def test_export_scope_change_requires_fresh_preview_and_download_preserves_state
     assert workbook["Rapor doğrulaması"]["B5"].value == fresh["digest"]
     assert workbook.calculation.fullCalcOnLoad is True
     assert state == before
+
+
+def test_cnc_plus_three_export_has_separate_authority_and_preserves_actual_shipments(saved, client):
+    from datetime import date, timedelta
+    state, scope = saved
+    today = date.fromisoformat(scope["startDate"])
+    serial = (today - date(1899, 12, 30)).days
+    state["seed"]["manualBatches"] = [{"id": "cnc-forecast", "sequence": 1, "product": "PART-A", "machineId": "C-01", "quantity": 100,
+        "orderQuantity": 100, "start": serial - 4, "end": serial - 3 + 0.5, "status": "planned", "diameter": "20", "batchSize": 100,
+        "dailyRate": 100, "availableStart": serial - 4, "planEnd": serial + 7, "setupHours": 0, "runHours": 12}]
+    scope = {"startDate": scope["startDate"], "endDate": (today + timedelta(days=7)).isoformat()}
+    request = {"expectedRevision": state["updatedAt"], **scope}
+    before = json.dumps(state, sort_keys=True)
+    preview = client.post("/api/delivery-plan/cnc-plus-three/preview", json=request)
+    assert preview.status_code == 200, preview.text
+    snapshot = preview.json()
+    assert snapshot["report"]["remaining"] == 100
+    assert snapshot["report"]["total"] == 180
+    assert snapshot["report"]["events"][0]["readyAt"] == serial + 0.5
+    response = client.post("/api/delivery-plan/cnc-plus-three/export", json={**request, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]})
+    assert response.status_code == 200, response.text
+    assert "CNC_3_Gun" in response.headers["Content-Disposition"]
+    workbook = load_workbook(BytesIO(response.content))
+    assert "CNC bitişi + 3 takvim günü" in workbook["Rapor doğrulaması"]["B6"].value
+    assert json.dumps(state, sort_keys=True) == before
+    ordinary = client.post("/api/delivery-plan/preview", json=request).json()
+    assert ordinary["digest"] != snapshot["digest"]
+    assert client.post("/api/delivery-plan/cnc-plus-three/export", json={**request, "digest": ordinary["digest"], "calculationDate": ordinary["calculationDate"]}).status_code == 409
+    assert client.post("/api/delivery-plan/export", json={**request, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]}).status_code == 409
+    assert client.post("/api/delivery-plan/cnc-plus-three/preview", json={**request, "expectedRevision": "stale"}).status_code == 409
+    state["seed"]["manualBatches"][0]["end"] = 0
+    invalid = client.post("/api/delivery-plan/cnc-plus-three/preview", json=request)
+    assert invalid.status_code == 200
+    assert invalid.json()["report"]["complete"] is False
+    bad = invalid.json()
+    assert client.post("/api/delivery-plan/cnc-plus-three/export", json={**request, "digest": bad["digest"], "calculationDate": bad["calculationDate"]}).status_code == 422

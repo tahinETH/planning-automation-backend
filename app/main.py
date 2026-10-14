@@ -187,6 +187,40 @@ def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = 
     )
 
 
+@app.post("/api/delivery-plan/cnc-plus-three/preview")
+def preview_cnc_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = Depends(current_user)):
+    try:
+        return report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"})
+    except DeliveryReportError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
+
+
+@app.post("/api/delivery-plan/cnc-plus-three/export")
+def export_cnc_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = Depends(current_user)):
+    template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
+    try:
+        snapshot = report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"}, payload.calculationDate)
+        if snapshot["digest"] != payload.digest:
+            raise DeliveryReportError("Teslimat önizlemesi değişti. Yeniden inceleyin.", 409)
+        if not snapshot["report"]["complete"]:
+            raise DeliveryReportError("Teslim tarihi belirlenemeyen işler var. Tam teslimat planı indirilemez.")
+        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {**{key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}, "basis": "Geçici tahmin: Torna CNC bitişi + 3 takvim günü"}})
+        # A file is certified against this accepted revision, never claimed live forever.
+        current = planning_state()
+        if not current or current["updatedAt"] != payload.expectedRevision:
+            raise DeliveryReportError("Dosya hazırlanırken plan değişti. Önizlemeyi yenileyin.", 409)
+    except DeliveryReportError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
+    except DeliveryPlanError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    filename = f"Teslimat_Plani_CNC_3_Gun_{payload.startDate}_{payload.endDate}.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/api/general-overview/export")
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())

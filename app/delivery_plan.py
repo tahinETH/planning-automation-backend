@@ -215,6 +215,9 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
         for index, (key, label) in enumerate(labels.items(), 1):
             _text(verification.cell(index, 1), label)
             _text(verification.cell(index, 2), str(payload["verification"].get(key, "")))
+        if payload["verification"].get("basis"):
+            _text(verification.cell(6, 1), "Hesap yöntemi")
+            _text(verification.cell(6, 2), payload["verification"]["basis"])
         verification.column_dimensions["A"].width = 28
         verification.column_dimensions["B"].width = 75
     output = BytesIO()

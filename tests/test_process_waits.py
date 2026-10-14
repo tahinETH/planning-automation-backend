@@ -45,3 +45,16 @@ def test_wait_settings_validate_all_rows_and_backup():
     data = {"processWaitSettings": settings(), "holidays": [], "calendarEvents": [], "machines": [], "setupSettings": {}}
     encoded = build_data_package("settings", data)
     assert parse_data_package(encoded, "settings")["processWaitSettings"] == settings()
+
+
+def test_ravi_wait_settings_use_visible_labels_and_admin_navigation():
+    from app.ravi import knowledge
+    from app.ravi.tools import ToolSession
+    topic = knowledge.for_model(knowledge.read_topic("process-waits"))
+    assert "Bekleme var" in topic["body"]
+    assert "Bekleme süresi (iş günü)" in topic["body"]
+    assert "hazır zamanı korunur" in topic["body"]
+    assert "sources" not in topic and "implementationNotes" not in topic
+    assert "process-waits" not in {item["id"] for item in knowledge.navigation_targets(False)}
+    assert "error" in ToolSession(None, False).execute("propose_navigation", '{"target_id":"process-waits"}')
+    assert ToolSession(None, True).execute("propose_navigation", '{"target_id":"process-waits"}')["executed"] is False
