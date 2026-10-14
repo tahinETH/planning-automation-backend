@@ -418,3 +418,12 @@ def test_charge_block_guidance_names_controls_and_quantity_safety():
         assert "Süren proses beklemesi kaldırılmaz" in topic["body"]
         assert any("Şarjı bloke et" in source for source in topic["userSources"])
         assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_delivery_hold_exclusion_guidance_keeps_other_export_guards():
+    for topic_id in ("delivery-export", "delivery-readiness", "processes-wip"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        assert "Plan dışında tutulan blokeli miktar" in topic["body"]
+        assert "Blokeli şarjlar sayfası" in topic["body"]
+        assert "indirme engeli devam eder" in topic["body"]
+        assert any("Blokeli şarjlar" in source for source in topic["userSources"])

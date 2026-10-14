@@ -81,19 +81,50 @@ def test_change_during_runtime_is_rejected(saved, monkeypatch):
         reports.report_snapshot(state["updatedAt"], scope)
 
 
-def test_undated_material_is_visible_but_cannot_be_certified(saved, client):
+def test_explicit_hold_is_separate_and_does_not_block_export(saved, client):
+    """HOLD-DEL01: intentional holds are excluded; other shipments remain downloadable."""
+    import copy
     state, scope = saved
-    # A positive held lot with no route must be inventoried, never promised on a guessed date.
-    state["seed"]["wipLots"] = [{"id": "held", "product": "PART-B", "availableQuantity": 120, "stage": "on-hold", "completedSteps": []}]
+    state["seed"]["wipLots"] = [{"id": "held", "workOrder": "320-2600726", "product": "PART-B", "availableQuantity": 1920, "stage": "on-hold", "completedSteps": []}]
+    before = copy.deepcopy(state)
     request = {"expectedRevision": state["updatedAt"], **scope}
     response = client.post("/api/delivery-plan/preview", json=request)
     assert response.status_code == 200, response.text
     snapshot = response.json()
+    assert snapshot["report"]["heldQuantity"] == 1920
+    assert snapshot["report"]["held"][0]["workOrder"] == "320-2600726"
+    assert snapshot["report"]["undatedQuantity"] == 0
+    assert snapshot["report"]["total"] == 80
+    assert snapshot["report"]["remaining"] == 0
+    assert snapshot["report"]["complete"] is True
+    response = client.post("/api/delivery-plan/export", json={**request, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]})
+    assert response.status_code == 200, response.text
+    workbook = load_workbook(BytesIO(response.content))
+    held = workbook["Blokeli şarjlar"]
+    assert held["A6"].value == "320-2600726"
+    assert held["B6"].value == "PART-B"
+    assert held["C6"].value == "held"
+    assert held["D6"].value == held["D3"].value == 1920
+    assert workbook["Rapor doğrulaması"]["B7"].value == 1920
+    assert workbook["Rapor doğrulaması"]["B5"].value == snapshot["digest"]
+    assert state == before
+
+
+def test_unclassified_material_still_blocks_certification_even_with_a_hold(saved, client):
+    state, scope = saved
+    state["seed"]["wipLots"] = [
+        {"id": "held", "product": "PART-B", "availableQuantity": 1920, "stage": "on-hold", "completedSteps": []},
+        {"id": "unknown", "product": "PART-C", "availableQuantity": 120, "stage": "unclassified", "completedSteps": []},
+    ]
+    request = {"expectedRevision": state["updatedAt"], **scope}
+    response = client.post("/api/delivery-plan/preview", json=request)
+    assert response.status_code == 200, response.text
+    snapshot = response.json()
+    assert snapshot["report"]["heldQuantity"] == 1920
     assert snapshot["report"]["undatedQuantity"] == 120
     assert snapshot["report"]["total"] == 80
     assert snapshot["report"]["complete"] is False
-    response = client.post("/api/delivery-plan/export", json={**request, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]})
-    assert response.status_code == 422
+    assert client.post("/api/delivery-plan/export", json={**request, "digest": snapshot["digest"], "calculationDate": snapshot["calculationDate"]}).status_code == 422
 
 
 def test_runtime_timeout_is_bounded_and_does_not_fallback(saved, monkeypatch):
@@ -146,3 +177,23 @@ def test_export_scope_change_requires_fresh_preview_and_download_preserves_state
     assert workbook["Rapor doğrulaması"]["B5"].value == fresh["digest"]
     assert workbook.calculation.fullCalcOnLoad is True
     assert state == before
+
+
+@pytest.mark.parametrize("corruption", ["quantity", "missing", "unheld"])
+def test_runtime_rejects_invalid_held_exclusions(saved, monkeypatch, corruption):
+    state, scope = saved
+    state["seed"]["wipLots"] = [{"id": "held", "product": "PART-B", "availableQuantity": 1920, "stage": "on-hold", "completedSteps": []}]
+    report, _ = reports.run_delivery_runtime(state["seed"], scope, scope["startDate"])
+    if corruption == "quantity":
+        report["heldQuantity"] = 1919
+    elif corruption == "missing":
+        report["held"] = []
+        report["heldQuantity"] = 0
+    else:
+        report["held"][0]["id"] = "not-held"
+    def invalid(*args, **kwargs):
+        kwargs["stdout"].write(json.dumps(report).encode())
+    monkeypatch.setattr(reports.subprocess, "run", invalid)
+    with pytest.raises(reports.DeliveryReportError) as error:
+        reports.run_delivery_runtime(state["seed"], scope, scope["startDate"])
+    assert error.value.status == 503

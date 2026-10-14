@@ -1733,9 +1733,25 @@ function buildDeliveryReport(inputSeed, result, range, today = factoryDateInput(
     const readiness = buildDeliveryReadinessProjection(seed, projected);
     if (turningIssue) for (const row of readiness.undated.filter((row2) => row2.source === "turning-plan")) row.reasons = [{ code: "turning-projection-blocked", message: turningIssue }];
     const payload = buildDeliveryPlanPayload(seed, projected, range, today, { events: readiness.events, products: readiness.undated.map((row) => row.product) });
-    return { ...summarizeDeliveryPlan(payload), ...readiness, payload, error: "", complete: readiness.undated.length === 0 };
+    const heldIds = new Set((seed.wipLots ?? []).filter((lot) => lot.stage === "on-hold" && lot.availableQuantity > 0).map((lot) => lot.id));
+    const held = readiness.undated.filter((row) => row.source === "wip" && heldIds.has(row.id)).map((row) => ({
+      ...row,
+      reasons: [{ code: "held", message: "Yar\u0131 mam\xFCl blokeli; planlanan teslimata dahil edilmedi." }]
+    }));
+    const undated = readiness.undated.filter((row) => row.source !== "wip" || !heldIds.has(row.id));
+    return {
+      ...summarizeDeliveryPlan(payload),
+      ...readiness,
+      held,
+      heldQuantity: held.reduce((sum, row) => sum + row.quantity, 0),
+      undated,
+      undatedQuantity: undated.reduce((sum, row) => sum + row.quantity, 0),
+      payload,
+      error: "",
+      complete: undated.length === 0
+    };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Teslimat bilgileri hesaplanamad\u0131.", payload: null, rows: [], events: [], undated: [], undatedQuantity: null, complete: false };
+    return { error: error instanceof Error ? error.message : "Teslimat bilgileri hesaplanamad\u0131.", payload: null, rows: [], events: [], undated: [], undatedQuantity: null, held: [], heldQuantity: null, complete: false };
   }
 }
 
