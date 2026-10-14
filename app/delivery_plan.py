@@ -220,36 +220,6 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
             _text(verification.cell(6, 2), payload["verification"]["basis"])
         verification.column_dimensions["A"].width = 28
         verification.column_dimensions["B"].width = 75
-    held_lots = payload.get("heldLots", [])
-    if held_lots:
-        excluded = workbook.create_sheet("Blokeli şarjlar")
-        _text(excluded.cell(1, 1), "Plan dışında tutulan blokeli şarjlar")
-        excluded.cell(1, 1).font = Font(name="Liberation Sans", size=14, bold=True)
-        _text(excluded.cell(2, 1), "Tüm açık blokeli şarjlar. Teslimat tarihi verilmez; haftalık plan toplamlarına eklenmez.")
-        _text(excluded.cell(3, 1), "Toplam blokeli adet")
-        excluded.cell(3, 4, sum(row["quantity"] for row in held_lots)).number_format = "#,##0"
-        for column, title in enumerate(["İş emri", "Ürün", "Şarj kaydı", "Blokeli adet", "Açıklama"], 1):
-            cell = excluded.cell(5, column)
-            _text(cell, title)
-            cell.font = Font(name="Liberation Sans", bold=True, color="FFFFFF")
-            cell.fill = PatternFill("solid", fgColor="315F52")
-        for index, row in enumerate(held_lots, 6):
-            for column, value in enumerate([row.get("workOrder", ""), row["product"], row["id"], row["quantity"], "Yarı mamül blokeli; planlanan teslimata dahil edilmedi."], 1):
-                cell = excluded.cell(index, column)
-                if column == 4:
-                    cell.value = value
-                    cell.number_format = "#,##0"
-                else:
-                    _text(cell, str(value))
-        for column, width in {"A": 24, "B": 24, "C": 46, "D": 18, "E": 68}.items():
-            excluded.column_dimensions[column].width = width
-        excluded.freeze_panes = "A6"
-        excluded.auto_filter.ref = f"A5:E{5 + len(held_lots)}"
-        if payload.get("verification"):
-            _text(verification.cell(7, 1), "Plan dışı blokeli adet")
-            verification.cell(7, 2, sum(row["quantity"] for row in held_lots))
-            _text(verification.cell(8, 1), "Rapor kapsamı")
-            _text(verification.cell(8, 2), "Blokeli şarjlar teslimat planı dışında; ayrı sayfada listelenir.")
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()
