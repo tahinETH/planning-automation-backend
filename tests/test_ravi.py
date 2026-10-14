@@ -407,3 +407,14 @@ def test_archive_actual_shipment_and_scrap_deletion_guidance():
             assert "Silme, Yarı mamule geri al değildir" in topic["body"]
         assert "confirmedDeliveryBuffer" not in topic["body"]
         assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_charge_block_guidance_names_controls_and_quantity_safety():
+    for topic_id in ("processes-wip", "downstream-planning-methods", "machines", "archive-deliveries"):
+        topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))
+        assert "Şarjı bloke et" in topic["body"]
+        assert "Evet, blokeyi kaldır" in topic["body"]
+        assert "ikinci Torna üretimi açılmaz" in topic["body"]
+        assert "Süren proses beklemesi kaldırılmaz" in topic["body"]
+        assert any("Şarjı bloke et" in source for source in topic["userSources"])
+        assert "implementationNotes" not in topic and "sources" not in topic
