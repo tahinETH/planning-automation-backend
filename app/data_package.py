@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import math
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from copy import copy
 from typing import Any, Literal
 
 from openpyxl import Workbook, load_workbook
@@ -177,7 +179,131 @@ def _scenario_sheets(workbook: Workbook, data: Any) -> None:
     ])
 
 
-def build_data_package(scope: DataPackageScope, data: Any) -> bytes:
+PLAN_SHEETS = (("turning", "Torna Planı"), ("drilling", "Delme Planı"), ("deburring", "Çapak Alma Planı"), ("gkm", "GKM Planı"))
+PLAN_HEADERS = ["Senaryo ID", "Senaryo adı", "Kayıt tarihi", "Şarj / iş ID", "İş emri", "Tip", "Adet", "Tezgah / iş merkezi",
+                "Başlangıç", "Bitiş", "Hazır olma", "Setup (saat)", "Bekleme kuralı", "Kaynak türü", "Durum", "Not"]
+DATE_FORMAT = "dd.mm.yyyy hh:mm"
+
+
+def _excel_datetime(serial: Any) -> Any:
+    """Factory wall-clock Excel serial → naive datetime (Türkiye saati).
+
+    Non-numeric, non-finite, non-positive or out-of-range values (beyond the
+    Excel date limit 31.12.9999) stay empty; the row status shows Tarihsiz.
+    """
+    if not isinstance(serial, (int, float)) or isinstance(serial, bool) or not math.isfinite(serial) or not 0 < serial < 2958466:
+        return None
+    try:
+        return datetime(1899, 12, 30) + timedelta(days=float(serial))
+    except (OverflowError, ValueError):
+        return None
+
+
+def _plain(value: Any, limit: int = 500) -> Any:
+    """Cell-safe scalar: numbers stay numbers, everything else bounded text."""
+    if isinstance(value, bool) or value is None:
+        return "" if value is None else str(value)
+    if isinstance(value, (int, float)):
+        return value if math.isfinite(value) else ""
+    return str(value)[:limit]
+
+
+def _scenario_plan_sheets(workbook: Workbook, plans: dict[str, Any]) -> None:
+    """Readable per-process plans from stored scenarios (server-computed)."""
+    scenarios = plans.get("scenarios") or []
+
+    def readable_layout(sheet, widths, freeze):
+        sheet.freeze_panes = freeze
+        sheet.auto_filter.ref = sheet.dimensions
+        sheet.sheet_view.zoomScale = 85
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.paperSize = sheet.PAPERSIZE_A3
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.print_title_rows = "1:1"
+        sheet.print_options.horizontalCentered = True
+        sheet.row_dimensions[1].height = 36
+        for index, width in enumerate(widths, 1):
+            sheet.column_dimensions[sheet.cell(1, index).column_letter].width = width
+        for row in sheet.iter_rows():
+            lines = 1
+            for cell in row:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                if cell.row == 1:
+                    cell.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+                else:
+                    cell.font = Font(name="Calibri", size=10, color="243B35")
+                    width = widths[cell.column - 1]
+                    text = str(cell.value or "")
+                    lines = max(lines, sum(max(1, math.ceil(len(part) / max(8, width - 2))) for part in text.split("\n")))
+            if row[0].row > 1:
+                sheet.row_dimensions[row[0].row].height = max(32, min(180, lines * 15 + 8))
+
+    for key, title in PLAN_SHEETS:
+        sheet = workbook.create_sheet(title)
+        rows: list[list[Any]] = []
+        for scenario in scenarios:
+            identity = [_plain(scenario.get("id", "")), _plain(scenario.get("name", "")), _plain(scenario.get("createdAt", ""))]
+            if scenario.get("status") != "ok":
+                rows.append([*identity, "", "", "", "", "", None, None, None, None, "", "", "Plan yok", scenario.get("error") or "Plan hesaplanamadı."])
+                continue
+            items = (scenario.get("rows") or {}).get(key) or []
+            if not isinstance(items, list):
+                items = []
+            if not items:
+                rows.append([*identity, "", "", "", "", "", None, None, None, None, "", "", "Plan boş", "Bu senaryoda bu proseste iş yok."])
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                setup = item.get("setupHours")
+                start, end = _excel_datetime(item.get("start")), _excel_datetime(item.get("end"))
+                status = _plain(item.get("status", ""))
+                if status == "Planlandı" and (start is None or end is None):
+                    status = "Tarihsiz"
+                rows.append([*identity, _plain(item.get("id", "")), _plain(item.get("workOrder", "")), _plain(item.get("product", "")), _plain(item.get("quantity", 0)), _plain(item.get("resourceId", "")),
+                             start, end, _excel_datetime(item.get("readyAt")),
+                             round(setup, 3) if isinstance(setup, (int, float)) and not isinstance(setup, bool) and math.isfinite(setup) else None,
+                             _plain(item.get("wait", "")), _plain(item.get("source", "")), status, _plain(item.get("note", ""))])
+        if not scenarios:
+            rows.append(["", "", "", "", "", "", "", "", None, None, None, None, "", "", "Plan yok", "Seçili senaryo yok."])
+        _append_rows(sheet, PLAN_HEADERS, rows)
+        readable_layout(sheet, [18, 26, 27, 30, 24, 18, 12, 23, 23, 23, 23, 15, 34, 24, 19, 65], "C2")
+        for row in sheet.iter_rows(min_row=2, min_col=7, max_col=7):
+            row[0].number_format = "#,##0"
+        for row in sheet.iter_rows(min_row=2, min_col=12, max_col=12):
+            row[0].number_format = "0.###"
+        for row in sheet.iter_rows(min_row=2, min_col=9, max_col=11):
+            for cell in row:
+                if cell.value is not None:
+                    cell.number_format = DATE_FORMAT
+    warnings = workbook.create_sheet("Plan Uyarıları")
+    warning_rows = [[scenario.get("id", ""), scenario.get("name", ""), item.get("code", ""), item.get("product", ""), item.get("batchId", ""), item.get("message", "")]
+                    for scenario in scenarios for item in scenario.get("warnings") or []]
+    warning_rows += [[scenario.get("id", ""), scenario.get("name", ""), scenario.get("status", ""), "", "", scenario.get("error", "")]
+                     for scenario in scenarios if scenario.get("status") != "ok"]
+    if plans.get("error"):
+        warning_rows.append(["", "", "plan-error", "", "", plans["error"]])
+    if not warning_rows:
+        warning_rows.append(["", "", "", "", "", "Uyarı yok."])
+    _append_rows(warnings, ["Senaryo ID", "Senaryo adı", "Kod", "Tip", "Şarj / iş ID", "Açıklama"], warning_rows)
+    readable_layout(warnings, [18, 28, 26, 18, 32, 110], "C2")
+
+
+def _literal_text_cells(workbook: Workbook) -> None:
+    """Formula-injection safety: every cell text stays literal text, never a formula.
+
+    Data packages contain no intended formulas. A string starting with "=" is
+    stored as a text cell (value unchanged), including hidden payload chunks.
+    """
+    for sheet in workbook.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.data_type == "f":
+                    cell.data_type = "s"
+
+
+def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any] | None = None) -> bytes:
     workbook = Workbook()
     info = workbook.active
     info.title = "Bilgi"
@@ -190,6 +316,7 @@ def build_data_package(scope: DataPackageScope, data: Any) -> bytes:
     info.column_dimensions["A"].width = 24
     info.column_dimensions["B"].width = 72
 
+    is_filter = False
     if scope == "parameters":
         _parameter_sheets(workbook, data)
     elif scope == "complete":
@@ -202,6 +329,60 @@ def build_data_package(scope: DataPackageScope, data: Any) -> bytes:
         _settings_sheets(workbook, data)
     else:
         _scenario_sheets(workbook, data)
+        is_filter = (isinstance(data, list) and any(isinstance(item, dict) and isinstance(item.get("seed"), dict) and item["seed"].get("productionArea") == "cubuk-filtre" for item in data))
+    if scope == "scenarios" and not is_filter:
+        # Çubuk Filtre export is unchanged (deferred scope): no Piston plan sheets.
+        if plans is None:
+            from .database import scenario_record
+            from .scenario_plans import scenario_plans
+            requested = data if isinstance(data, list) else (data.get("scenarios", []) if isinstance(data, dict) else [])
+            plans = scenario_plans(requested, scenario_record)
+        engine = plans.get("engine")
+        info.append(["Plan sayfaları", "Tarihler sunucuda kayıtlı senaryo girdisinden paylaşılan rota motoruyla hesaplandı. Tarayıcıdaki tarihler kullanılmadı."])
+        info.append(["Plan motoru", f"Motor SHA-256 {engine}" if engine else "Motor hazır değil; plan hesaplanmadı"])
+        info.append(["Plan hesap zamanı (UTC)", plans.get("computedAt", "")])
+        info.append(["Plan saat dilimi", "Türkiye (fabrika saati); süreler saat; bekleme iş günü veya çalışma saati olarak yazılır"])
+        if plans.get("error"):
+            info.append(["Plan uyarısı", plans["error"]])
+        # Format only the Piston scenario views; hidden backup and CF stay unchanged.
+        summary = workbook["Senaryolar"]
+        summary.cell(1, 8, "Senaryo ID")
+        summary.cell(1, 8)._style = copy(summary.cell(1, 1)._style)
+        requested = data if isinstance(data, list) else data.get("scenarios", [])
+        for index, scenario in enumerate(requested, 2):
+            summary.cell(index, 8, _plain(scenario.get("id", "")))
+        summary.freeze_panes = "B2"
+        summary.auto_filter.ref = summary.dimensions
+        summary.row_dimensions[1].height = 32
+        for column, width in {"A": 30, "B": 72, "C": 28, "D": 16, "E": 16, "F": 12, "G": 22, "H": 20}.items():
+            summary.column_dimensions[column].width = width
+        for row in summary.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+            if row[0].row > 1:
+                summary.row_dimensions[row[0].row].height = max(32, min(150, math.ceil(len(str(row[1].value or "")) / 68) * 15 + 8))
+        info.merge_cells("A1:B1")
+        info.column_dimensions["A"].width = 30
+        info.column_dimensions["B"].width = 112
+        info.row_dimensions[1].height = 28
+        info.freeze_panes = "B2"
+        for row in info.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                if cell.row > 1:
+                    cell.font = Font(name="Calibri", size=11, color="243B35")
+            if row[0].row > 1:
+                text = str(row[1].value or "") if len(row) > 1 else ""
+                info.row_dimensions[row[0].row].height = max(32, math.ceil(len(text) / 105) * 16 + 10)
+        try:
+            _scenario_plan_sheets(workbook, plans)
+        except Exception:
+            # Malformed stored data must not fail the export: keep empty sheets
+            # with headers and an explicit warning instead of partial rows.
+            for title in [title for _, title in PLAN_SHEETS] + ["Plan Uyarıları"]:
+                if title in workbook.sheetnames:
+                    del workbook[title]
+            _scenario_plan_sheets(workbook, {"scenarios": [], "error": "Plan sayfaları kayıtlı senaryo verisinden oluşturulamadı; plan gösterilmedi."})
 
     payload = json.dumps({"format": FORMAT_NAME, "version": FORMAT_VERSION, "scope": scope, "data": data}, ensure_ascii=False, separators=(",", ":"))
     storage = workbook.create_sheet("__SelsaVeri")
@@ -210,6 +391,7 @@ def build_data_package(scope: DataPackageScope, data: Any) -> bytes:
         storage.append([index // CHUNK_SIZE + 1, payload[index:index + CHUNK_SIZE]])
     storage.sheet_state = "veryHidden"
 
+    _literal_text_cells(workbook)
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -315,8 +315,23 @@ def get_production_sync_status(_: CurrentUser = Depends(current_user)):
 
 
 @app.post("/api/production-sync/pull")
-def post_production_sync(_: CurrentUser = Depends(require_admin)):
-    return pull_production_state()
+def post_production_sync(payload: dict[str, Any] | None = Body(default=None), _: CurrentUser = Depends(require_admin)):
+    body = payload or {}
+    if body.get("action") == "apply":
+        expected = body.get("expected")
+        fields = {"sourceDigest", "localDigest", "localUpdatedAt", "baselineDigest"}
+        if (not isinstance(expected, dict) or not fields.issubset(expected)
+                or not isinstance(expected.get("sourceDigest"), str)
+                or not isinstance(expected.get("localUpdatedAt"), str)
+                or any(expected.get(key) is not None and not isinstance(expected.get(key), str) for key in ("localDigest", "baselineDigest"))):
+            raise HTTPException(status_code=422, detail="Önizleme bilgisi eksik veya geçersiz.")
+    choices = body.get("choices")
+    if choices is not None and (not isinstance(choices, dict) or any(
+            key not in {"physical", "orders", "annotations"} or not isinstance(value, str)
+            or value not in ({"keep-local", "use-source", "combine"} if key == "annotations" else {"keep-local", "use-source"})
+            for key, value in choices.items())):
+        raise HTTPException(status_code=422, detail="Yenileme seçimleri geçersiz.")
+    return pull_production_state(body.get("action"), body.get("expected"), body.get("choices"))
 
 
 @app.put("/api/planning-state")

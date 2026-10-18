@@ -89,14 +89,28 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
                 request=upstream_request,
             )
             with patch("app.production_sync.httpx.get", return_value=upstream_response) as upstream_get:
-                pulled = client.post("/api/production-sync/pull", headers=auth_headers)
+                # No baseline proves that this local work can be replaced.
+                # The reviewed refresh rule requires an explicit group choice.
+                undecided = client.post("/api/production-sync/pull", headers=auth_headers)
+                assert undecided.status_code == 409
+                assert client.get("/api/planning-state", headers=auth_headers).json()["seed"] == local_seed
+                assert {item["id"] for item in client.get("/api/scenarios", headers=auth_headers).json()} == {"staging-only"}
+                preview = client.post("/api/production-sync/pull", headers=auth_headers, json={"action": "preview"})
+                assert preview.status_code == 200
+                review = preview.json()
+                pulled = client.post("/api/production-sync/pull", headers=auth_headers, json={
+                    "action": "apply",
+                    "expected": {key: review[key] for key in ("sourceDigest", "localDigest", "localUpdatedAt", "baselineDigest")},
+                    "choices": {"physical": "keep-local", "orders": "keep-local", "annotations": "keep-local"},
+                })
 
             assert pulled.status_code == 200
             assert pulled.json()["planningState"]["seed"] == expected_seed
             assert pulled.json()["sourceUpdatedAt"] == source_updated_at
             assert pulled.json()["sourceUrl"] == "https://api.planning.hfgok.com/api"
             assert {s["id"] for s in pulled.json()["scenarios"]} == {"staging-only", "prod-scenario-1"}
-            upstream_get.assert_called_once_with(
+            assert upstream_get.call_count == 3
+            upstream_get.assert_called_with(
                 "https://api.planning.hfgok.com/api/production-snapshot",
                 headers={"X-Staging-Pull-Token": "shared-read-token"},
                 timeout=20.0,

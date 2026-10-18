@@ -1039,10 +1039,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const rightOrder = right.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
     if (leftOrder !== rightOrder) return leftOrder - rightOrder;
     if (Math.abs(leftScheduleAt - rightScheduleAt) > 1e-8) return leftScheduleAt - rightScheduleAt;
-    if (left.source.source !== right.source.source) {
-      const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
-      return rank(left.source.source) - rank(right.source.source);
-    }
+    const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
+    if (process2 !== "drilling" && left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
     if (process2 === "drilling") {
       if (Boolean(left.override) !== Boolean(right.override)) return left.override ? -1 : 1;
       const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
@@ -1050,6 +1048,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       if (leftDue !== rightDue) return leftDue - rightDue;
       const feeds = (item) => productProcessRoute(item.source.masterProduct).includes("deburring") ? 0 : 1;
       if (feeds(left) !== feeds(right)) return feeds(left) - feeds(right);
+      if (left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
     }
     if (strategy === "campaign") {
       const setupOrder = left.parameter.setupKey.localeCompare(right.parameter.setupKey, "tr", { numeric: true });
@@ -1100,16 +1099,16 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         for (const [gapIndex, gap] of gaps.entries()) {
           const nextOverride = processPlacementOverride(seed, gap.nextReservation.batchId, gap.nextReservation.product, process2);
           if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
-          const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup);
+          const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
           const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
-          const gapTimeline = addMachineCapacityHours(
+          const gapTimeline = rule?.mode === "dynamic" && predecessor ? dynamicFlowTiming(seed, calendarSeed, resource, predecessor, gapStart, incomingSetup.hours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
             gapStart,
             incomingSetup.hours + runHours
           );
           if (resource.planEnd && gapTimeline.end > Math.floor(resource.planEnd) + 1 + 1e-8) continue;
-          const requiredReservedSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextReservation)).hours;
+          const requiredReservedSetup = calculateDownstreamSetup(process2, nextSetup, setupSourceForOperation(gap.nextReservation), seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings).hours;
           const protectedSetupHoursAfter = Math.max(0, requiredReservedSetup - gap.nextReservation.setupHours);
           const restored = addMachineCapacityHours(
             calendarSeed,
