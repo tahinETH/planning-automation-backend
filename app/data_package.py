@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 
-DataPackageScope = Literal["parameters", "settings", "scenarios"]
+DataPackageScope = Literal["parameters", "settings", "scenarios", "complete"]
 MAX_DATA_PACKAGE_BYTES = 20 * 1024 * 1024
 FORMAT_NAME = "SELSA_PLANLAMA_DATA_PACKAGE"
 FORMAT_VERSION = 1
@@ -19,6 +19,7 @@ SCOPE_LABELS: dict[DataPackageScope, str] = {
     "parameters": "Parametreler",
     "settings": "Ayarlar",
     "scenarios": "Senaryolar",
+    "complete": "Parametreler ve Ayarlar",
 }
 
 
@@ -70,6 +71,50 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
         for index, machine_id in enumerate(machines):
             rows.append([product.get("product", ""), index + 1, machine_id, machine_rates.get(machine_id, {}).get(str(product.get("product", "")).upper(), "")])
     _append_rows(priority_sheet, ["Ürün", "Öncelik", "Tezgah", "Günlük Üretim"], rows)
+    _process_parameter_sheet(workbook, data.get("processMasterData") or {})
+
+
+PROCESS_LABELS = {"drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM", "gtm": "GTM",
+                  "diameter-grinding": "Çap Taşlama", "form-grinding": "Form Taşlama", "measuring": "Ölçme",
+                  "milling": "Freze", "final-inspection": "Final Kontrol", "filter-visual": "Göz Kontrol"}
+
+
+def _process_parameter_sheet(workbook: Workbook, master: dict[str, Any]) -> None:
+    """Readable Delme and later rows; the hidden payload stays the import source."""
+    resources = {item.get("id"): item for item in master.get("resources") or []}
+    rows: list[list[Any]] = []
+    for product in master.get("products") or []:
+        for parameter in product.get("processes") or []:
+            if parameter.get("process") == "turning":
+                continue
+            inactive = set(parameter.get("inactiveResourceIds") or [])
+            for index, resource_id in enumerate(parameter.get("resourcePriority") or []):
+                setup = (parameter.get("setupMinutesByResource") or {}).get(resource_id, "")
+                rows.append([
+                    product.get("product", ""), PROCESS_LABELS.get(parameter.get("process"), parameter.get("process")),
+                    index + 1, resource_id, (resources.get(resource_id) or {}).get("name", ""),
+                    "Pasif" if resource_id in inactive else "Aktif",
+                    (parameter.get("unitsPerShift") or {}).get(resource_id, ""),
+                    parameter.get("setupKey", ""), setup, parameter.get("waitWorkdaysBefore", 0),
+                    product.get("productGroup", ""),
+                ])
+    sheet = workbook.create_sheet("Proses Parametreleri")
+    _append_rows(sheet, ["Ürün", "Proses", "Öncelik", "İş merkezi", "İş merkezi adı", "Planlama durumu", "Adet / vardiya",
+                         "Setup anahtarı", "Setup (dk)", "Bekleme (iş günü)", "Ürün grubu"], rows)
+
+
+def _flow_settings_sheet(workbook: Workbook, flow: dict[str, Any] | None) -> None:
+    sheet = workbook.create_sheet("Akış Ayarları")
+    families = {"piston": "Piston", "center-pin": "Center Pin"}
+    labels = {"turning": "Torna", "delivery": "Paketleme / Final Kontrol", **PROCESS_LABELS}
+    rows: list[list[Any]] = [["Saat bazlı akış", "Açık" if (flow or {}).get("enabled") else "Kapalı", "", "", "", "", ""]]
+    for rule in (flow or {}).get("rules") or []:
+        minutes = rule.get("minutes", 0)
+        rows.append([rule.get("description", ""), families.get(rule.get("family"), rule.get("family")),
+                     f"{labels.get(rule.get('from'), rule.get('from'))} → {labels.get(rule.get('to'), rule.get('to'))}",
+                     "Bitiş farkı hedefi" if rule.get("mode") == "dynamic" else "Sabit bekleme (çalışma saati)",
+                     minutes, round(minutes / 60, 2) if isinstance(minutes, (int, float)) else "", "Aktif" if rule.get("active") else "Pasif"])
+    _append_rows(sheet, ["Kural", "Aile", "Geçiş", "Tür", "Dakika", "Saat", "Durum"], rows)
 
 
 def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
@@ -106,6 +151,8 @@ def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
         [item.get("id", ""), item.get("machineId", ""), item.get("kind", ""), item.get("name", ""), item.get("start", ""), item.get("end", ""), item.get("shiftCount", 0)]
         for item in data.get("calendarEvents", [])
     ])
+    if data.get("flowSettings") is not None:
+        _flow_settings_sheet(workbook, data.get("flowSettings"))
     machine_sheet = workbook.create_sheet("Tezgah Ayarları")
     _append_rows(machine_sheet, ["Tezgah", "Ad", "Aktif", "Müsait Başlangıç", "Plan Bitişi", "Vardiya", "Kapasite"], [
         [item.get("id", ""), item.get("name", ""), item.get("active", False), item.get("availableStart", ""), item.get("planEnd", ""), item.get("shiftFactor", 0), item.get("capacityFactor", 1)]
@@ -147,6 +194,12 @@ def build_data_package(scope: DataPackageScope, data: Any) -> bytes:
 
     if scope == "parameters":
         _parameter_sheets(workbook, data)
+    elif scope == "complete":
+        # One workbook: parameter and settings sections keep their own sheets.
+        if not isinstance(data, dict) or not isinstance(data.get("parameters"), dict) or not isinstance(data.get("settings"), dict):
+            raise DataPackageError("Tam yedek paketinde Parametreler ve Ayarlar bölümleri gereklidir.")
+        _parameter_sheets(workbook, data["parameters"])
+        _settings_sheets(workbook, data["settings"])
     elif scope == "settings":
         _settings_sheets(workbook, data)
     else:

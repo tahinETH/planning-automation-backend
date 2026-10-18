@@ -45,7 +45,7 @@ class ScenarioPayload(BaseModel):
 
 
 class DataPackagePayload(BaseModel):
-    scope: Literal["parameters", "settings", "scenarios"]
+    scope: Literal["parameters", "settings", "scenarios", "complete"]
     data: Any
 
 

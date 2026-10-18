@@ -234,7 +234,7 @@ def export_production_archive(payload: ProductionArchiveExportPayload, _: Curren
 
 @app.post("/api/data-packages/export")
 def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends(current_user)):
-    if payload.scope == "settings" and not user.is_admin:
+    if payload.scope in ("settings", "complete") and not user.is_admin:
         raise HTTPException(status_code=403, detail="Ayarlar paketlerine yalnızca yöneticiler erişebilir")
     content = build_data_package(payload.scope, payload.data)
     filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
@@ -249,7 +249,7 @@ def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends
 async def import_data_package(scope: str, file: UploadFile = File(...), user: CurrentUser = Depends(current_user)):
     if scope not in SCOPE_LABELS:
         raise HTTPException(status_code=404, detail="Veri paketi kapsamı bulunamadı.")
-    if scope == "settings" and not user.is_admin:
+    if scope in ("settings", "complete") and not user.is_admin:
         raise HTTPException(status_code=403, detail="Ayarlar paketlerini yalnızca yöneticiler içe aktarabilir")
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
         raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")

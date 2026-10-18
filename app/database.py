@@ -339,6 +339,7 @@ def _insert_planning_history(
 
 OPERATIONAL_ROOT_FIELDS = (
     "productionInterruptions",
+    "productionCancellations",
     "productionHistory",
     "wipLots",
     "wipMovements",
@@ -498,6 +499,11 @@ def save_planning_state(
             raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
         if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
+        if "adviceSettings" in seed:
+            advice = seed["adviceSettings"]
+            days = advice.get("staleChargeDays") if isinstance(advice, dict) else None
+            if not isinstance(advice, dict) or advice.get("version") != 1 or not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= 365:
+                raise ValueError("Hareketsiz şarj eşiği 1–365 tam gün olmalıdır.")
         if "productWeights" in seed:
             validate_product_weights(seed["productWeights"])
         if "rawMaterialSettings" in seed:
@@ -505,6 +511,10 @@ def save_planning_state(
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None, reconcile=not unresolved) if mode == "planning" else seed
+        from .piston_controls import assert_pasif_transition, validate_production_cancellations
+        if identity_resolution is None:
+            assert_pasif_transition(current["seed"] if current else None, saved_seed)
+        saved_seed = validate_production_cancellations(current["seed"] if current else None, saved_seed, actor_id, actor_name, timestamp)
         if identity_resolution is not None:
             # The server built and validated the complete repair from its own revision.
             pass
