@@ -5590,6 +5590,7 @@ function actualWipOperations(lot, masterProduct) {
     setupHours: 0,
     runHours: Math.max(0, (step.end - step.start) * 24),
     waitWorkdaysBefore: 0,
+    waitRuleLabel: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
     readyAt: step.start,
     start: step.start,
     end: step.end,
@@ -5690,7 +5691,9 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
-    return [{ source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, rule: usesRule ? rule : void 0 }];
+    const hours = (minutes) => String(Math.round(minutes / 60 * 100) / 100).replace(".", ",");
+    const waitRuleLabel = currentJob ? "\xC7al\u0131\u015Fan i\u015F \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7" : firstRemaining && source.source === "wip" ? "Kay\u0131tl\u0131 haz\u0131r olma (yar\u0131 mamul)" : usesRule ? rule.mode === "dynamic" ? `Biti\u015F fark\u0131 hedefi ${hours(rule.minutes)} takvim saati` : `${hours(rule.minutes)} \xE7al\u0131\u015Fma saati` : effectiveWaitWorkdays > 0 ? `${effectiveWaitWorkdays} i\u015F g\xFCn\xFC` : "Bekleme yok";
+    return [{ source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, waitRuleLabel, rule: usesRule ? rule : void 0 }];
   }).sort((left, right) => {
     if (Boolean(left.currentJob) !== Boolean(right.currentJob)) return left.currentJob ? -1 : 1;
     if (Boolean(left.override?.resumeAfterCurrent) !== Boolean(right.override?.resumeAfterCurrent)) return left.override?.resumeAfterCurrent ? -1 : 1;
@@ -5733,7 +5736,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   }
   const scheduled = [];
   for (const item of candidates) {
-    const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, rule } = item;
+    const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, waitRuleLabel, rule } = item;
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
     const activeResources = activeProcessResourceIds(parameter);
     const resourceCandidates = currentJob ? [currentJob.resourceId] : override ? activeResources.filter((id) => id === override.resourceId) : activeResources;
@@ -5828,6 +5831,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       protectedSetupHoursAfter: chosen.protectedSetupHoursAfter || void 0,
       runHours: chosen.runHours,
       waitWorkdaysBefore: effectiveWaitWorkdays,
+      waitRuleLabel,
       readyAt,
       start: chosen.start,
       end: chosen.end,
@@ -6060,7 +6064,7 @@ function planScenario(record) {
         end,
         readyAt: null,
         setupHours: typeof batch.setupHours === "number" ? batch.setupHours : null,
-        wait: "",
+        wait: "Bekleme yok",
         source: "Torna plan\u0131",
         status: !planned ? "Planlanamad\u0131" : start === null || end === null ? "Tarihsiz" : "Planland\u0131",
         note: [batch.locked ? "Kilitli" : "", batch.routeCommitted ? "Rota onayl\u0131" : "", !planned ? text(batch.reason) : ""].filter(Boolean).join(" \xB7 ")
@@ -6079,7 +6083,7 @@ function planScenario(record) {
         end: finite(current.end),
         readyAt: null,
         setupHours: null,
-        wait: "",
+        wait: "\xC7al\u0131\u015Fan i\u015F \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7",
         source: "Mevcut Torna i\u015Fi",
         status: "\xC7al\u0131\u015F\u0131yor",
         note: current.remainingQuantity != null && current.remainingQuantity !== current.quantity ? `Kalan ${current.remainingQuantity}` : ""
@@ -6099,7 +6103,7 @@ function planScenario(record) {
         end: finite(step.end),
         readyAt: null,
         setupHours: null,
-        wait: "",
+        wait: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
         source: "Yar\u0131 mamul",
         status: "Fiili",
         note: ""
@@ -6117,7 +6121,7 @@ function planScenario(record) {
         end: finite(entry.completedAt),
         readyAt: null,
         setupHours: null,
-        wait: "",
+        wait: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
         source: "\xDCretim ar\u015Fivi",
         status: "Fiili",
         note: text(entry.inventoryStatus)
@@ -6137,10 +6141,12 @@ function planScenario(record) {
         end,
         readyAt: finite(operation.readyAt),
         setupHours: operation.setupHours,
-        wait: operation.flowReason ? text(operation.flowReason) : operation.waitWorkdaysBefore ? `${operation.waitWorkdaysBefore} i\u015F g\xFCn\xFC` : "",
+        // The rule label from scheduleStage is the only wait text (no second legacy wait);
+        // plans built before the label existed fall back to the workday value.
+        wait: operation.waitRuleLabel ? text(operation.waitRuleLabel) : operation.waitWorkdaysBefore ? `${operation.waitWorkdaysBefore} i\u015F g\xFCn\xFC` : "Bekleme yok",
         source: SOURCE_LABEL[operation.source] ?? operation.source,
         status: operation.actual ? "Fiili" : operation.current ? "\xC7al\u0131\u015F\u0131yor" : start === null || end === null ? "Tarihsiz" : "Planland\u0131",
-        note: operation.manualOverride ? "Elle yerle\u015Fim" : ""
+        note: [operation.manualOverride ? "Elle yerle\u015Fim" : "", operation.flowReason ? text(operation.flowReason) : ""].filter(Boolean).join(" \xB7 ")
       });
     }
     for (const warning of plan.warnings) output.warnings.push({ code: warning.code, product: text(warning.product), batchId: text(warning.batchId), message: text(warning.message) });
