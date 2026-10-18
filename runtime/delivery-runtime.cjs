@@ -1042,7 +1042,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const difference = usableResources(left.source, left.parameter).length - usableResources(right.source, right.parameter).length;
       if (difference) return difference;
     }
-    const machineFree = (item) => process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => processResource(master, id)?.availableStart ?? 0), Number.POSITIVE_INFINITY) : 0;
+    const currentEnds = (id, item) => seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end);
+    const machineFree = (item) => process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(processResource(master, id)?.availableStart ?? 0, ...currentEnds(id, item))), Number.POSITIVE_INFINITY) : 0;
     const leftScheduleAt = Math.max(left.readyAt, left.override?.requestedStart ?? left.readyAt, Number.isFinite(machineFree(left)) ? machineFree(left) : 0);
     const rightScheduleAt = Math.max(right.readyAt, right.override?.requestedStart ?? right.readyAt, Number.isFinite(machineFree(right)) ? machineFree(right) : 0);
     const leftOrder = left.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
