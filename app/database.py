@@ -77,6 +77,10 @@ def init_database() -> None:
             CREATE TABLE IF NOT EXISTS production_sync_baseline (
                 state_key TEXT PRIMARY KEY, seed_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS production_sync_backup (
+              id TEXT PRIMARY KEY, created_at TEXT NOT NULL, local_updated_at TEXT NOT NULL DEFAULT '',
+              source_updated_at TEXT NOT NULL, choices_json TEXT NOT NULL, seed_json TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS production_sync_state (
               sync_key TEXT PRIMARY KEY, source_updated_at TEXT NOT NULL,
               imported_at TEXT NOT NULL, source_url TEXT NOT NULL DEFAULT ''
@@ -545,21 +549,60 @@ def save_planning_state(
     return {"seed": saved_seed, "updatedAt": timestamp, "updatedBy": {"id": actor_id, "name": actor_name}, "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
 
 
+class RefreshPreviewStale(Exception):
+    """The reviewed preview no longer matches the stored or source state."""
+
+
+PRODUCTION_SYNC_BACKUP_LIMIT = 30
+
+
+def production_refresh_inputs() -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
+    """Local staging seed, its revision and the last production baseline (read-only)."""
+    with connection() as db:
+        local_row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        base_row = db.execute("SELECT seed_json FROM production_sync_baseline WHERE state_key='production'").fetchone()
+    return (_loads(local_row["seed_json"]) if local_row else None, local_row["updated_at"] if local_row else "",
+            _loads(base_row["seed_json"]) if base_row else None)
+
+
 def replace_planning_state_from_production(
     seed: dict[str, Any],
     source_updated_at: str,
     source_url: str,
     scenario_records: list[dict[str, Any]],
+    expected: dict[str, Any] | None = None,
+    choices: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Atomically refresh source data while retaining local edits and operational state."""
+    """Atomically apply a reviewed refresh.
+
+    The local digest, revision and baseline digest are compared inside the
+    write transaction; any difference rejects the write. The pre-change local
+    seed is kept in production_sync_backup before anything is replaced.
+    """
+    from .production_merge import merge_production_refresh_reviewed, refresh_groups, resolve_refresh_choices, seed_digest
     timestamp = now_iso()
     source_seed = seed
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
-        local_row = db.execute("SELECT seed_json FROM planning_state WHERE state_key='default'").fetchone()
+        local_row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
         base_row = db.execute("SELECT seed_json FROM production_sync_baseline WHERE state_key='production'").fetchone()
-        seed = merge_production_refresh(source_seed, _loads(local_row["seed_json"]) if local_row else None,
-                                        _loads(base_row["seed_json"]) if base_row else None)
+        local_seed = _loads(local_row["seed_json"]) if local_row else None
+        baseline_seed = _loads(base_row["seed_json"]) if base_row else None
+        if expected is not None:
+            if (expected.get("localDigest") != seed_digest(local_seed)
+                    or expected.get("localUpdatedAt", "") != (local_row["updated_at"] if local_row else "")
+                    or expected.get("baselineDigest") != seed_digest(baseline_seed)):
+                raise RefreshPreviewStale("Staging verisi önizlemeden sonra değişti. Önizlemeyi yenileyip yeniden inceleyin.")
+        resolved = resolve_refresh_choices(refresh_groups(source_seed, local_seed, baseline_seed), choices)
+        seed = merge_production_refresh_reviewed(source_seed, local_seed, baseline_seed, resolved)
+        backup_id = None
+        if local_seed is not None:
+            backup_id = f"refresh-backup-{uuid.uuid4()}"
+            db.execute("INSERT INTO production_sync_backup VALUES(?,?,?,?,?,?)",
+                       (backup_id, timestamp, local_row["updated_at"], source_updated_at, json.dumps(resolved), local_row["seed_json"]))
+            stale = db.execute("SELECT id FROM production_sync_backup ORDER BY created_at DESC LIMIT -1 OFFSET ?", (PRODUCTION_SYNC_BACKUP_LIMIT,)).fetchall()
+            if stale:
+                db.executemany("DELETE FROM production_sync_backup WHERE id=?", [(row["id"],) for row in stale])
         serialized_seed = json.dumps(seed, ensure_ascii=False)
         db.execute("INSERT INTO production_sync_baseline VALUES('production',?) ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json",
                    (json.dumps(source_seed, ensure_ascii=False),))
@@ -608,6 +651,8 @@ def replace_planning_state_from_production(
         "historyEntry": history_entry,
         "archiveSnapshot": archive_snapshot,
         "scenarios": scenario_records,
+        "backupId": backup_id,
+        "appliedChoices": resolved,
     }
 
 

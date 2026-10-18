@@ -1050,10 +1050,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const rightOrder = right.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
     if (leftOrder !== rightOrder) return leftOrder - rightOrder;
     if (Math.abs(leftScheduleAt - rightScheduleAt) > 1e-8) return leftScheduleAt - rightScheduleAt;
-    if (left.source.source !== right.source.source) {
-      const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
-      return rank(left.source.source) - rank(right.source.source);
-    }
+    const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
+    if (process2 !== "drilling" && left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
     if (process2 === "drilling") {
       if (Boolean(left.override) !== Boolean(right.override)) return left.override ? -1 : 1;
       const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
@@ -1061,6 +1059,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       if (leftDue !== rightDue) return leftDue - rightDue;
       const feeds = (item) => productProcessRoute(item.source.masterProduct).includes("deburring") ? 0 : 1;
       if (feeds(left) !== feeds(right)) return feeds(left) - feeds(right);
+      if (left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
     }
     if (strategy === "campaign") {
       const setupOrder = left.parameter.setupKey.localeCompare(right.parameter.setupKey, "tr", { numeric: true });
