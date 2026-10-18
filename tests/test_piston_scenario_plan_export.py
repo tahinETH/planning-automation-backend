@@ -441,3 +441,64 @@ def test_t17_deferred_cf_export_keeps_its_existing_summary_and_backup_shape(monk
     assert set(workbook.sheetnames) == {"Bilgi", "Senaryolar", "__SelsaVeri"}
     assert parse_data_package(content, "scenarios") == [scenario]
     assert not calls
+
+@pytest.mark.parametrize("family", ["piston", "center-pin"])
+def test_t17_successful_hourly_rules_are_visible_in_typed_plan_export_without_double_wait(family):
+    saved = full_route_scenario()
+    seed = saved["seed"]
+    seed["products"][0]["setupFamily"] = family
+    master = seed["processMasterData"]["products"][0]
+    master["family"] = family
+    if family == "center-pin":
+        master["route"] = ["turning", "drilling", "gkm"]
+    for resource in seed["processMasterData"]["resources"]:
+        resource["eligibleProductGroups"] = [family]
+    saved["result"]["batches"][0].update(setupHours=0, start=46314.25, end=46314.5)
+    for parameter in master["processes"]:
+        parameter["unitsPerShift"] = {key: 400 for key in parameter["unitsPerShift"]}
+    washing_from = "deburring" if family == "piston" else "drilling"
+    seed["flowSettings"].update(defaultShifts=2, rules=[
+        {"id": "export-dynamic", "family": family, "from": "turning", "to": "drilling", "mode": "dynamic", "minutes": 120, "description": "Bitiş farkı", "active": True},
+        {"id": "export-washing", "family": family, "from": washing_from, "to": "gkm", "mode": "static", "minutes": 480, "description": "Yıkama / Fosfat", "active": True},
+    ])
+    seed["processWaitSettings"] = {stage: {"enabled": True, "workdays": 5} for stage in ("turning", washing_from)}
+    before = deepcopy(saved)
+    store_scenarios([saved])
+    content = build_data_package("scenarios", [saved])
+    book = load_workbook(BytesIO(content))
+    drilling = book["Delme Planı"]; washing = book["GKM Planı"]
+    dynamic = str(drilling["M2"].value or "")
+    static = str(washing["M2"].value or "")
+    assert "2" in dynamic and "saat" in dynamic and "bitiş" in dynamic.lower(), dynamic
+    assert "8" in static and "çalışma" in static and "saat" in static, static
+    assert "5 iş günü" not in dynamic and "5 iş günü" not in static
+    assert isinstance(drilling["I2"].value, datetime)
+    assert isinstance(washing["I2"].value, datetime)
+    assert drilling["G2"].value == washing["G2"].value == 100
+    assert parse_data_package(content, "scenarios") == [before]
+    assert saved == before
+
+
+def test_t17_actual_history_wait_is_recorded_not_inferred_from_current_flow_settings():
+    saved = full_route_scenario()
+    saved["seed"]["productionHistory"] = [{
+        "id": "actual-metadata", "machineId": "C-17", "machineName": "Synthetic Torna", "workOrder": "ACTUAL-META",
+        "product": "PISTON-T17", "originalQuantity": 100, "completedQuantity": 100,
+        "start": 46310, "plannedEnd": 46311, "completedAt": 46311,
+        "archivedAt": "2026-10-16T00:00:00Z", "statusChangedAt": "2026-10-16T00:00:00Z",
+        "process": "turning", "inventoryStatus": "semi-finished",
+    }]
+    saved["seed"]["flowSettings"]["rules"] = [{"id": "new-rule", "family": "piston", "from": "turning", "to": "drilling", "mode": "static", "minutes": 480, "description": "New setting", "active": True}]
+    before = deepcopy(saved)
+    store_scenarios([saved])
+    content = build_data_package("scenarios", [saved])
+    sheet = load_workbook(BytesIO(content))["Torna Planı"]
+    actual = next(row for row in sheet.iter_rows(min_row=2) if row[4].value == "ACTUAL-META")
+    label = str(actual[12].value or "")
+    assert "kayıtlı" in label.lower(), label
+    assert "8 çalışma" not in label
+    assert actual[14].value == "Fiili"
+    assert isinstance(actual[8].value, datetime)
+    assert actual[6].value == 100
+    assert parse_data_package(content, "scenarios") == [before]
+    assert saved == before
