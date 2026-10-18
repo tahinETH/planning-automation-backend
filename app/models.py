@@ -45,7 +45,7 @@ class ScenarioPayload(BaseModel):
 
 
 class DataPackagePayload(BaseModel):
-    scope: Literal["parameters", "settings", "scenarios"]
+    scope: Literal["parameters", "settings", "scenarios", "complete"]
     data: Any
 
 
@@ -65,6 +65,7 @@ class RevisionPayload(BaseModel):
 
 class PlanningStatePayload(BaseModel):
     seed: dict[str, Any]
+    flowSettingsVersion: int = 0
     routePlacementVersion: int = 0
     productionSplitVersion: int = 0
     processWaitSettingsVersion: int = 0

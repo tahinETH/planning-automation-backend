@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .flow_settings import validate_flow_settings
 
 from .production_merge import merge_production_refresh
 from .product_weights import initial_product_weights, preserve_missing_weights, validate_product_weights
@@ -301,7 +302,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings")
+PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -335,6 +336,7 @@ def _insert_planning_history(
 
 OPERATIONAL_ROOT_FIELDS = (
     "productionInterruptions",
+    "productionCancellations",
     "productionHistory",
     "wipLots",
     "wipMovements",
@@ -431,6 +433,7 @@ def save_planning_state(
     actor_id: str = "",
     actor_name: str = "",
     can_manage_settings: bool = False,
+    flow_settings_version: int = 0,
     route_placement_version: int = 0,
     production_split_version: int = 0,
     process_wait_settings_version: int = 0,
@@ -465,12 +468,18 @@ def save_planning_state(
             raise ValueError("Proses bekleme ayarlarını korumak için uygulamayı yenileyin.")
         if current and "processWaitSettings" in current["seed"] and "processWaitSettings" not in seed:
             seed = {**seed, "processWaitSettings": current["seed"]["processWaitSettings"]}
+        if current and "flowSettings" in current["seed"] and "flowSettings" not in seed:
+            seed = {**seed, "flowSettings": current["seed"]["flowSettings"]}
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
         current_updated_at = current["updatedAt"] if current else ""
         if mode != "planning" and current and expected_updated_at is None:
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if "flowSettings" in seed:
+            validate_flow_settings(seed["flowSettings"])
+        if flow_settings_version < 1 and any((state.get("flowSettings") or {}).get("enabled") for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Saat bazlı akış ayarlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if production_split_version < 1 and any(
             item.get("kind") == "partial-completion"
             for state in [seed, current["seed"] if current else {}]
@@ -481,6 +490,11 @@ def save_planning_state(
             raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
         if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
+        if "adviceSettings" in seed:
+            advice = seed["adviceSettings"]
+            days = advice.get("staleChargeDays") if isinstance(advice, dict) else None
+            if not isinstance(advice, dict) or advice.get("version") != 1 or not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= 365:
+                raise ValueError("Hareketsiz şarj eşiği 1–365 tam gün olmalıdır.")
         if "productWeights" in seed:
             validate_product_weights(seed["productWeights"])
         if "rawMaterialSettings" in seed:
@@ -488,6 +502,10 @@ def save_planning_state(
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None, reconcile=not unresolved) if mode == "planning" else seed
+        from .piston_controls import assert_pasif_transition, validate_production_cancellations
+        if identity_resolution is None:
+            assert_pasif_transition(current["seed"] if current else None, saved_seed)
+        saved_seed = validate_production_cancellations(current["seed"] if current else None, saved_seed, actor_id, actor_name, timestamp)
         if identity_resolution is not None:
             # The server built and validated the complete repair from its own revision.
             pass

@@ -5,7 +5,7 @@ from typing import Any
 
 
 OPERATIONS = {
-    "productionInterruptions",
+    "productionInterruptions", "productionCancellations", "scenarioProvenance",
     "machines", "productionHistory", "wipLots", "wipMovements", "planningEvents",
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
     "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
