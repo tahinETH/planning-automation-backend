@@ -8,6 +8,14 @@ os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 from fastapi.testclient import TestClient
 
 from app.database import connection
+from app import database
+from types import SimpleNamespace
+import pytest
+
+@pytest.fixture(autouse=True)
+def isolated_scenarios(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "settings", SimpleNamespace(database_path=tmp_path / "scenarios.sqlite", upload_dir=tmp_path / "uploads"))
+
 from app.main import app
 
 

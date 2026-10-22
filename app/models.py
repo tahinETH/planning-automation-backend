@@ -36,8 +36,10 @@ class AppUpdateCreate(BaseModel):
 
 
 class ScenarioPayload(BaseModel):
-    id: str
-    name: str
+    worldRevision: str = ""
+    revision: int | None = Field(default=None, ge=0)
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
     createdAt: str
     notes: str = ""
     seed: dict[str, Any]
@@ -81,6 +83,21 @@ class TurningIdentityResolutionPayload(BaseModel):
     workOrder: str = Field(default="", max_length=200)
     reason: str = Field(min_length=1, max_length=2000)
     confirmedDuplicate: bool = False
+
+
+class PlanningDeltaPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1]
+    transactionId: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,128}$")
+    expectedUpdatedAt: str = Field(max_length=100)
+    baseHash: str = Field(pattern=r"^(?:[a-f0-9]{64})?$")
+    delta: dict[str, Any]
+    mode: Literal["planning", "operational"] = "planning"
+    force: bool = False
+    flowSettingsVersion: Literal[1] = 1
+    routePlacementVersion: Literal[1] = 1
+    productionSplitVersion: Literal[1] = 1
+    processWaitSettingsVersion: Literal[1] = 1
 
 
 class DemandImportHistoryPayload(BaseModel):

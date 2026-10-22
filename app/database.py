@@ -6,16 +6,22 @@ from .product_weights import initial_product_weights, preserve_missing_weights, 
 from .raw_materials import initial_raw_material_settings, validate_raw_material_settings
 
 import hashlib
+import logging
+import re
+from functools import wraps
+from inspect import signature
+from contextvars import ContextVar
 from .turning_queue_identity import reconcile_turning_seed, inspect_turning_queue, assert_turning_identity_transition, repair_turning_identity
 
 import json
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from .config import settings
+from .planning_delta import apply_delta, build_delta, state_hash
 
 
 def now_iso() -> str:
@@ -40,11 +46,82 @@ def connection() -> Iterator[sqlite3.Connection]:
         db.close()
 
 
+_planning_audit = ContextVar("planning_audit", default=None)
+_AUDIT_COLLECTIONS = ("machines", "orders", "manualBatches", "savedBatches", "productionHistory", "wipLots", "wipMovements", "productionInterruptions", "productionCancellations", "processCurrentJobs", "processOperationOverrides", "planningEvents")
+
+
+def planning_correlation_id(value: str | None) -> str:
+    """Bound untrusted identifiers; never retain arbitrary header content."""
+    return value if value and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value) else ""
+
+
+def _audit_changes(before, after):
+    # Counts only: records may contain private notes or business payloads.
+    result = {}
+    for field in _AUDIT_COLLECTIONS:
+        old, new = (before or {}).get(field, []), (after or {}).get(field, [])
+        if old != new:
+            result[field] = {"before": len(old) if isinstance(old, list) else None,
+                             "after": len(new) if isinstance(new, list) else None}
+    return result
+
+
+def _insert_planning_audit(db, audit):
+    db.execute("INSERT INTO planning_write_audit(id,created_at,metadata_json) VALUES(?,?,?)",
+               (str(uuid.uuid4()), now_iso(), json.dumps(audit, ensure_ascii=False)))
+
+
+def _insert_planning_receipt(db, actor_id, transaction_id, request_hash, base_revision, result_revision):
+    db.execute("INSERT INTO planning_write_receipts VALUES(?,?,?,?,?,?)",
+               (actor_id, transaction_id, request_hash, base_revision, result_revision, now_iso()))
+
+
+def _audited_planning_write(function):
+    @wraps(function)
+    def write(*args, **kwargs):
+        bound = signature(function).bind(*args, **kwargs)
+        bound.apply_defaults()
+        values = bound.arguments
+        audit = {"actorId": values["actor_id"], "actorName": values["actor_name"],
+                 "requestId": planning_correlation_id(values["request_id"]) or str(uuid.uuid4()),
+                 "sessionId": planning_correlation_id(values["session_id"]),
+                 "action": "identity-resolution" if values["identity_resolution"] is not None else "save-planning-delta" if values["delta"] is not None else "save-planning-state",
+                 "mode": values["mode"], "force": values["force"],
+                 "expectedRevision": values["expected_updated_at"], "currentRevision": None,
+                 "resultRevision": None, "outcome": "failed", "changes": {}}
+        token = _planning_audit.set(audit)
+        try:
+            return function(*args, **kwargs)
+        except Exception as error:
+            audit["outcome"] = "conflict" if isinstance(error, PlanningStateConflict) else "forbidden" if isinstance(error, ProtectedSettingsChange) else "validation-failed" if isinstance(error, ValueError) else "failed"
+            audit["resultRevision"] = None
+            audit["errorType"] = type(error).__name__
+            # The original transaction has rolled back before this independent insert.
+            try:
+                with connection() as db:
+                    _insert_planning_audit(db, audit)
+            except Exception:
+                logging.getLogger(__name__).warning("Rejected planning write audit could not be persisted", exc_info=False)
+            raise
+        finally:
+            _planning_audit.reset(token)
+    return write
+
+
 def init_database() -> None:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     with connection() as db:
         db.executescript(
             """
+            CREATE TABLE IF NOT EXISTS planning_write_audit (
+              id TEXT PRIMARY KEY, created_at TEXT NOT NULL, metadata_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS planning_write_audit_created_idx ON planning_write_audit(created_at);
+            CREATE TABLE IF NOT EXISTS planning_write_receipts (
+              actor_id TEXT NOT NULL, transaction_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+              base_revision TEXT NOT NULL, result_revision TEXT NOT NULL, created_at TEXT NOT NULL,
+              PRIMARY KEY(actor_id,transaction_id)
+            );
             CREATE TABLE IF NOT EXISTS scenarios (
               id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL,
               notes TEXT NOT NULL DEFAULT '', inputs_json TEXT NOT NULL, result_json TEXT NOT NULL
@@ -195,6 +272,11 @@ def init_database() -> None:
             )
 
 
+    from .collaboration import init_collaboration
+    with connection() as db:
+        init_collaboration(db)
+
+
 def _loads(value: str) -> Any:
     return json.loads(value)
 
@@ -249,7 +331,25 @@ def planning_state() -> dict[str, Any] | None:
         "seed": _loads(row["seed_json"]),
         "updatedAt": row["updated_at"],
         "updatedBy": {"id": row["updated_by_id"], "name": row["updated_by_name"]},
+        "stateHash": state_hash(_loads(row["seed_json"])),
+        "patchVersion": 1,
     }
+
+
+def planning_transaction_status(actor_id: str, transaction_id: str) -> dict[str, Any]:
+    """Read this actor's receipt and current state from one database snapshot."""
+    if not planning_correlation_id(transaction_id):
+        raise ValueError("Kayıt isteği kimliği geçersiz.")
+    with connection() as db:
+        db.execute("BEGIN")
+        receipt = db.execute("SELECT result_revision FROM planning_write_receipts WHERE actor_id=? AND transaction_id=?",
+                             (actor_id, transaction_id)).fetchone()
+        row = db.execute("SELECT seed_json,updated_at,updated_by_id,updated_by_name FROM planning_state WHERE state_key='default'").fetchone()
+        seed = _loads(row["seed_json"]) if row else None
+        current = {"seed": seed, "updatedAt": row["updated_at"],
+                   "updatedBy": {"id": row["updated_by_id"], "name": row["updated_by_name"]},
+                   "stateHash": state_hash(seed), "patchVersion": 1} if row else None
+        return {"committed": receipt is not None, "appliedRevision": receipt["result_revision"] if receipt else "", "current": current}
 
 
 def planning_state_history() -> list[dict[str, Any]]:
@@ -429,6 +529,7 @@ def has_route_commitments(seed: dict[str, Any]) -> bool:
     )
 
 
+@_audited_planning_write
 def save_planning_state(
     seed: dict[str, Any],
     expected_updated_at: str | None = None,
@@ -442,12 +543,57 @@ def save_planning_state(
     production_split_version: int = 0,
     process_wait_settings_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
+    request_id: str = "",
+    session_id: str = "",
+    delta: dict[str, Any] | None = None,
+    base_hash: str = "",
+    transaction_id: str = "",
+    internal_connection: sqlite3.Connection | None = None,
+    shared_inputs_only: bool = False,
 ) -> dict[str, Any]:
-    timestamp = now_iso()
-    with connection() as db:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
-        current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"]}
+    with (nullcontext(internal_connection) if internal_connection is not None else connection()) as db:
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        timestamp = now_iso()
+        row = db.execute("SELECT seed_json, updated_at, updated_by_id, updated_by_name FROM planning_state WHERE state_key='default'").fetchone()
+        current = None if row is None else {"seed": _loads(row["seed_json"]), "updatedAt": row["updated_at"],
+            "updatedBy": {"id": row["updated_by_id"], "name": row["updated_by_name"]},
+            "stateHash": state_hash(_loads(row["seed_json"])), "patchVersion": 1}
+        audit = _planning_audit.get()
+        audit["currentRevision"] = current["updatedAt"] if current else ""
+        audit["changes"] = _audit_changes(current["seed"] if current else None, seed)
+        request_hash = ""
+        if delta is not None:
+            if (identity_resolution is not None or not planning_correlation_id(transaction_id)
+                    or expected_updated_at is None):
+                raise ValueError("Kayıt farkı için istek kimliği ve ortak sürüm gereklidir.")
+            request_hash = state_hash({"delta": delta, "baseHash": base_hash,
+                "expectedUpdatedAt": expected_updated_at, "mode": mode, "force": force,
+                "flowSettingsVersion": flow_settings_version, "routePlacementVersion": route_placement_version,
+                "productionSplitVersion": production_split_version, "processWaitSettingsVersion": process_wait_settings_version})
+            receipt = db.execute("SELECT * FROM planning_write_receipts WHERE actor_id=? AND transaction_id=?",
+                                 (actor_id, transaction_id)).fetchone()
+            if receipt:
+                if receipt["request_hash"] != request_hash:
+                    raise ValueError("Aynı istek kimliği farklı bir değişiklik için kullanılamaz. Yerel kopyayı koruyun.")
+                if current is None:
+                    raise ValueError("Onaylı kaydın güncel ortak sürümü bulunamadı. Sistem yöneticisine bildirin.")
+                audit.update(outcome="replayed", resultRevision=current["updatedAt"], changes={},
+                             appliedRevision=receipt["result_revision"])
+                _insert_planning_audit(db, audit)
+                return {**current, "transactionId": transaction_id, "appliedRevision": receipt["result_revision"],
+                        "replayed": True, "historyEntry": None, "archiveSnapshot": None}
+            if (expected_updated_at != (current["updatedAt"] if current else "")
+                    or base_hash != (current["stateHash"] if current else "")):
+                raise PlanningStateConflict(current or {"seed": None, "updatedAt": "", "stateHash": "", "patchVersion": 1})
+            seed = apply_delta(current["seed"] if current else {}, delta)
+            audit["changes"] = _audit_changes(current["seed"] if current else None, seed)
+        if shared_inputs_only:
+            if current and expected_updated_at != current["updatedAt"]:
+                raise PlanningStateConflict(current)
+            from .collaboration import assert_shared_inputs_only
+            assert_shared_inputs_only(current["seed"] if current else None, seed, can_manage_settings)
+        submitted_seed = json.loads(json.dumps(seed)) if delta is not None else None
         unresolved = bool(current and inspect_turning_queue(current["seed"])["conflicts"])
         if (unresolved or identity_resolution is not None) and (expected_updated_at is None or expected_updated_at != (current["updatedAt"] if current else "")):
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
@@ -521,6 +667,8 @@ def save_planning_state(
             if mode != "planning" and checked_seed != saved_seed:
                 raise ValueError("Mevcut üretim veya tamamlanmış şarj kuyrukta tekrar bulunuyor. Ortak veriyi yükleyip işlemi yeniden deneyin.")
             saved_seed = checked_seed
+        saved_hash = state_hash(saved_seed)
+        correction = build_delta(submitted_seed, saved_seed) if delta is not None else None
         serialized_seed = json.dumps(saved_seed, ensure_ascii=False)
         db.execute(
             """INSERT INTO planning_state(state_key,seed_json,updated_at,updated_by_id,updated_by_name) VALUES('default',?,?,?,?)
@@ -537,7 +685,15 @@ def save_planning_state(
             _save_orders(db, orders, timestamp)
         history_entry = _insert_planning_history(db, saved_seed, serialized_seed, timestamp, actor_id=actor_id, actor_name=actor_name)
         archive_snapshot = _insert_production_archive_snapshot(db, saved_seed, timestamp, mode)
-    return {"seed": saved_seed, "updatedAt": timestamp, "updatedBy": {"id": actor_id, "name": actor_name}, "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
+        audit.update(outcome="saved", resultRevision=timestamp, changes=_audit_changes(current["seed"] if current else None, saved_seed))
+        _insert_planning_audit(db, audit)
+        if delta is not None:
+            _insert_planning_receipt(db, actor_id, transaction_id, request_hash, expected_updated_at, timestamp)
+    return {"seed": saved_seed, "updatedAt": timestamp, "updatedBy": {"id": actor_id, "name": actor_name},
+            "stateHash": saved_hash, "patchVersion": 1,
+            "transactionId": transaction_id or None, "appliedRevision": timestamp, "replayed": False,
+            "correction": correction,
+            "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
 
 
 class RefreshPreviewStale(Exception):
@@ -594,6 +750,7 @@ def replace_planning_state_from_production(
             stale = db.execute("SELECT id FROM production_sync_backup ORDER BY created_at DESC LIMIT -1 OFFSET ?", (PRODUCTION_SYNC_BACKUP_LIMIT,)).fetchall()
             if stale:
                 db.executemany("DELETE FROM production_sync_backup WHERE id=?", [(row["id"],) for row in stale])
+        refreshed_hash = state_hash(seed)
         serialized_seed = json.dumps(seed, ensure_ascii=False)
         db.execute("INSERT INTO production_sync_baseline VALUES('production',?) ON CONFLICT(state_key) DO UPDATE SET seed_json=excluded.seed_json",
                    (json.dumps(source_seed, ensure_ascii=False),))
@@ -633,7 +790,7 @@ def replace_planning_state_from_production(
             (source_updated_at, timestamp, source_url),
         )
     scenario_records = scenarios()
-    planning_record = {"seed": seed, "updatedAt": timestamp}
+    planning_record = {"seed": seed, "updatedAt": timestamp, "stateHash": refreshed_hash, "patchVersion": 1}
     return {
         "planningState": planning_record,
         "sourceUpdatedAt": source_updated_at,
@@ -687,7 +844,7 @@ def save_demand_import_history(record: dict[str, Any]) -> dict[str, Any]:
 
 def scenarios() -> list[dict[str, Any]]:
     with connection() as db:
-        rows = db.execute("SELECT * FROM scenarios ORDER BY created_at DESC").fetchall()
+        rows = db.execute("SELECT s.* FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id WHERE o.owner_id IS NULL OR o.shared=1 ORDER BY s.created_at DESC").fetchall()
     return [{"id": row["id"], "name": row["name"], "createdAt": row["created_at"], "notes": row["notes"], "seed": _loads(row["inputs_json"]), "result": _loads(row["result_json"])} for row in rows]
 
 

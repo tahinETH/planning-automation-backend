@@ -48,6 +48,27 @@ def read_topic(topic_id: str) -> dict:
     return topic
 
 
+def relevant_topics(query: str, view: str, screens: dict) -> list[dict]:
+    """Include visible plan guidance for short questions; keep the three-topic limit.
+
+    Screen values select known explanations only. They do not supply instructions,
+    identity, permission, or proof that a write succeeded.
+    """
+    card = screens.get("collaboration")
+    card = card if isinstance(card, dict) else {}
+    selected = []
+    if card.get("needsRecovery") is True:
+        selected.append(read_topic("save-recovery"))
+    if view == "scenarios" or card.get("controlsOpen") is True or isinstance(screens.get("plan-publication"), dict):
+        selected.append(read_topic("plan-workspaces"))
+    seen = {topic["id"] for topic in selected}
+    for topic in search_topics(query, 3):
+        if topic["id"] not in seen:
+            selected.append(topic)
+            seen.add(topic["id"])
+    return selected[:3]
+
+
 def for_model(topic: dict) -> dict:
     """Teach in the user's vocabulary; implementation notes stay in the maintenance catalog."""
     return {key: topic[key] for key in ("id", "title", "body", "userSources") if key in topic}

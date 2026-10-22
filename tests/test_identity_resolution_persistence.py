@@ -58,8 +58,9 @@ def legacy(isolated_db):
 
 
 def snapshot():
+    # Rejected writes append diagnostics but must leave every business table unchanged.
     with database.connection() as db:
-        names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+        names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name != 'planning_write_audit' ORDER BY name")]
         return {name: sorted([tuple(row) for row in db.execute(f'SELECT * FROM "{name}"')], key=repr) for name in names}
 
 

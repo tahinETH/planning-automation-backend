@@ -163,6 +163,8 @@ def test_feedback_lifecycle():
         assert conflict.status_code == 409
         assert conflict.json()["detail"]["current"]["seed"] == newer_seed
         forced = client.put("/api/planning-state", headers=headers, json={"seed": seed, "force": True})
+        assert forced.status_code == 409
+        forced = client.put("/api/planning-state", headers=headers, json={"seed": seed, "expectedUpdatedAt": newer_state.json()["updatedAt"]})
         assert forced.status_code == 200
 
         # Planning-only writes (including Clear plan and loading a saved
@@ -193,7 +195,12 @@ def test_feedback_lifecycle():
             headers=headers,
             json={"seed": operational_seed, "expectedUpdatedAt": forced.json()["updatedAt"], "mode": "operational"},
         )
-        assert operational.status_code == 200
+        assert operational.status_code == 409
+        # A private offline fixture sets the opening facts. General HTTP writes
+        # cannot create or replace physical production after the command cutover.
+        from app.database import save_planning_state
+        opening = save_planning_state(operational_seed, forced.json()["updatedAt"], mode="operational", can_manage_settings=True)
+
 
         stale_planning_seed = {
             **seed,
@@ -207,12 +214,13 @@ def test_feedback_lifecycle():
         protected = client.put(
             "/api/planning-state",
             headers=headers,
-            json={"seed": stale_planning_seed, "expectedUpdatedAt": operational.json()["updatedAt"], "mode": "planning"},
+            json={"seed": stale_planning_seed, "expectedUpdatedAt": opening["updatedAt"], "mode": "planning"},
         )
-        assert protected.status_code == 200
+        assert protected.status_code == 409
+        protected = client.get("/api/planning-state", headers=headers)
         assert protected.json()["seed"]["productionHistory"] == live_archive
         assert protected.json()["seed"]["wipLots"] == [{"id": "live-wip"}]
-        assert protected.json()["seed"]["machines"][0]["active"] is False
+        assert protected.json()["seed"]["machines"][0]["active"] is True
         assert protected.json()["seed"]["machines"][0]["currentJob"] == {"workOrder": "LIVE"}
         assert protected.json()["seed"]["machines"][0]["operationalAvailableStart"] == 123
 

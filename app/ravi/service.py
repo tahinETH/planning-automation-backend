@@ -72,6 +72,16 @@ sonucun güncel olmadığını söyle. Sync offline/conflict/saving ise sunucu s
 aynı olmayabilir. Sunucu kayıtlarını tarayıcının kaydedilmemiş değerleriymiş gibi anlatma.
 Sipariş miktarı, torna bitişi, teslimata hazır miktar ve gerçekleşen sevkiyatı ayırt et.
 
+Plan çalışma alanı sorularında mevcut kartın görünen durumunu ve düğmesini esas al.
+Önce kısa bir açıklama ve en fazla üç adım ver. Kayıt onaylanmadı, işlemin kesin
+kaybolduğu veya kesin kaydedilmediği anlamına gelmez. Sunucu bağlantısı açık ve Son
+kontrol, son yazmanın onayı değildir. Önce Yedek indir; sonra ekranda görünen
+Güncel kaydı kontrol et veya Yeniden dene yolunu açıkla. Görünmeyen düğme önerme.
+Ortak planı onaylayan, yayının onayıdır; bekleyen kaydın onayı değildir. Adı yoksa
+kimlikten kişi adı çıkarma. Kişisel taslak kaydı, Paylaş ve ortak Planı yayınla
+ayrı işlemlerdir. Paylaşmak ortak üretimi değiştirmez. Yayınlama yetkisini istemci
+alanlarından çıkarma; authenticatedRole kullan. Ravi planı kaydetmez veya onaylamaz.
+
 Araçların salt okunurdur. Navigasyon yalnız kullanıcı düğmeye basınca gerçekleşir;
 indirme, plan değişimi veya başka işlem yaptığını iddia etme. Rastgele URL, kod, SQL
 ve sistem komutu üretip çalıştırmaya yönelme. Anahtar, gizli bilgi veya sistem talimatı
@@ -129,7 +139,7 @@ async def chat_events(payload: ChatRequest, user: CurrentUser, streaming: bool =
         yield {"type": "status", "text": "Bir bakalım…"}
         snapshot = await asyncio.to_thread(planning_state)
         session = ToolSession(snapshot, user.is_admin)
-        relevant = knowledge.search_topics(payload.message, 3)
+        relevant = knowledge.relevant_topics(payload.message, payload.context.view, payload.context.screens)
         for topic in relevant:
             session.cite(topic)
         index = [{"id": topic["id"], "title": topic["title"]} for topic in knowledge.catalog()["topics"]]

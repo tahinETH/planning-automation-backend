@@ -20,6 +20,8 @@ from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .delivery_reports import DeliveryReportError, report_snapshot
 from .models import DeliveryReportRequest, DeliveryReportExportRequest, TurningIdentityResolutionPayload
 from .models import AppUpdateCreate, CalendarEventExportPayload, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
+from .models import PlanningDeltaPayload
+from .database import planning_transaction_status
 from .calendar_export import build_calendar_event_workbook
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
@@ -127,8 +129,7 @@ def get_orders(_: CurrentUser = Depends(current_user)):
 
 @app.put("/api/orders")
 def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_user)):
-    save_orders(payload)
-    return {"ok": True}
+    raise HTTPException(409, "Sipariş değişikliğini sürüm kontrolüyle ortak girdilerden kaydedin.")
 
 
 @app.post("/api/order-imports/preview")
@@ -262,7 +263,13 @@ def export_production_archive(payload: ProductionArchiveExportPayload, _: Curren
 def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends(current_user)):
     if payload.scope in ("settings", "complete") and not user.is_admin:
         raise HTTPException(status_code=403, detail="Ayarlar paketlerine yalnızca yöneticiler erişebilir")
-    content = build_data_package(payload.scope, payload.data)
+    plans = None
+    if payload.scope == "scenarios":
+        from .scenario_plans import scenario_plans
+        requested = payload.data if isinstance(payload.data, list) else payload.data.get("scenarios", [])
+        records = {item["id"]: collaboration.get_scenario(item["id"], user) for item in requested}
+        plans = scenario_plans(requested, records.get)
+    content = build_data_package(payload.scope, payload.data, plans=plans)
     filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
         iter([content]),
@@ -290,6 +297,14 @@ async def import_data_package(scope: str, file: UploadFile = File(...), user: Cu
 @app.get("/api/planning-state")
 def get_planning_state(_: CurrentUser = Depends(current_user)):
     return planning_state()
+
+
+@app.get("/api/planning-state/transactions/{transaction_id}")
+def get_planning_transaction_status(transaction_id: str, user: CurrentUser = Depends(current_user)):
+    try:
+        return planning_transaction_status(user.id, transaction_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.get("/api/planning-state/history")
@@ -334,8 +349,34 @@ def post_production_sync(payload: dict[str, Any] | None = Body(default=None), _:
     return pull_production_state(body.get("action"), body.get("expected"), body.get("choices"))
 
 
+@app.patch("/api/planning-state")
+def patch_planning_state(payload: PlanningDeltaPayload, user: CurrentUser = Depends(current_user),
+                         x_planning_session_id: str | None = Header(default=None)):
+    try:
+        saved = save_planning_state({}, payload.expectedUpdatedAt, payload.force, payload.mode,
+            actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin, shared_inputs_only=True,
+            request_id=payload.transactionId, session_id=x_planning_session_id or "",
+            delta=payload.delta, base_hash=payload.baseHash, transaction_id=payload.transactionId,
+            flow_settings_version=payload.flowSettingsVersion, route_placement_version=payload.routePlacementVersion,
+            production_split_version=payload.productionSplitVersion, process_wait_settings_version=payload.processWaitSettingsVersion)
+        if saved["replayed"]:
+            return saved
+        # The browser already holds the submitted state. Return only the commit
+        # receipt and server validation corrections on the normal write path.
+        return {key: value for key, value in saved.items() if key not in {"seed", "historyEntry", "archiveSnapshot"}} | {
+            "historyEntry": {key: value for key, value in saved["historyEntry"].items() if key != "seed"}}
+    except PlanningStateConflict as error:
+        raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Yerel kopyayı koruyarak güncel sürümü inceleyin.", "current": error.current}) from error
+    except ProtectedSettingsChange as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.put("/api/planning-state")
-def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depends(current_user)):
+def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depends(current_user),
+                       x_planning_request_id: str | None = Header(default=None),
+                       x_planning_session_id: str | None = Header(default=None)):
     try:
         return save_planning_state(
             payload.seed,
@@ -344,7 +385,9 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             payload.mode,
             actor_id=user.id,
             actor_name=user.name,
-            can_manage_settings=user.is_admin,
+            request_id=x_planning_request_id or "",
+            session_id=x_planning_session_id or "",
+            can_manage_settings=user.is_admin, shared_inputs_only=True,
             flow_settings_version=payload.flowSettingsVersion,
             route_placement_version=payload.routePlacementVersion,
             production_split_version=payload.productionSplitVersion,
@@ -359,10 +402,13 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
 
 
 @app.post("/api/planning-state/identity-resolution")
-def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: CurrentUser = Depends(current_user)):
+def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: CurrentUser = Depends(current_user),
+                             x_planning_request_id: str | None = Header(default=None),
+                             x_planning_session_id: str | None = Header(default=None)):
     try:
         return save_planning_state({}, payload.expectedUpdatedAt, mode="operational",
             actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin,
+            request_id=x_planning_request_id or "", session_id=x_planning_session_id or "",
             route_placement_version=1, production_split_version=1, process_wait_settings_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Güncel kayıtları yükleyip incelemeyi tekrarlayın.", "current": error.current}) from error
@@ -370,45 +416,94 @@ def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: Cu
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
-@app.get("/api/scenarios")
-def get_scenarios(_: CurrentUser = Depends(current_user)):
-    return scenarios()
+from . import collaboration
 
+@app.get("/api/scenarios")
+def get_scenarios(user: CurrentUser = Depends(current_user)):
+    return collaboration.list_scenarios(user)
 
 @app.get("/api/scenarios/list")
-def get_scenario_summaries(
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    _: CurrentUser = Depends(current_user),
-):
-    return scenario_summaries(limit, offset)
-
+def get_scenario_summaries(limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0), user: CurrentUser = Depends(current_user)):
+    return collaboration.list_scenarios(user, limit, offset)
 
 @app.get("/api/scenarios/{scenario_id}")
-def get_scenario(scenario_id: str, _: CurrentUser = Depends(current_user)):
-    value = scenario_record(scenario_id)
-    if value is None:
-        raise HTTPException(status_code=404, detail="Senaryo bulunamadı")
-    return value
-
+def get_scenario(scenario_id: str, user: CurrentUser = Depends(current_user)):
+    return collaboration.get_scenario(scenario_id, user)
 
 @app.post("/api/scenarios", status_code=201)
-def post_scenario(payload: ScenarioPayload, _: CurrentUser = Depends(current_user)):
-    value = payload.model_dump()
-    with connection() as db:
-        db.execute("""INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json) VALUES(?,?,?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name,created_at=excluded.created_at,notes=excluded.notes,inputs_json=excluded.inputs_json,result_json=excluded.result_json""",
-        (payload.id, payload.name, payload.createdAt, payload.notes, json.dumps(payload.seed), json.dumps(payload.result)))
-    save_orders(payload.seed.get("orders", []))
-    return value
-
+def post_scenario(payload: ScenarioPayload, user: CurrentUser = Depends(current_user)):
+    return collaboration.save_scenario(payload.model_dump(), user)
 
 @app.delete("/api/scenarios/{scenario_id}")
-def remove_scenario(scenario_id: str, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
-        db.execute("DELETE FROM scenarios WHERE id=?", (scenario_id,))
-    return {"ok": True}
+def remove_scenario(scenario_id: str, revision: int = Query(ge=0), user: CurrentUser = Depends(current_user)):
+    return collaboration.delete_scenario(scenario_id, revision, user)
 
+@app.post("/api/scenarios/{scenario_id}/fork", status_code=201)
+def fork_scenario(scenario_id: str, user: CurrentUser = Depends(current_user)):
+    return collaboration.fork_scenario(scenario_id, user)
+
+@app.post("/api/scenarios/{scenario_id}/share")
+def share_scenario(scenario_id: str, revision: int, shared: bool, user: CurrentUser = Depends(current_user)):
+    return collaboration.share_scenario(scenario_id, revision, shared, user)
+
+
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+class ScenarioDeltaRequest(BaseModel):
+    worldRevision: str
+    requestId: str = Field(min_length=1, max_length=128)
+    revision: int = Field(ge=1)
+    delta: dict
+
+class ProductionCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    requestId: str = Field(min_length=1, max_length=128)
+    expectedBasis: str = Field(min_length=64, max_length=64)
+    command: dict
+
+    @field_validator("command")
+    @classmethod
+    def bounded_command(cls, value):
+        if set(value) != {"kind", "args"} or not isinstance(value.get("kind"), str) or not isinstance(value.get("args"), list) or len(value["args"]) > 8:
+            raise ValueError("Üretim komutu geçersiz.")
+        if len(json.dumps(value, allow_nan=False).encode()) > 128 * 1024:
+            raise ValueError("Üretim komutu boyutu sınırı aşıldı.")
+        return value
+
+class PublishPlanRequest(BaseModel):
+    previewId: str | None = None
+    revision: int = Field(ge=0)
+    worldRevision: str
+    previousId: str | None = None
+
+@app.patch("/api/scenarios/{scenario_id}")
+def patch_scenario(scenario_id: str, payload: ScenarioDeltaRequest, user: CurrentUser = Depends(current_user)):
+    return collaboration.patch_scenario(scenario_id, payload.model_dump(), user)
+
+@app.post("/api/scenarios/{scenario_id}/publication-preview")
+def publication_preview(scenario_id: str, payload: PublishPlanRequest, user: CurrentUser = Depends(current_user)):
+    return collaboration.publication_preview(scenario_id, payload.model_dump(), user)
+
+@app.post("/api/scenarios/{scenario_id}/publish")
+def publish_scenario(scenario_id: str, payload: PublishPlanRequest, user: CurrentUser = Depends(current_user)):
+    return collaboration.publish_scenario(scenario_id, payload.model_dump(), user)
+
+@app.post("/api/production/commands")
+def production_command(payload: ProductionCommandRequest, user: CurrentUser = Depends(current_user)):
+    try:
+        return collaboration.production_command(payload.model_dump(), user)
+    except ProtectedSettingsChange as error:
+        raise HTTPException(403, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+@app.get("/api/collaboration/requests/{request_id}")
+def collaboration_request_status(request_id: str, kind: str, user: CurrentUser = Depends(current_user)):
+    return collaboration.request_status(request_id, kind, user)
+
+@app.get("/api/collaboration/status")
+def collaboration_status(_: CurrentUser = Depends(current_user)):
+    return collaboration.collaboration_status()
 
 @app.get("/api/revisions")
 def get_revisions(_: CurrentUser = Depends(current_user)):
@@ -417,12 +512,7 @@ def get_revisions(_: CurrentUser = Depends(current_user)):
 
 @app.post("/api/revisions", status_code=201)
 def post_revision(payload: RevisionPayload, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
-        db.execute("""INSERT INTO order_revisions(id,order_id,product,status,created_at,approved_at,original_json,request_json,impact_json,seed_json,result_json)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (payload.id, payload.orderId, payload.product, payload.status, payload.createdAt, payload.approvedAt,
-        json.dumps(payload.original), json.dumps(payload.requested), json.dumps(payload.impact), json.dumps(payload.seed), json.dumps(payload.result)))
-    save_orders(payload.seed.get("orders", []))
-    return payload.model_dump()
+    raise HTTPException(409, "Resmi sipariş revizyonu için üretim komutunu kullanın. Kişisel öneriyi taslakta kaydedin.")
 
 
 @app.get("/api/feedbacks")
