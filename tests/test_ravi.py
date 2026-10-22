@@ -143,6 +143,9 @@ def test_personal_plan_guidance_is_available_for_short_screen_questions():
         assert topics[0]["id"] == "plan-workspaces"
         assert "Paylaşmak ortak planı değiştirmez" in topics[0]["body"]
         assert "Bana kopyala" in topics[0]["body"]
+        assert "planın adını yöneticiye bildirir" in topics[0]["body"]
+        assert "üst çubuktaki Kişisel taslak" in topics[0]["body"]
+        assert "Senaryolar → Planlarım → Yükle" in topics[0]["body"]
         assert "İncelenen planı yayınla" in topics[0]["body"]
 
 

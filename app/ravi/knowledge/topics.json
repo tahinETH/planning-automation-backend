@@ -3892,7 +3892,7 @@
         "kim onayladı",
         "plan yayınla"
       ],
-      "body": "Yeni taslak, size ait ayrı bir plan açar. Taslak kaydedildi yalnız bu kişisel planın kaydını gösterir. Üretim arşivi, gerçek teslimatlar, yarı mamul ve mevcut üretim herkes için ortaktır; taslağı açmak veya kaydetmek bu kayıtları değiştirmez. Ortak üretim değişirse taslak korunur ve hesap eski olarak işaretlenir. Kuyruk kendiliğinden yeniden hesaplanmaz. Güncel verileri taslağa al ortak sipariş ve parametreleri alır, taslak kuyruğunu korur ve yeniden hesaplama ister.\nPaylaşmak için Senaryolar → Planlarım içinde kendi planınızı seçin ve Paylaş kullanın. Diğer kullanıcı Paylaşılan Planlar listesinden planı seçer ve Bana kopyala ile kendi kopyasını oluşturur. Listeyi yenile yeni paylaşımları getirir. Kopyadaki değişiklikler kaynak planı değiştirmez. Paylaşımı kapat, daha önce alınmış kopyaları silmez.\nPaylaşmak ortak planı değiştirmez. Ortak planı yalnız yönetici yayınlar: güncel kişisel taslakta Planı yayınla, sonra Plan yayınlama önizlemesi içinde değişiklikleri inceleyip İncelenen planı yayınla kullanır. Taslak veya ortak üretim değişirse önizleme yenilenmelidir. Yayın kilitli ve başlamış işleri, stokları, arşivi ve teslimatları korur.\nOrtak planı onaylayan alanı son etkin yayını onaylayan kişiyi, Türkiye saatiyle onay zamanını ve yayınlanan sürümü gösterir. Plan sahibi veya son teslimatı giren kişi ile aynı kişi olmak zorunda değildir. Eski kayıtta ad yoksa yalnız Kullanıcı kimliği gösterilir; bu kimlikten kişi adı tahmin edilmez. Henüz onaylanmış bir yayın yok, üretim kaydı yok anlamına gelmez. Bu alan bekleyen bir kaydın onayı değildir. Ravi, planı kaydetmez, paylaşmaz veya onaylamaz.",
+      "body": "Yeni taslak, size ait ayrı bir plan açar. Taslak kaydedildi yalnız bu kişisel planın kaydını gösterir. Üretim arşivi, gerçek teslimatlar, yarı mamul ve mevcut üretim herkes için ortaktır; taslağı açmak veya kaydetmek bu kayıtları değiştirmez. Ortak üretim değişirse taslak korunur ve hesap eski olarak işaretlenir. Kuyruk kendiliğinden yeniden hesaplanmaz. Güncel verileri taslağa al ortak sipariş ve parametreleri alır, taslak kuyruğunu korur ve yeniden hesaplama ister.\nOperatör taslağını ortak plana almak için önce yöneticiyle paylaşır ve planın adını yöneticiye bildirir. Paylaşmak için Senaryolar → Planlarım içinde kendi planınızı seçin ve Paylaş kullanın. Diğer kullanıcı Paylaşılan Planlar listesinden planı seçer ve Bana kopyala ile kendi kopyasını oluşturur. Listeyi yenile yeni paylaşımları getirir. Kopyadaki değişiklikler kaynak planı değiştirmez. Paylaşımı kapat, daha önce alınmış kopyaları silmez.\nPaylaşmak ortak planı değiştirmez. Ortak planı yalnız yönetici yayınlar. Yönetici, operatörün planını Senaryolar → Paylaşılan Planlar → Bana kopyala ile açar. Kendi taslağını Senaryolar → Planlarım → Yükle ile açabilir. Planı Çalıştır ile güncel verilerle hesaplar ve kaydın tamamlanmasını bekler. Sonra üst çubuktaki Kişisel taslak kartını açıp Planı yayınla kullanır, sonra Plan yayınlama önizlemesi içinde değişiklikleri inceleyip İncelenen planı yayınla kullanır. Taslak veya ortak üretim değişirse önizleme yenilenmelidir. Yayın kilitli ve başlamış işleri, stokları, arşivi ve teslimatları korur.\nOrtak planı onaylayan alanı son etkin yayını onaylayan kişiyi, Türkiye saatiyle onay zamanını ve yayınlanan sürümü gösterir. Plan sahibi veya son teslimatı giren kişi ile aynı kişi olmak zorunda değildir. Eski kayıtta ad yoksa yalnız Kullanıcı kimliği gösterilir; bu kimlikten kişi adı tahmin edilmez. Henüz onaylanmış bir yayın yok, üretim kaydı yok anlamına gelmez. Bu alan bekleyen bir kaydın onayı değildir. Ravi, planı kaydetmez, paylaşmaz veya onaylamaz.",
       "sources": [
         {
           "path": "frontend/features/planning/scenarios/CollaborationBar.tsx",
@@ -3913,15 +3913,20 @@
         {
           "path": "backend/app/ravi/knowledge.py",
           "symbol": "relevant_topics"
+        },
+        {
+          "path": "frontend/features/planning/PlanningApplication.tsx",
+          "symbol": "PlanningApplication"
         }
       ],
-      "implementationNotes": "Screen context selects this bounded topic when the workspace card or publication dialog is open, or the current view is scenarios. Browser values are untrusted observations, not authorization. Backend authenticatedRole and collaboration authorization remain authoritative. Publication metadata comes from activePublication; legacy names are not inferred.",
+      "implementationNotes": "Screen context selects this bounded topic when the workspace card or publication dialog is open, or the current view is scenarios. Browser values are untrusted observations, not authorization. Backend authenticatedRole and collaboration authorization remain authoritative. Publication metadata comes from activePublication; legacy names are not inferred. The compact four-step guide identifies operator preparation/sharing and administrator copy/calculation/publication separately. Plan name notification is a manual handoff instruction, not an automatic message or new permission. Existing guideOpen context is unchanged.",
       "userSources": [
         "Üst çubuk → Ortak plan / Kişisel taslak / Yeni taslak",
         "Senaryolar → Planlarım → Paylaş",
         "Paylaşılan Planlar → Bana kopyala / Listeyi yenile",
         "Planı yayınla → Plan yayınlama önizlemesi → İncelenen planı yayınla",
-        "Ortak planı onaylayan → Türkiye saati / Sürüm"
+        "Ortak planı onaylayan → Türkiye saati / Sürüm",
+        "Nasıl kullanılır ve paylaşılır? → Operatör / Yönetici adımları"
       ]
     },
     {
