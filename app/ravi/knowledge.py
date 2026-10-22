@@ -57,7 +57,7 @@ def relevant_topics(query: str, view: str, screens: dict) -> list[dict]:
     card = screens.get("collaboration")
     card = card if isinstance(card, dict) else {}
     selected = []
-    if card.get("needsRecovery") is True:
+    if card.get("needsRecovery") is True or card.get("cacheWarning") is True:
         selected.append(read_topic("save-recovery"))
     if view == "scenarios" or card.get("controlsOpen") is True or isinstance(screens.get("plan-publication"), dict):
         selected.append(read_topic("plan-workspaces"))

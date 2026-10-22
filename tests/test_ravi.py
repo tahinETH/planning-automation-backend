@@ -452,3 +452,11 @@ def test_archive_actual_shipment_and_scrap_deletion_guidance():
             assert "Silme, Yarı mamule geri al değildir" in topic["body"]
         assert "confirmedDeliveryBuffer" not in topic["body"]
         assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_confirmed_cache_warning_uses_recovery_guidance_without_claiming_lost_server_data():
+    topics = knowledge.relevant_topics("burada?", "planning", {"collaboration": {"cacheWarning": True}})
+    assert topics[0]["id"] == "save-recovery"
+    assert "Tarayıcı yedeği güncellenemedi" in topics[0]["body"]
+    assert "sunucu kaydının kaybolduğu anlamına gelmez" in topics[0]["body"]
+    assert knowledge.relevant_topics("xyzzy", "planning", {"collaboration": {"cacheWarning": "true"}}) == []

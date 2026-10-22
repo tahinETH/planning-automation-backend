@@ -3936,7 +3936,7 @@
         "kayıt başarısız",
         "bağlantı açık"
       ],
-      "body": "Kayıt onaylanmadı, uygulamanın son kaydı doğrulayamadığını gösterir. İşlemin kesin kaybolduğu veya kesin kaydedilmediği anlamına gelmez. Sunucu bağlantısı açık ve Son kontrol, bağlantı kontrolüdür; son yazmanın onayı değildir. Ortak planı onaylayan ise ayrı bir yayın bilgisidir.\nÖnce Yedek indir ile bu cihazdaki kopyayı koruyun. Sonra uyarıda görünen düğmeyi kullanın. Güncel kaydı kontrol et görünüyorsa sunucudaki kayıtla yerel değişiklikleri inceleyin. Yeniden dene görünüyorsa korunmuş aynı isteği tekrar gönderin; daha önce kabul edilmiş teslimat ikinci kez uygulanmaz. Görünmeyen düğme önerilmez. Uyarı sürerse kayıt onaylanmış sayılmaz.\nKaydediliyor… sırasında yanıt beklenir; kurtarma düğmeleri görünmez. Başarısız veya önceki oturumdan onaysız istek tarayıcıda korunur. Bu işlemi daha sonra incele → Yedekle ve beklemeden çıkar sunucuya kaydetmez. Önce işlem sonucunu kontrol eder; kaydedilmemiş isteği bu tarayıcıda ayrı kurtarma kopyası olarak saklar ve beklemeyi kaldırır. Normal kullanımda yedek indirme Diğer işlemler içindedir. Tarayıcı verilerini temizlemek yerel kopyaları kaldırır. Ravi kayıt sonucunu yalnız bağlantı durumundan çıkaramaz ve kayıt işlemi yapamaz.",
+      "body": "Kayıt onaylanmadı, uygulamanın son kaydı doğrulayamadığını gösterir. İşlemin kesin kaybolduğu veya kesin kaydedilmediği anlamına gelmez. Sunucu bağlantısı açık ve Son kontrol, bağlantı kontrolüdür; son yazmanın onayı değildir. Ortak planı onaylayan ise ayrı bir yayın bilgisidir.\nÖnce Yedek indir ile bu cihazdaki kopyayı koruyun. Sonra uyarıda görünen düğmeyi kullanın. Güncel kaydı kontrol et görünüyorsa sunucudaki kayıtla yerel değişiklikleri inceleyin. Yeniden dene görünüyorsa korunmuş aynı isteği tekrar gönderin; daha önce kabul edilmiş teslimat ikinci kez uygulanmaz. Görünmeyen düğme önerilmez. Uyarı sürerse kayıt onaylanmış sayılmaz.\nKaydediliyor… sırasında yanıt beklenir; kurtarma düğmeleri görünmez. Başarısız veya önceki oturumdan onaysız istek tarayıcıda korunur. Bu işlemi daha sonra incele → Yedekle ve beklemeden çıkar sunucuya kaydetmez. Önce işlem sonucunu kontrol eder; kaydedilmemiş isteği bu tarayıcıda ayrı kurtarma kopyası olarak saklar ve beklemeyi kaldırır. Normal kullanımda yedek indirme Diğer işlemler içindedir. Tarayıcı verilerini temizlemek yerel kopyaları kaldırır. Ravi kayıt sonucunu yalnız bağlantı durumundan çıkaramaz ve kayıt işlemi yapamaz.\nYerel yedek alınamadı / Tarayıcı yedeği güncellenemedi, doğrulanmış sunucu kaydının tarayıcı kopyasının yazılamadığını belirtir; sunucu kaydının kaybolduğu anlamına gelmez. Ortak veri ekranda kullanılabilir. Eski yerel kopyalar otomatik silinmez. Yedek indir ile kopyaları koruyun. Yenilemede tekrar inceleme gerekebilir. Bu uyarı yalnız doğrulanmış kayıt kopyası içindir; yeni bir işlemin bekleyen isteği saklanamıyorsa sunucuya gönderilmez. Yerel değişikliklerin kurtarma kopyası saklanamıyorsa ortak veriyle değiştirme hâlâ engellenir.",
       "sources": [
         {
           "path": "frontend/features/planning/scenarios/CollaborationBar.tsx",
@@ -3959,12 +3959,13 @@
           "symbol": "chat_events"
         }
       ],
-      "implementationNotes": "When collaboration.needsRecovery is exactly true, relevant_topics supplies this topic first, before query matches, with a total limit of three unique topics. recoveryAction identifies the actual UI action: pending request retry or legacy shared-save review. Context does not prove persistence or supply trusted identity. No provider tool can mutate plans.",
+      "implementationNotes": "When collaboration.needsRecovery is exactly true, relevant_topics supplies this topic first, before query matches, with a total limit of three unique topics. recoveryAction identifies the actual UI action: pending request retry or legacy shared-save review. Context does not prove persistence or supply trusted identity. No provider tool can mutate plans. PlanningApplication.storeConfirmedLocalCopy contains cache errors, rolls back partial cache writes and sets confirmedCacheWarning. CollaborationBar exposes cacheWarning to Ravi and keeps the warning visible until a later confirmed cache write succeeds. A true cacheWarning selects this topic. Pending-request durability and keepRecoveryCopy guards are unchanged.",
       "userSources": [
         "Plan çalışma alanı → Kayıt onaylanmadı",
         "Yedek indir / Güncel kaydı kontrol et / Yeniden dene",
         "Sunucu bağlantısı açık / Son kontrol",
-        "Bu işlemi daha sonra incele → Yedekle ve beklemeden çıkar"
+        "Bu işlemi daha sonra incele → Yedekle ve beklemeden çıkar",
+        "Plan çalışma alanı → Yerel yedek alınamadı / Tarayıcı yedeği güncellenemedi"
       ]
     }
   ]
