@@ -13,13 +13,17 @@ def _date(value):
     return isinstance(value, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)) and date.fromisoformat(value).isoformat() == value
 
 def uses_stock_planning(seed):
-    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "filterWaitShifts")) or any(
+    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "filterWaitShifts", "monthlyCustomerDemand", "filterQualityShifts")) or any(
         stage.get("calendarMode") for product in (seed.get("processMasterData") or {}).get("products", [])
         for process in product.get("processes", []) for stage in process.get("leadStages", [])
     )
 
 def validate_stock_planning(seed):
+    from .filter_monthly_state import validate_filter_monthly_state
+    validate_filter_monthly_state(seed)
     area = seed.get("productionArea", "torna")
+    if "filterQualityShifts" in seed and (area != "cubuk-filtre" or type(seed["filterQualityShifts"]) is not int or seed["filterQualityShifts"] not in range(4)):
+        raise ValueError("Kalite bekleme vardiyası 0–3 olmalıdır.")
     if "filterWaitShifts" in seed and (area != "cubuk-filtre" or type(seed["filterWaitShifts"]) is not int or seed["filterWaitShifts"] not in range(4)):
         raise ValueError("Çubuk Filtre bekleme vardiyası 0–3 olmalıdır.")
     for product in (seed.get("processMasterData") or {}).get("products", []):

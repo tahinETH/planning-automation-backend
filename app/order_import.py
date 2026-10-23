@@ -359,16 +359,19 @@ def _parse_simple_order_sheet(values_by_row: dict[int, dict[str, tuple[str, bool
     }
 
 
-def parse_order_xlsx(content: bytes, *, allow_filter_daily: bool = False) -> dict:
+def parse_order_xlsx(content: bytes, *, allow_filter_daily: bool = False, allow_filter_monthly: bool = False) -> dict:
     if not content:
         raise OrderImportError("Excel dosyası boş.")
     if len(content) > MAX_XLSX_BYTES:
         raise OrderImportError("Excel dosyası 5 MB sınırını aşıyor.")
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
-            if len(archive.infolist()) > 200 or sum(item.file_size for item in archive.infolist()) > (32 * 1024 * 1024 if allow_filter_daily else MAX_UNCOMPRESSED_BYTES):
+            if len(archive.infolist()) > 200 or sum(item.file_size for item in archive.infolist()) > (32 * 1024 * 1024 if allow_filter_daily or allow_filter_monthly else MAX_UNCOMPRESSED_BYTES):
                 raise OrderImportError("Excel dosyası güvenli boyut sınırlarını aşıyor.")
             shared = _shared_strings(archive)
+            if allow_filter_monthly:
+                from .filter_monthly_import import parse_filter_monthly
+                return parse_filter_monthly(archive, shared)
             confirmed_path = _sheet_path_by_name(archive, "3. Overview (confirmed)")
             daily_path = _sheet_path_by_name(archive, "Sevkiyat Planı") if allow_filter_daily else None
             target_path = daily_path or confirmed_path or _first_sheet_path(archive)

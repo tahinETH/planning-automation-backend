@@ -140,12 +140,14 @@ def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_u
 
 
 @app.post("/api/order-imports/preview")
-async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
+async def preview_order_import(file: UploadFile = File(...), monthly: bool = False, _: CurrentUser = Depends(current_user)):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
         raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_XLSX_BYTES + 1)
     try:
-        preview = parse_order_xlsx(content, allow_filter_daily=production_area.get() == "cubuk-filtre")
+        if monthly and production_area.get() != "cubuk-filtre":
+            raise OrderImportError("Aylık Çubuk Filtre dosyası yalnız kendi alanına uygulanabilir.")
+        preview = parse_order_xlsx(content, allow_filter_daily=production_area.get() == "cubuk-filtre", allow_filter_monthly=monthly)
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
@@ -324,6 +326,7 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             production_split_version=payload.productionSplitVersion,
             process_wait_settings_version=payload.processWaitSettingsVersion,
             stock_planning_version=payload.stockPlanningVersion,
+            monthly_planning_version=payload.monthlyPlanningVersion,
         )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error

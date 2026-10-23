@@ -309,7 +309,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts")
+PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts", "filterQualityShifts")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -445,6 +445,7 @@ def save_planning_state(
     production_split_version: int = 0,
     process_wait_settings_version: int = 0,
     stock_planning_version: int = 0,
+    monthly_planning_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_seed_area(seed)
@@ -486,6 +487,8 @@ def save_planning_state(
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
         if stock_planning_version < 1 and any(uses_stock_planning(state) for state in [seed, current["seed"] if current else {}]):
             raise ValueError("Günlük sipariş, stok ve bekleme takvimini korumak için uygulamayı yenileyin.")
+        if monthly_planning_version < 1 and any((state.get("monthlyCustomerDemand") is not None or "filterQualityShifts" in state) for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Aylık müşteri planını korumak için uygulamayı yenileyin.")
         validate_stock_planning(seed)
         if "flowSettings" in seed:
             validate_flow_settings(seed["flowSettings"])

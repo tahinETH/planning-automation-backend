@@ -70,6 +70,7 @@ class PlanningStatePayload(BaseModel):
     productionSplitVersion: int = 0
     processWaitSettingsVersion: int = 0
     stockPlanningVersion: int = 0
+    monthlyPlanningVersion: int = 0
     expectedUpdatedAt: str | None = None
     force: bool = False
     mode: Literal["planning", "operational"] = "planning"
