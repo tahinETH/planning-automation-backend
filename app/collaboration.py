@@ -104,19 +104,26 @@ def get_scenario(scenario_id, user):
 
 def list_scenarios(user, limit=None, offset=0):
     with connection() as db:
+        db.execute("BEGIN")
         where = "o.owner_id=? OR o.shared=1 OR o.owner_id IS NULL"
         args = (user.id,)
+        if limit is None:
+            rows = db.execute(f"SELECT s.id FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id WHERE {where} ORDER BY s.created_at DESC,s.id DESC", args).fetchall()
+            return [_record(db, row["id"], user) for row in rows]
         total = db.execute(f"SELECT COUNT(*) FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id WHERE {where}", args).fetchone()[0]
-        query = f"SELECT s.id FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id WHERE {where} ORDER BY s.created_at DESC,s.id DESC"
-        if limit is not None:
-            query += " LIMIT ? OFFSET ?"
-            args += (limit, offset)
-        records = [_record(db, row["id"], user) for row in db.execute(query, args).fetchall()]
-    if limit is None:
-        return records
-    items = [{**{k: v for k, v in r.items() if k not in ("seed", "result")},
-        "plannedBatchCount": max(0, int(r["result"].get("summary", {}).get("plannedBatchCount", 0))),
-        "planRun": r["result"].get("planRun") or r["seed"].get("activePlanRun")} for r in records]
+        rows = db.execute(f"""SELECT s.id,s.name,s.created_at,s.notes,o.owner_id,o.owner_name,
+            o.revision,o.updated_at,o.shared,o.world_revision,o.source_id,o.source_revision,
+            json_extract(s.result_json,'$.summary.plannedBatchCount') AS planned_count,
+            COALESCE(json_extract(s.result_json,'$.planRun'),json_extract(s.inputs_json,'$.activePlanRun')) AS plan_run
+            FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id
+            WHERE {where} ORDER BY s.created_at DESC,s.id DESC LIMIT ? OFFSET ?""", (*args, limit, offset)).fetchall()
+        items = [{"id": r["id"], "name": r["name"], "createdAt": r["created_at"], "notes": r["notes"],
+            "ownerId": r["owner_id"], "ownerName": r["owner_name"], "revision": r["revision"] or 0,
+            "updatedAt": r["updated_at"] or r["created_at"], "shared": bool(r["shared"]),
+            "worldRevision": r["world_revision"] or "", "sourceId": r["source_id"], "sourceRevision": r["source_revision"],
+            "canEdit": r["owner_id"] == user.id, "legacy": r["owner_id"] is None,
+            "plannedBatchCount": max(0, int(r["planned_count"] or 0)),
+            "planRun": json.loads(r["plan_run"]) if r["plan_run"] else None} for r in rows]
     return dict(items=items, total=total, limit=limit, offset=offset, hasMore=offset + len(items) < total)
 
 
@@ -150,6 +157,48 @@ def save_scenario(value, user):
         if not previous and value.get("revision") not in (None, 0):
             raise HTTPException(409, "Yeni plan sürümü geçersiz.")
         return _save(db, value, user, previous)
+
+
+def create_scenario_from_world(value, user):
+    from .planning_delta import apply_delta, state_hash
+    request_hash = state_hash(value)
+    def replay(db):
+        receipt = db.execute("SELECT * FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, value["requestId"])).fetchone()
+        if not receipt:
+            return None
+        if receipt["request_hash"] != request_hash or receipt["scenario_id"] != value["id"]:
+            raise HTTPException(409, "İstek kimliği başka bir işlem için kullanıldı.")
+        return {"requestId": value["requestId"], "scenario": _record(db, value["id"], user, write=True),
+                "appliedRevision": receipt["revision"], "replayed": True}
+    with connection() as db:
+        db.execute("BEGIN")
+        repeated = replay(db)
+        if repeated:
+            return repeated
+        world = _world(db)
+        if world["updatedAt"] != value["worldRevision"]:
+            raise HTTPException(409, "Ortak üretim değişti. Güncel kaydı inceleyip yeni taslak oluşturun.")
+    seed = apply_delta(planning_only(world["seed"]), value["delta"])
+    normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"]})
+    with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        repeated = replay(db)
+        if repeated:
+            return repeated
+        row = db.execute("SELECT updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        if not row or row[0] != value["worldRevision"]:
+            raise HTTPException(409, "Ortak üretim değişti. Güncel kaydı inceleyip yeni taslak oluşturun.")
+        if db.execute("SELECT 1 FROM scenarios WHERE id=? UNION ALL SELECT 1 FROM scenario_versions WHERE scenario_id=?", (value["id"], value["id"])).fetchone():
+            raise HTTPException(409, "Plan kimliği daha önce kullanıldı. Yeni taslak oluşturun.")
+        saved = _save(db, {"id": value["id"], "name": value["name"], "notes": "", "worldRevision": value["worldRevision"], **normalized}, user)
+        db.execute("INSERT INTO scenario_requests VALUES(?,?,?,?,?)", (user.id, value["requestId"], request_hash, value["id"], saved["revision"]))
+    return {"requestId": value["requestId"], "scenario": saved, "appliedRevision": saved["revision"], "replayed": False}
+
+
+def _world_reply(saved, response_mode):
+    # History and archive snapshots are durable DB records. New clients need one
+    # canonical world, not additional copies of it nested in the same response.
+    return {k: v for k, v in saved.items() if k not in ("historyEntry", "archiveSnapshot")} if response_mode == "compact-v1" else saved
 
 
 def fork_scenario(scenario_id, user):
@@ -214,26 +263,57 @@ def run_domain(request):
 
 
 def patch_scenario(scenario_id, value, user):
-    from .planning_delta import apply_delta, state_hash
-    with connection() as db:
-        db.execute("BEGIN IMMEDIATE")
-        current = _record(db, scenario_id, user, write=True)
-        request_hash = state_hash(value)
+    from .planning_delta import apply_delta, state_hash, build_delta
+    # Response negotiation is not part of the operation identity. Old clients
+    # keep their existing receipt digest when the optional field is absent.
+    identity = {k: v for k, v in value.items() if k != "responseMode"}
+    request_hash = state_hash(identity)
+
+    def replay(db, current):
         receipt = db.execute("SELECT * FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, value["requestId"])).fetchone()
         if receipt:
             if receipt["request_hash"] != request_hash or receipt["scenario_id"] != scenario_id:
                 raise HTTPException(409, "İstek kimliği başka bir işlem için kullanıldı.")
             return {"requestId": value["requestId"], "scenario": current, "appliedRevision": receipt["revision"], "replayed": True}
+        return None
+
+    def check_revision(current, world_revision):
         if value["revision"] != current["revision"]:
             raise HTTPException(409, "Taslak başka bir oturumda değişti. Yerel kopyayı koruyun.")
-        world = _world(db)
-        if value.get("worldRevision") != world["updatedAt"]:
+        if value.get("worldRevision") != world_revision:
             raise HTTPException(409, "Ortak üretim değişti. Taslağı güncel üretimle yeniden inceleyin.")
-        seed = apply_delta(current["seed"], value["delta"])
-        normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"]})
-        saved = _save(db, {**current, **normalized, "worldRevision": world["updatedAt"]}, user, current)
+
+    # Capture a consistent read snapshot, then release it before CPU work.
+    with connection() as db:
+        db.execute("BEGIN")
+        current = _record(db, scenario_id, user, write=True)
+        repeated = replay(db, current)
+        if repeated:
+            return repeated
+        world = _world(db)
+        check_revision(current, world["updatedAt"])
+    seed = apply_delta(current["seed"], value["delta"])
+    normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"]})
+    with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        latest = _record(db, scenario_id, user, write=True)
+        repeated = replay(db, latest)
+        if repeated:
+            return repeated
+        row = db.execute("SELECT updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        if not row:
+            raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
+        check_revision(latest, row["updated_at"])
+        saved = _save(db, {**latest, **normalized, "worldRevision": row["updated_at"]}, user, latest)
         db.execute("INSERT INTO scenario_requests VALUES(?,?,?,?,?)", (user.id, value["requestId"], request_hash, scenario_id, saved["revision"]))
-        return {"requestId": value["requestId"], "scenario": saved, "appliedRevision": saved["revision"], "replayed": False}
+    response = {"requestId": value["requestId"], "scenario": saved, "appliedRevision": saved["revision"], "replayed": False}
+    if value.get("responseMode") == "compact-v1":
+        response["scenario"] = {k: v for k, v in saved.items() if k not in ("seed", "result")}
+        response["scenarioSeedCorrection"] = {"baseHash": state_hash(seed), "stateHash": state_hash(saved["seed"]),
+            "delta": build_delta(seed, saved["seed"])}
+        response["scenarioResultCorrection"] = {"baseHash": state_hash(current["result"]), "stateHash": state_hash(saved["result"]),
+            "delta": build_delta(current["result"], saved["result"])}
+    return response
 
 
 def _world(db):
@@ -253,7 +333,7 @@ def production_command(value, user):
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
         current = _world(db)
-        digest = state_hash(value)
+        digest = state_hash({k: v for k, v in value.items() if k != "responseMode"})
         receipt = db.execute("SELECT * FROM production_commands WHERE actor_id=? AND request_id=?", (user.id, value["requestId"])).fetchone()
         if receipt:
             if receipt["request_hash"] != digest:
@@ -281,7 +361,7 @@ def production_command(value, user):
             result_revision,command_json,changes_json) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (str(uuid.uuid4()), user.id, value["requestId"], digest, value["command"]["kind"], now_iso(), current["updatedAt"],
              saved["updatedAt"], json.dumps(value["command"]), json.dumps(build_delta(current["seed"], saved["seed"]))))
-        return {"current": saved, "requestId": value["requestId"], "appliedRevision": saved["updatedAt"], "replayed": False}
+        return {"current": _world_reply(saved, value.get("responseMode")), "requestId": value["requestId"], "appliedRevision": saved["updatedAt"], "replayed": False}
 
 
 def publication_preview(scenario_id, value, user):
@@ -345,15 +425,17 @@ def publish_scenario(scenario_id, value, user):
             (publication_id, scope, scenario_id, scenario["revision"], user.id, now_iso(), previous_id,
              current["updatedAt"], json.dumps({"seed": saved["seed"], "result": accepted["result"]}), user.name, scenario["name"]))
         db.execute("INSERT INTO active_plans VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET publication_id=excluded.publication_id", (scope, publication_id))
-        return {"publicationId": publication_id, "current": saved, "replayed": False, "activePublication": _active_publication(db, scope)}
+        return {"publicationId": publication_id, "current": _world_reply(saved, value.get("responseMode")), "replayed": False, "activePublication": _active_publication(db, scope)}
 
 
 def collaboration_status():
     with connection() as db:
         db.execute("BEGIN")
-        current = _world(db)
-        active = _active_publication(db, current["seed"].get("productionArea", "torna"))
-        return {"worldRevision": current["updatedAt"], "publicationId": active["id"] if active else None, "activePublication": active,
+        row = db.execute("SELECT updated_at,COALESCE(json_extract(seed_json,'$.productionArea'),'torna') AS scope FROM planning_state WHERE state_key='default'").fetchone()
+        if not row:
+            raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
+        active = _active_publication(db, row["scope"])
+        return {"worldRevision": row["updated_at"], "publicationId": active["id"] if active else None, "activePublication": active,
                 "lastCommand": db.execute("SELECT COALESCE(MAX(sequence),0) FROM production_commands").fetchone()[0]}
 
 

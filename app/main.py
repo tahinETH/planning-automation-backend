@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Literal
 
 import json
 import mimetypes
@@ -311,8 +312,18 @@ def get_planning_transaction_status(transaction_id: str, user: CurrentUser = Dep
 
 
 @app.get("/api/planning-state/history")
-def get_planning_state_history(_: CurrentUser = Depends(current_user)):
-    return planning_state_history()
+def get_planning_state_history(summary: bool = False, _: CurrentUser = Depends(current_user)):
+    from .database import planning_history_summaries
+    return planning_history_summaries() if summary else planning_state_history()
+
+
+@app.get("/api/planning-state/history/{record_id}")
+def get_planning_history_detail(record_id: str, _: CurrentUser = Depends(current_user)):
+    from .database import planning_history_detail
+    record = planning_history_detail(record_id)
+    if record is None:
+        raise HTTPException(404, "Versiyon kaydı bulunamadı.")
+    return record
 
 
 @app.get("/api/production-archive/history")
@@ -453,12 +464,14 @@ def share_scenario(scenario_id: str, revision: int, shared: bool, user: CurrentU
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class ScenarioDeltaRequest(BaseModel):
+    responseMode: Literal["compact-v1"] | None = None
     worldRevision: str
     requestId: str = Field(min_length=1, max_length=128)
     revision: int = Field(ge=1)
     delta: dict
 
 class ProductionCommandRequest(BaseModel):
+    responseMode: Literal["compact-v1"] | None = None
     model_config = ConfigDict(extra="forbid")
     requestId: str = Field(min_length=1, max_length=128)
     expectedBasis: str = Field(min_length=64, max_length=64)
@@ -474,10 +487,23 @@ class ProductionCommandRequest(BaseModel):
         return value
 
 class PublishPlanRequest(BaseModel):
+    responseMode: Literal["compact-v1"] | None = None
     previewId: str | None = None
     revision: int = Field(ge=0)
     worldRevision: str
     previousId: str | None = None
+
+class ScenarioFromWorldRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
+    requestId: str = Field(min_length=1, max_length=128)
+    worldRevision: str
+    delta: dict
+
+@app.post("/api/scenarios/from-world", status_code=201)
+def create_scenario_from_world(payload: ScenarioFromWorldRequest, user: CurrentUser = Depends(current_user)):
+    return collaboration.create_scenario_from_world(payload.model_dump(), user)
 
 @app.patch("/api/scenarios/{scenario_id}")
 def patch_scenario(scenario_id: str, payload: ScenarioDeltaRequest, user: CurrentUser = Depends(current_user)):
@@ -509,8 +535,18 @@ def collaboration_status(_: CurrentUser = Depends(current_user)):
     return collaboration.collaboration_status()
 
 @app.get("/api/revisions")
-def get_revisions(_: CurrentUser = Depends(current_user)):
-    return revisions()
+def get_revisions(summary: bool = False, _: CurrentUser = Depends(current_user)):
+    from .database import revision_summaries
+    return revision_summaries() if summary else revisions()
+
+
+@app.get("/api/revisions/{record_id}")
+def get_revision_detail(record_id: str, _: CurrentUser = Depends(current_user)):
+    from .database import revision_detail
+    record = revision_detail(record_id)
+    if record is None:
+        raise HTTPException(404, "Sipariş revizyonu bulunamadı.")
+    return record
 
 
 @app.post("/api/revisions", status_code=201)
