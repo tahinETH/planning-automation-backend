@@ -1373,8 +1373,8 @@ function datedEvents(seed, result, processPlan) {
   const fallbackReadyWip = (seed.wipLots ?? []).filter((lot) => !seed.processMasterData && lot.stage === "delivery-ready" && lot.availableQuantity > 0 && lot.readyAt > 0 && !representedLotIds.has(lot.id)).map((lot) => ({ id: `wip:${lot.id}`, product: lot.product.toUpperCase(), quantity: lot.availableQuantity, readyAt: lot.readyAt, source: "wip-fallback" }));
   return [...routed, ...fallbackBatches, ...fallbackReadyWip].filter((event) => Number.isFinite(event.readyAt) && event.readyAt > 0).sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
 }
-function buildDeliveryReadinessEvents(seed, result) {
-  return datedEvents(seed, result, buildDownstreamProcessPlan(seed, result));
+function buildDeliveryReadinessEvents(seed, result, plan = buildDownstreamProcessPlan(seed, result)) {
+  return datedEvents(seed, result, plan);
 }
 function buildDeliveryReadinessProjection(seed, result) {
   const plan = buildDownstreamProcessPlan(seed, result);

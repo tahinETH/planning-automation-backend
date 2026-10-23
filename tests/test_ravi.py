@@ -307,7 +307,8 @@ def test_stream_endpoint_progress_deltas_tools_and_private_reasoning(client, mon
             yield {'type': 'delta', 'text': 'CW bakiyesine bakıyoruz.'}
             yield {'type': 'message', 'message': {'role': 'assistant', 'content': '**Material** satırındaki CW bakiyesine bakıyoruz.'}}
     monkeypatch.setattr(service, 'provider_stream', streamed)
-    response = client.post('/api/ravi/chat/stream', json=request('Termin nasıl hesaplanıyor?'))
+    response = client.post('/api/ravi/chat/stream', json=request('Termin nasıl hesaplanıyor?'), headers={'Accept-Encoding': 'gzip'})
+    assert 'content-encoding' not in response.headers
     assert response.headers['content-type'].startswith('text/event-stream')
     assert response.headers['x-accel-buffering'] == 'no'
     events = [json.loads(frame[6:]) for frame in response.text.strip().split('\n\n')]
