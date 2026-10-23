@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .auth import CurrentUser, create_test_session, current_user, require_admin
@@ -38,6 +39,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Selsa Planlama API", version="1.0.0", lifespan=lifespan)
 app.include_router(ravi_router)
+# Compress large JSON snapshots; Starlette excludes text/event-stream (Ravi).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=3)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
