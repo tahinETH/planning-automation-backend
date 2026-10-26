@@ -89,11 +89,28 @@ function withInterruptedBatches(seed, batches) {
   result.push(...live);
   return result;
 }
+function canonicalSwitchSnapshot(snapshot) {
+  if (!Array.isArray(snapshot) || snapshot.length !== 11 || !Array.isArray(snapshot[10])) throw new Error("Invalid switch snapshot");
+  const queue = [...snapshot[10]].sort((a, b) => a.machineId < b.machineId ? -1 : a.machineId > b.machineId ? 1 : a.planColumn - b.planColumn);
+  const stable2 = (value) => {
+    if (Array.isArray(value)) return value.map(stable2);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, stable2(item)]));
+    return value;
+  };
+  return JSON.stringify(stable2([...snapshot.slice(0, 10), queue]));
+}
 function productionSwitchSignature(seed, batches) {
-  return JSON.stringify([seed.machines, seed.processCurrentJobs ?? [], seed.wipLots ?? [], seed.productionInterruptions ?? [], seed.processOperationOverrides ?? [], seed.processMasterData, seed.calendarEvents, seed.products, seed.holidays, seed.setupSettings, batches]);
+  return canonicalSwitchSnapshot([seed.machines, seed.processCurrentJobs ?? [], seed.wipLots ?? [], seed.productionInterruptions ?? [], seed.processOperationOverrides ?? [], seed.processMasterData, seed.calendarEvents, seed.products, seed.holidays, seed.setupSettings, batches]);
 }
 function assertProductionSwitchSnapshot(seed, batches, input) {
-  if (input?.expectedSignature && input.expectedSignature !== productionSwitchSignature(seed, batches)) throw new Error("Mevcut i\u015F veya kuyruk de\u011Fi\u015Fti. Pencereyi kapat\u0131p g\xFCncel kay\u0131tla yeniden a\xE7\u0131n.");
+  if (!input?.expectedSignature) return;
+  const current = productionSwitchSignature(seed, batches);
+  if (input.expectedSignature === current) return;
+  try {
+    if (canonicalSwitchSnapshot(JSON.parse(input.expectedSignature)) === current) return;
+  } catch {
+  }
+  throw new Error("Mevcut i\u015F veya kuyruk de\u011Fi\u015Fti. Pencereyi kapat\u0131p g\xFCncel kay\u0131tla yeniden a\xE7\u0131n.");
 }
 
 // lib/turning-queue-identity.ts

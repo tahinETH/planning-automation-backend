@@ -338,3 +338,42 @@ def test_draft_ops04_completion_keeps_private_manual_charge_and_rejects_stale_re
         collab.production_command({**request, 'requestId': 'duplicate-completion'}, B)
     assert error.value.status_code == 409
     assert collab.get_scenario(draft['id'], B) == draft
+
+
+def test_ops_snapshot03_old_browser_reordered_queue_commits_once_and_keeps_conflict_checks(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    machine = next(m for m in seed['machines'] if m['id'] == 'C-04')
+    machine['currentJob'].update(batchId='actual-switch-100', workOrder='ACTUAL-100', product='R902745116',
+        quantity=100, originalQuantity=100, remainingQuantity=100, start=46266, end=46267)
+    batch = dict(id='shared-switch-200', machineId='C-04', product='R902745116', workOrder='SHARED-200', quantity=200,
+        start=46268, end=46269, status='planned', planColumn=13, sequence=1, locked=False, diameter='10', setupHours=0)
+    seed['manualBatches'] = [batch, {**batch, 'id': 'shared-switch-300', 'workOrder': 'SHARED-300', 'quantity': 300, 'planColumn': 14, 'sequence': 2}]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    actual = world['seed']
+    # Exact legacy JSON protocol from an already-open browser, including a
+    # different storage order. Each charge keeps its actual queue position.
+    fields = ['machines', 'processCurrentJobs', 'wipLots', 'productionInterruptions', 'processOperationOverrides',
+              'processMasterData', 'calendarEvents', 'products', 'holidays', 'setupSettings']
+    snapshot = [actual.get(k, [] if k in fields[1:5] else None) for k in fields]
+    signature = json.dumps([*snapshot, list(reversed(actual['manualBatches']))])
+    request = dict(requestId='old-browser-switch', expectedBasis=state_hash({**actual, 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='replaceTurningJob', args=['C-04', batch['id'], dict(produced=False, expectedSignature=signature)]))
+    stale_signature = json.loads(signature); stale_signature[-1][0]['quantity'] += 1
+    invalid = copy.deepcopy(request); invalid['requestId'] = 'changed-queue'; invalid['command']['args'][2]['expectedSignature'] = json.dumps(stale_signature)
+    before = db.planning_state()
+    with pytest.raises(HTTPException) as error: collab.production_command(invalid, B)
+    assert error.value.status_code == 422
+    assert db.planning_state() == before
+    saved = collab.production_command(request, B)
+    after = saved['current']['seed']
+    assert next(m for m in after['machines'] if m['id'] == 'C-04')['currentJob']['batchId'] == batch['id']
+    assert next(b for b in after['manualBatches'] if b['id'] == 'actual-switch-100')['quantity'] == 100
+    assert after.get('productionHistory') == actual.get('productionHistory')
+    assert after.get('wipLots') == actual.get('wipLots')
+    assert collab.production_command(request, B)['replayed']
+    with pytest.raises(HTTPException) as error: collab.production_command({**request, 'requestId': 'stale-repeat'}, B)
+    assert error.value.status_code == 409
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 1
