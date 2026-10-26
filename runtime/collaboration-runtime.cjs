@@ -5568,6 +5568,15 @@ function recalculateManualScenario(seed, sourceBatches, options = { allowPlanEnd
   }
   return scenarioResultFromBatches(seed, [...recalculated, ...unplanned].sort((a, b) => a.sequence - b.sequence));
 }
+function lockQueueThrough(result, machineId, batchId) {
+  const queue = result.batches.filter((batch) => batch.status === "planned" && batch.machineId === machineId).sort((a, b) => a.planColumn - b.planColumn);
+  const through = queue.findIndex((batch) => batch.id === batchId);
+  if (through < 0) throw new Error("Kilitlenecek \u015Farj bu tezgah kuyru\u011Funda bulunamad\u0131.");
+  return { ...result, createdAt: (/* @__PURE__ */ new Date()).toISOString(), batches: result.batches.map((batch) => batch.machineId === machineId && batch.status === "planned" ? { ...batch, locked: queue.findIndex((item) => item.id === batch.id) <= through } : { ...batch }) };
+}
+function unlockMachineQueue(result, machineId) {
+  return { ...result, createdAt: (/* @__PURE__ */ new Date()).toISOString(), batches: result.batches.map((batch) => batch.machineId === machineId ? { ...batch, locked: false } : { ...batch }) };
+}
 function updateMachineCurrentJob(seed, result, machineId, input, remainingAsOf) {
   const nextSeed = JSON.parse(JSON.stringify(seed));
   const machine = nextSeed.machines.find((item) => item.id === machineId);
@@ -8854,7 +8863,7 @@ function cloneSeed(seed) {
 }
 
 // lib/production-command.ts
-var productionCommandNames = ["saveCurrentJob", "replaceTurningJob", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
+var productionCommandNames = ["setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
 function productionCommandBasis(seed, command) {
   if (command.kind === "saveJourneyNote") {
     const input = command.args[0];
@@ -9256,6 +9265,12 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     nextSeed.planNeedsRecalculation = Boolean(nextSeed.planNeedsRecalculation || dirty || event?.type === "archive-status");
     commit(nextSeed, nextResult, message, event, undoMessage);
   };
+  function setMachineQueueLock(machineId, throughBatchId) {
+    if (typeof machineId !== "string" || !seed.machines.some((machine) => machine.id === machineId) || throughBatchId !== null && (typeof throughBatchId !== "string" || !throughBatchId)) throw new Error("Tezgah veya kilitlenecek \u015Farj ge\xE7ersiz.");
+    const next = throughBatchId === null ? unlockMachineQueue(result, machineId) : lockQueueThrough(result, machineId, throughBatchId);
+    const message = throughBatchId === null ? `${machineId} ortak kuyruk kilidi kald\u0131r\u0131ld\u0131` : `${machineId} ortak kuyruk kilidi kaydedildi`;
+    commitOperationalChange(cloneSeed2(seed), next, message, { type: throughBatchId === null ? "unlock" : "lock", machineId, message });
+  }
   function rescheduleDownstreamOperation(operationId, resourceId, requestedStart, reviewedSignature) {
     const preview = previewProcessOperationReschedule(seed, result, operationId, resourceId, requestedStart);
     if (processPlacementSignature(preview) !== reviewedSignature) throw new Error("Plan de\u011Fi\u015Fti. G\xFCncel yerle\u015Fimi yeniden inceleyip onaylay\u0131n.");
@@ -9522,6 +9537,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     }
   }
   const actions = {
+    setMachineQueueLock,
     rescheduleDownstreamOperation,
     placeDownstreamQueueOperation,
     replanDownstreamProcess,
@@ -9728,6 +9744,15 @@ function scenarioPlanningSeed(seed) {
   scenario.machines = scenario.machines.map((machine) => ({ ...machine, currentJob: emptyCurrentJob(machine) }));
   return scenario;
 }
+function mergeRemainderLocks(liveSeed, proposals) {
+  return withInterruptedBatches(liveSeed, proposals.filter((batch) => !hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId))).map((batch) => {
+    if (!hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId)) return batch;
+    const matches = proposals.filter((proposal2) => proposal2.id === batch.id);
+    const proposal = matches.length === 1 ? matches[0] : void 0;
+    if (proposal && proposal.interruptionId === batch.interruptionId && proposal.quantity === batch.quantity && proposal.product === batch.product && proposal.workOrder === batch.workOrder && proposal.machineId === batch.machineId && typeof proposal.locked === "boolean") return { ...batch, locked: proposal.locked };
+    return batch;
+  });
+}
 function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   const merged = copy(scenarioSeed);
   const changedOperations = ["productionHistory", "wipLots", "processCurrentJobs", "productionInterruptions", "productionCancellations"].some((field) => JSON.stringify(scenarioSeed[field] ?? []) !== JSON.stringify(liveSeed[field] ?? [])) || scenarioSeed.machines.some((machine) => {
@@ -9745,7 +9770,7 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   merged.productionInterruptions = copy(liveSeed.productionInterruptions ?? []);
   if (liveSeed.productionCancellations) merged.productionCancellations = copy(liveSeed.productionCancellations);
   else delete merged.productionCancellations;
-  merged.manualBatches = withInterruptedBatches(liveSeed, (merged.manualBatches ?? []).filter((batch) => !hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId)));
+  merged.manualBatches = mergeRemainderLocks(liveSeed, merged.manualBatches ?? []);
   merged.productionHistory = copy(liveSeed.productionHistory ?? []);
   merged.wipLots = copy(liveSeed.wipLots ?? []);
   merged.wipMovements = copy(liveSeed.wipMovements ?? []);
@@ -9771,7 +9796,7 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   return reconcileTurningSeed(merged);
 }
 function rebaseScenarioPlan(seed, savedResult) {
-  const result = recalculateManualScenario(seed, withInterruptedBatches(seed, reconcileTurningQueue(seed, savedResult.batches).filter((batch) => !hasProtectedProductionRemainder(seed, batch.id, batch.interruptionId))), { allowPlanEndOverflow: true });
+  const result = recalculateManualScenario(seed, mergeRemainderLocks(seed, reconcileTurningQueue(seed, savedResult.batches)), { allowPlanEndOverflow: true });
   const machines = new Map(seed.machines.map((machine) => [machine.id, machine]));
   const overflows = result.batches.filter((batch) => {
     const machine = machines.get(batch.machineId);

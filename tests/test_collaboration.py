@@ -279,3 +279,62 @@ def test_col18_failed_publication_cannot_change_world_or_approval(factory):
     assert collab.collaboration_status()['activePublication'] is None
     with db.connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
+
+
+def test_draft_lock04_shared_unlock_is_durable_scoped_and_retry_safe(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    seed['manualBatches'] = [dict(id='lock-a', machineId='C-04', product='R902745116', workOrder='LOCK-A', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=1, locked=True, diameter='10', setupHours=0),
+        dict(id='lock-b', machineId='C-05', product='R902745116', workOrder='LOCK-B', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=2, locked=True, diameter='10', setupHours=0)]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    request = dict(requestId='shared-unlock', expectedBasis=state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='setMachineQueueLock', args=['C-04', None]))
+    saved = collab.production_command(request, B)
+    expected = copy.deepcopy(world['seed']['manualBatches']); expected[0]['locked'] = False
+    assert saved['current']['seed']['manualBatches'] == expected
+    assert db.planning_state()['seed']['manualBatches'] == expected
+    for field in set(collab.FACTS) - {'planningEvents'}:
+        assert saved['current']['seed'].get(field) == world['seed'].get(field)
+    assert collab.production_command(request, B)['replayed']
+    with pytest.raises(HTTPException) as error:
+        collab.production_command({**request, 'requestId': 'stale-unlock'}, B)
+    assert error.value.status_code == 409
+    before = db.planning_state()
+    invalid = dict(requestId='missing-machine', expectedBasis=state_hash({**before['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='setMachineQueueLock', args=['MISSING', None]))
+    with pytest.raises(HTTPException): collab.production_command(invalid, B)
+    assert db.planning_state() == before
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 1
+
+
+def test_draft_ops04_completion_keeps_private_manual_charge_and_rejects_stale_repeat(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    machine = next(m for m in seed['machines'] if m['id'] == 'C-04')
+    machine['currentJob'].update(batchId='actual-100', workOrder='ACTUAL-100', product='R902745116',
+        quantity=100, originalQuantity=100, remainingQuantity=100, start=46266, end=46267)
+    seed['manualBatches'] = [dict(id='shared-200', machineId='C-04', product='R902745116', workOrder='SHARED-200', quantity=200,
+        start=46268, end=46269, status='planned', planColumn=13, sequence=1, locked=False, diameter='10', setupHours=0)]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    draft_seed = copy.deepcopy(world['seed'])
+    draft_seed['manualBatches'] = [{**seed['manualBatches'][0], 'id': 'personal-700', 'workOrder': 'PERSONAL-700', 'quantity': 700}]
+    draft = collab.save_scenario(scenario(draft_seed), B)
+    before_lots = sum(lot['availableQuantity'] for lot in world['seed'].get('wipLots', []))
+    request = dict(requestId='draft-completion', expectedBasis=state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='completeCurrentJob', args=['C-04', 46268, 100]))
+    saved = collab.production_command(request, B)
+    actual = saved['current']['seed']
+    assert next(m for m in actual['machines'] if m['id'] == 'C-04')['currentJob']['batchId'] == 'shared-200'
+    assert sum(lot['availableQuantity'] for lot in actual['wipLots']) == before_lots + 100
+    assert not any(b['id'] == 'personal-700' for b in actual['manualBatches'])
+    assert collab.get_scenario(draft['id'], B) == draft
+    assert collab.production_command(request, B)['replayed']
+    with pytest.raises(HTTPException) as error:
+        collab.production_command({**request, 'requestId': 'duplicate-completion'}, B)
+    assert error.value.status_code == 409
+    assert collab.get_scenario(draft['id'], B) == draft

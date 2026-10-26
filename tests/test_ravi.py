@@ -464,3 +464,16 @@ def test_confirmed_cache_warning_uses_recovery_guidance_without_claiming_lost_se
     assert "Tarayıcı yedeği güncellenemedi" in topics[0]["body"]
     assert "sunucu kaydının kaybolduğu anlamına gelmez" in topics[0]["body"]
     assert knowledge.relevant_topics("xyzzy", "planning", {"collaboration": {"cacheWarning": "true"}}) == []
+
+
+def test_draft_workflow_guide_explains_shared_completion_and_physical_remainder():
+    from pathlib import Path
+    import json
+    topics = json.loads((Path(__file__).parents[1] / "app/ravi/knowledge/topics.json").read_text())["topics"]
+    for topic_id in ("plan-workspaces", "machines", "scenarios-persistence", "production-interruptions"):
+        topic = next(t for t in topics if t["id"] == topic_id)
+        for label in ("Ortak üretimde tamamla", "Sıradaki iş", "Kalan üretimi iptal et", "Planı Temizle"):
+            assert label in topic["body"]
+        assert "taslaktaki şarj ortak üretime kendiliğinden alınmaz" in topic["body"]
+        assert "kilidi açık olsa da yarım kalan üretimi korur" in topic["body"]
+        assert any("Ortak üretimde tamamla" in source for source in topic["userSources"])
