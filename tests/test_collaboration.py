@@ -427,6 +427,8 @@ def test_ops_ts09_old_or_invalid_partial_completion_does_not_write(factory, extr
         collab.production_command(request, B)
     assert error.value.status_code == 422
     assert 'kalan miktar' in error.value.detail.lower()
+    if not extra or extra == [None]:
+        assert 'Yedekle ve beklemeden çıkar' in error.value.detail
     assert db.planning_state() == world
     with db.connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 0

@@ -5677,7 +5677,10 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial(factoryDat
 function requireTurningRemainderAction(assigned, completed, action) {
   if (action !== void 0 && action !== null && action !== "" && action !== "keep" && action !== "scrap") throw new Error("Ge\xE7ersiz kalan miktar i\u015Flemi.");
   if (!Number.isInteger(completed) || completed <= 0 || completed > assigned) throw new Error("Fiili tamamlanan adet toplam adedi a\u015Fmayan pozitif tam say\u0131 olmal\u0131d\u0131r.");
-  if (completed < assigned && action !== "keep" && action !== "scrap") throw new Error("Kalan miktar i\xE7in Tornada devam et veya Iskartaya ay\u0131r se\xE7in. Se\xE7enek g\xF6r\xFCnm\xFCyorsa sayfay\u0131 yenileyip i\u015Flemi yeniden a\xE7\u0131n.");
+  if (completed < assigned && action !== "keep" && action !== "scrap") {
+    const recovery = action == null ? " Eski sekmeden gelen bu i\u015Flem kaydedilmedi. Bekleyen iste\u011Fi Bu i\u015Flemi daha sonra incele \u2192 Yedekle ve beklemeden \xE7\u0131kar ile koruyun. Sonra sayfay\u0131 yenileyip i\u015Flemi yeniden a\xE7\u0131n." : "";
+    throw new Error(`Kalan miktar i\xE7in Tornada devam et veya Iskartaya ay\u0131r se\xE7in.${recovery}`);
+  }
   return completed < assigned ? action : void 0;
 }
 function completeMachineCurrentJob(seed, result, machineId, completedAt, completedQuantity, remainderAction = "keep") {
