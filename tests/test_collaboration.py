@@ -377,3 +377,56 @@ def test_ops_snapshot03_old_browser_reordered_queue_commits_once_and_keeps_confl
     assert error.value.status_code == 409
     with db.connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 1
+
+
+def turning_scrap_world(factory):
+    seed = copy.deepcopy(factory['seed'])
+    seed.update(productionHistory=[], wipLots=[], wipMovements=[], productionInterruptions=[], manualBatches=[], processCurrentJobs=[], processOperationOverrides=[])
+    machine = next(m for m in seed['machines'] if m['id'] == 'C-04')
+    machine['currentJob'].update(batchId='scrap-1950', workOrder='SCRAP-1950', product='R902745116',
+        quantity=1950, originalQuantity=1950, remainingQuantity=1950, start=46266, end=46267)
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    return db.planning_state()
+
+
+def test_ops_ts08_turning_scrap_commits_balances_once_and_rejects_stale_second_browser(factory):
+    from app.planning_delta import state_hash
+    world = turning_scrap_world(factory)
+    draft = collab.save_scenario(scenario(world['seed']), B)
+    request = dict(requestId='turning-scrap-1950', expectedBasis=state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='completeCurrentJob', args=['C-04', 46268, 1948, 'scrap']))
+    saved = collab.production_command(request, B)
+    actual = saved['current']['seed']
+    assert sum(l['availableQuantity'] for l in actual['wipLots']) == 1948
+    assert sum(l['scrappedQuantity'] for l in actual['wipLots']) == 2
+    assert sum(h['completedQuantity'] for h in actual['productionHistory'] if h['inventoryStatus'] == 'scrapped') == 2
+    assert next(m for m in actual['machines'] if m['id'] == 'C-04')['currentJob']['quantity'] == 0
+    assert not actual['manualBatches']
+    assert not actual['productionInterruptions']
+    assert collab.production_command(request, B)['replayed'] is True
+    assert db.planning_state()['seed'] == actual
+    assert collab.get_scenario(draft['id'], B) == draft
+    with pytest.raises(HTTPException) as error:
+        collab.production_command({**request, 'requestId': 'stale-other-browser'}, A)
+    assert error.value.status_code == 409
+    assert db.planning_state()['seed'] == actual
+    with db.connection() as conn:
+        rows = conn.execute('SELECT command_json FROM production_commands').fetchall()
+        assert len(rows) == 1
+        assert json.loads(rows[0]['command_json'])['args'][3] == 'scrap'
+
+
+@pytest.mark.parametrize('extra', [[], [None], [''], ['invalid']])
+def test_ops_ts09_old_or_invalid_partial_completion_does_not_write(factory, extra):
+    from app.planning_delta import state_hash
+    world = turning_scrap_world(factory)
+    request = dict(requestId='old-browser-partial', expectedBasis=state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='completeCurrentJob', args=['C-04', 46268, 1948, *extra]))
+    with pytest.raises(HTTPException) as error:
+        collab.production_command(request, B)
+    assert error.value.status_code == 422
+    assert 'kalan miktar' in error.value.detail.lower()
+    assert db.planning_state() == world
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 0

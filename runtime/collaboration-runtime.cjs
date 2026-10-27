@@ -5674,7 +5674,13 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial(factoryDat
   }
   return rolledMachineIds;
 }
-function completeMachineCurrentJob(seed, result, machineId, completedAt, completedQuantity) {
+function requireTurningRemainderAction(assigned, completed, action) {
+  if (action !== void 0 && action !== null && action !== "" && action !== "keep" && action !== "scrap") throw new Error("Ge\xE7ersiz kalan miktar i\u015Flemi.");
+  if (!Number.isInteger(completed) || completed <= 0 || completed > assigned) throw new Error("Fiili tamamlanan adet toplam adedi a\u015Fmayan pozitif tam say\u0131 olmal\u0131d\u0131r.");
+  if (completed < assigned && action !== "keep" && action !== "scrap") throw new Error("Kalan miktar i\xE7in Tornada devam et veya Iskartaya ay\u0131r se\xE7in. Se\xE7enek g\xF6r\xFCnm\xFCyorsa sayfay\u0131 yenileyip i\u015Flemi yeniden a\xE7\u0131n.");
+  return completed < assigned ? action : void 0;
+}
+function completeMachineCurrentJob(seed, result, machineId, completedAt, completedQuantity, remainderAction = "keep") {
   assertOperationalMachineIdentity(seed, result, machineId);
   const nextSeed = JSON.parse(JSON.stringify(seed));
   const machine = nextSeed.machines.find((item) => item.id === machineId);
@@ -5687,8 +5693,10 @@ function completeMachineCurrentJob(seed, result, machineId, completedAt, complet
   const actualQuantity = completedQuantity ?? originalQuantity;
   if (!Number.isInteger(actualQuantity) || actualQuantity <= 0) throw new Error("Fiili tamamlanan adet s\u0131f\u0131rdan b\xFCy\xFCk tam say\u0131 olmal\u0131d\u0131r.");
   if (actualQuantity > originalQuantity) throw new Error("Fiili tamamlanan adet mevcut i\u015Fin toplam adedini a\u015Famaz.");
-  if (hasActiveProductionInterruption(nextSeed, current.batchId, current.interruptionId) && actualQuantity !== current.quantity) throw new Error("Yar\u0131m kalan \u015Farj\u0131n kalan adedini tamamlay\u0131n; yeniden ara vermek i\xE7in Mevcut i\u015Fi de\u011Fi\u015Ftir kullan\u0131n.");
-  const partial = actualQuantity < originalQuantity;
+  requireTurningRemainderAction(originalQuantity, actualQuantity, remainderAction);
+  if (hasActiveProductionInterruption(nextSeed, current.batchId, current.interruptionId) && actualQuantity !== current.quantity && !(remainderAction === "scrap" && originalQuantity === current.quantity)) throw new Error("Yar\u0131m kalan \u015Farj\u0131n kalan adedini tamamlay\u0131n; yeniden ara vermek i\xE7in Mevcut i\u015Fi de\u011Fi\u015Ftir kullan\u0131n.");
+  const loss = remainderAction === "scrap" ? originalQuantity - actualQuantity : 0;
+  const partial = actualQuantity < originalQuantity && !loss;
   if (partial && result.batches.some((batch) => batch.machineId === machineId && batch.locked)) throw new Error("Kalan i\u015Fi ilk s\u0131raya eklemek i\xE7in tezgah kuyru\u011Fundaki kilitleri \xF6nce kald\u0131r\u0131n.");
   const splitId = partial ? `split-${crypto.randomUUID()}` : void 0;
   const chargeId = current.batchId ?? `remainder-${crypto.randomUUID()}`;
@@ -5701,7 +5709,7 @@ function completeMachineCurrentJob(seed, result, machineId, completedAt, complet
     machineName: machine.name,
     workOrder: current.workOrder,
     product: current.product,
-    originalQuantity: partial ? actualQuantity : originalQuantity,
+    originalQuantity: actualQuantity < originalQuantity ? actualQuantity : originalQuantity,
     completedQuantity: actualQuantity,
     start: current.start,
     plannedEnd: current.end,
@@ -5714,7 +5722,18 @@ function completeMachineCurrentJob(seed, result, machineId, completedAt, complet
   archived.sourceBatchId ??= archived.id;
   const currentRouteKey = currentJobRouteIdentity(machine);
   nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).map((item) => item.batchId === `current:${machineId}` && item.sourceCurrentJobKey === currentRouteKey ? { ...item, batchId: archived.sourceBatchId, sourceCurrentJobKey: void 0 } : item);
-  nextSeed.productionHistory = [archived, ...nextSeed.productionHistory ?? []];
+  const scrapped = loss > 0 ? {
+    ...archived,
+    id: `history-scrap-${crypto.randomUUID()}`,
+    sourceBatchId: `scrap-output-${crypto.randomUUID()}`,
+    originalQuantity: loss,
+    completedQuantity: loss,
+    inventoryStatus: "scrapped",
+    scrappedAt: archivedAt,
+    splitKind: "scrap",
+    statusChangeReason: `Torna tamamlama s\u0131ras\u0131nda ${loss} adet \u0131skarta.`
+  } : void 0;
+  nextSeed.productionHistory = [archived, ...scrapped ? [scrapped] : [], ...nextSeed.productionHistory ?? []];
   const queue = result.batches.filter((batch) => batch.status === "planned" && batch.machineId === machineId).sort((a, b) => a.planColumn - b.planColumn);
   let remainder;
   if (partial) {
@@ -5794,7 +5813,7 @@ function completeMachineCurrentJob(seed, result, machineId, completedAt, complet
     nextSeed.lastAutomaticPlan = void 0;
     nextSeed.planRunSequence = void 0;
   }
-  return { seed: nextSeed, result: nextResult, archived, promotedBatch };
+  return { seed: nextSeed, result: nextResult, archived, scrapped, promotedBatch };
 }
 function updateProductionHistoryStatus(seed, result, entryId, inventoryStatus, actionDate = "", changedAt = (/* @__PURE__ */ new Date()).toISOString(), changeReason = "", changedBy = "Planlama oturumu") {
   const nextSeed = JSON.parse(JSON.stringify(seed));
@@ -9349,13 +9368,23 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     commitOperationalChange(next.seed, next.result, `Mevcut i\u015F de\u011Fi\u015Ftirildi \xB7 ${label2}`, { type: "current-job", machineId, message: `${label2} ${input.produced ? `${input.quantity} adet \xFCretildi. ${input.reason?.trim()}` : "\xDCretim yap\u0131lmad\u0131."}` }, "Mevcut i\u015F de\u011Fi\u015Fikli\u011Fi geri al\u0131nabilir");
     setDirty(true);
   }
-  function completeCurrentJob(machineId, completedAt, completedQuantity) {
-    const next = completeMachineCurrentJob(seed, result, machineId, completedAt, completedQuantity);
+  function completeCurrentJob(machineId, completedAt, completedQuantity, remainderAction) {
+    const current = seed.machines.find((machine) => machine.id === machineId)?.currentJob;
+    if (!current) throw new Error("Tezgah bulunamad\u0131.");
+    const assigned = current.originalQuantity ?? current.quantity;
+    const action = requireTurningRemainderAction(assigned, completedQuantity ?? assigned, remainderAction);
+    const next = completeMachineCurrentJob(seed, result, machineId, completedAt, completedQuantity, action);
     const lot = registerTurningCompletion(next.seed, next.archived);
     if (next.archived.interruptionIds?.length && !lot) throw new Error("K\u0131smi \xFCretimin yar\u0131 mam\xFCl kayd\u0131 olu\u015Fturulamad\u0131; \xFCr\xFCn rotas\u0131n\u0131 kontrol edin.");
+    if (next.scrapped) {
+      const scrapLot = registerTurningCompletion(next.seed, { ...next.scrapped, inventoryStatus: "semi-finished" });
+      if (!lot || !scrapLot) throw new Error("Torna \u0131skarta kayd\u0131 olu\u015Fturulamad\u0131; \xFCr\xFCn rotas\u0131n\u0131 kontrol edin.");
+      scrapWipQuantity(next.seed, scrapLot.id, next.scrapped.completedQuantity, completedAt, next.scrapped.archivedAt);
+    }
     next.seed.lastAutomaticPlan = void 0;
     const promotion = next.promotedBatch ? `; ${next.promotedBatch.product} \xFCretime al\u0131nd\u0131` : "; s\u0131rada yeni i\u015F yok";
-    commitOperationalChange(next.seed, next.result, `${next.archived.product} tamamland\u0131${promotion}`, { type: "complete", machineId, message: `${next.archived.workOrder || next.archived.product} tamamland\u0131 ve ar\u015Five al\u0131nd\u0131${promotion}.` });
+    const loss = next.scrapped ? `; ${next.scrapped.completedQuantity} adet \u0131skartaya ayr\u0131ld\u0131` : "";
+    commitOperationalChange(next.seed, next.result, `${next.archived.product} tamamland\u0131${loss}${promotion}`, { type: "complete", machineId, message: `${next.archived.workOrder || next.archived.product} tamamland\u0131 ve ar\u015Five al\u0131nd\u0131${loss}${promotion}.` });
   }
   function changeProductionHistoryStatus(entryId, inventoryStatus, actionDate = "", reason = "") {
     const source = (seed.productionHistory ?? []).find((entry) => entry.id === entryId);

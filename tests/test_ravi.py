@@ -477,3 +477,18 @@ def test_draft_workflow_guide_explains_shared_completion_and_physical_remainder(
         assert "taslaktaki şarj ortak üretime kendiliğinden alınmaz" in topic["body"]
         assert "kilidi açık olsa da yarım kalan üretimi korur" in topic["body"]
         assert any("Ortak üretimde tamamla" in source for source in topic["userSources"])
+
+
+def test_turning_scrap_guide_separates_usable_output_loss_and_unfinished_work():
+    from pathlib import Path
+    import json
+    topics = json.loads((Path(__file__).parents[1] / 'app/ravi/knowledge/topics.json').read_text())['topics']
+    for topic_id in ('machines', 'processes-wip', 'production-interruptions', 'archive-deliveries'):
+        topic = next(t for t in topics if t['id'] == topic_id)
+        for label in ('Tornada devam et', 'Iskartaya ayır', '1.948', '1.950', '2 adet', 'eski sekme'):
+            assert label in topic['body']
+        assert 'Torna kuyruğuna veya sonraki prosese eklenmez' in topic['body']
+        assert 'Önceden oluşmuş kalan işler' in topic['body']
+        assert 'fark kaybolmaz: sıradaki iş mevcut üretime geçer' not in topic['body']
+        assert any('Kalan miktar' in source for source in topic['userSources'])
+        assert any(source.get('symbol') == 'requireTurningRemainderAction' for source in topic['sources'])
