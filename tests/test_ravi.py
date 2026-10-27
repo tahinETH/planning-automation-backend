@@ -492,3 +492,15 @@ def test_turning_scrap_guide_separates_usable_output_loss_and_unfinished_work():
         assert 'fark kaybolmaz: sıradaki iş mevcut üretime geçer' not in topic['body']
         assert any('Kalan miktar' in source for source in topic['userSources'])
         assert any(source.get('symbol') == 'requireTurningRemainderAction' for source in topic['sources'])
+
+
+def test_cancellation_dialog_guide_separates_protected_output_from_new_production():
+    from pathlib import Path
+    import json
+    topics = json.loads((Path(__file__).parents[1] / 'app/ravi/knowledge/topics.json').read_text())['topics']
+    for topic_id in ('machines', 'production-interruptions'):
+        topic = next(t for t in topics if t['id'] == topic_id)
+        for label in ('Üretilen adet 0', 'İptal edilen adet 2', 'İptal nedeni zorunludur', 'İptal zamanı Türkiye saatiyle', 'Escape kayıt yapmadan'):
+            assert label in topic['body']
+        assert any('İptal edilen adet' in source for source in topic['userSources'])
+        assert any(source.get('symbol') == 'cancellationDialogInput' for source in topic['sources'])
