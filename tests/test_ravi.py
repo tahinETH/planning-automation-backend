@@ -504,3 +504,15 @@ def test_cancellation_dialog_guide_separates_protected_output_from_new_productio
             assert label in topic['body']
         assert any('İptal edilen adet' in source for source in topic['userSources'])
         assert any(source.get('symbol') == 'cancellationDialogInput' for source in topic['sources'])
+
+
+def test_pln_clear_exception_explains_production_evidence_and_reload_with_visible_sources():
+    for topic_id in ('planning-engine', 'scenarios-persistence', 'production-interruptions', 'machines', 'processes-wip', 'process-gantt-placement'):
+        topic = knowledge.for_model(knowledge.read_topic(topic_id))
+        assert 'kilitli olsalar da kaldırır' in topic['body']
+        assert 'Üretim durumu belirsiz kayıtlar da korunur' in topic['body']
+        assert 'Üretilen adet sıfırsa' in topic['body']
+        assert 'kayıtlı tarihleri değişmez' in topic['body']
+        assert any('Planı Temizle' in source for source in topic['userSources'])
+        assert 'hasRecordedTurningProduction' not in topic['body']
+        assert 'implementationNotes' not in topic

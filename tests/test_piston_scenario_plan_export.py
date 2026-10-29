@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import hashlib
 from io import BytesIO
 import json
-from pathlib import Path
 
 import pytest
 
@@ -146,18 +145,18 @@ def test_t17_export_does_not_invent_current_production_in_hidden_payload():
 
 def full_route_scenario():
     scenario = scenario_fixture("route-scenario", "Four process plan")
-    # Use only structural factory defaults. Every work item, quantity, rate and
-    # resource boundary used by this test is set below.
-    foundation = json.loads((Path(__file__).resolve().parents[2] / "frontend/data/planning-seed.json").read_text())
+    # This synthetic fixture must also run in a backend-only checkout.
+    # Keep every resource, quantity and rate explicit; do not read factory data.
     seed = scenario["seed"]
-    seed["setupSettings"] = foundation.get("setupSettings", {})
+    seed["setupSettings"] = {}
     seed["source"] = "synthetic-export-test"
     seed["schemaVersion"] = 22
     seed["products"] = [{"product": "PISTON-T17", "setupFamily": "piston", "diameter": "17",
                          "batchSize": 100, "dailyRate": 300, "shiftRate": 100}]
-    machine = deepcopy(foundation["machines"][0])
-    machine.update(id="C-17", active=True, availableStart=46313, planEnd=46343,
-                   shiftFactor=3, capacityFactor=1, rates={"PISTON-T17": 100})
+    machine = {"id": "C-17", "name": "Synthetic C-17", "active": True,
+               "availableStart": 46313, "planEnd": 46343, "note": "Synthetic fixture",
+               "shiftFactor": 3, "capacityFactor": 1, "finishOffset": 0,
+               "rates": {"PISTON-T17": 100}}
     machine["currentJob"] = {"workOrder": "", "product": "", "quantity": 0, "originalQuantity": 0,
                              "remainingQuantity": 0, "start": 46313, "end": 46313, "dailyRate": 0, "diameter": ""}
     seed["machines"] = [machine]
