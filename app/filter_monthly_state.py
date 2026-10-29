@@ -7,7 +7,66 @@ from zoneinfo import ZoneInfo
 from .filter_monthly_import import RULES, DIRECT, label_key, MAX
 from .order_import import FILTER_DAILY_PRODUCTS
 
+def validate_filter_initial_stock_setup(seed):
+    audit=seed.get('filterInitialStockSetup')
+    if audit is None: return
+    def fail(): raise ValueError('Başlangıç sayım kaydı geçersiz.')
+    def integer(n): return type(n) is int and 0<=n<=MAX
+    if seed.get('productionArea')!='cubuk-filtre' or not isinstance(audit,dict): fail()
+    try:
+        if date.fromisoformat(audit['cutoffDate']).isoformat()!=audit['cutoffDate']: fail()
+        recorded=datetime.fromisoformat(audit['recordedAt'].replace('Z','+00:00'))
+        if recorded.tzinfo is None: fail()
+    except (KeyError,TypeError,ValueError,AttributeError): fail()
+    source=audit.get('sourceRows')
+    rows=audit.get('rows')
+    known={p.get('product') for p in seed.get('products',[])}
+    if not isinstance(source,list) or not 0<len(source)<=100 or not isinstance(rows,list) or len(rows)!=len(source): fail()
+    seen=set()
+    for row in source:
+        if not isinstance(row,dict) or row.get('product') not in known or row['product'] in seen: fail()
+        seen.add(row['product'])
+        if any(key not in row or row[key] is not None and not integer(row[key]) for key in ('delivered','visual','heat','milling','grinding')): fail()
+    reviewed=set()
+    for row in rows:
+        if not isinstance(row,dict) or row.get('product') not in seen or row['product'] in reviewed or any(not integer(row.get(k)) for k in ('visual','heat','milling','grinding')): fail()
+        if row['visual']+row['heat']>MAX or 'delivered' in row and not integer(row['delivered']): fail()
+        reviewed.add(row['product'])
+    key=json.dumps([audit['cutoffDate'],sorted([[r['product'],r['visual'],r['heat'],r['milling'],r['grinding']] for r in source])],ensure_ascii=False,separators=(',',':'))
+    if audit.get('sourceKey')!=key: fail()
+    validate_filter_delivery_baseline(audit.get('deliveryBaseline'),known)
+
+def validate_filter_delivery_baseline(baseline,known):
+    def fail(): raise ValueError('Teslimat kesim kaydı geçersiz.')
+    def integer(n): return type(n) is int and 0<=n<=MAX
+    if baseline is not None:
+        if not isinstance(baseline,dict) or type(baseline.get('year')) is not int or not 2000<=baseline['year']<=2100: fail()
+        try:
+            snapshot=date.fromisoformat(baseline['snapshotDate'])
+            imported=datetime.fromisoformat(baseline['importedAt'].replace('Z','+00:00'))
+            cutoff=datetime.fromisoformat(baseline['shipmentsThrough'].replace('Z','+00:00'))
+            if imported.tzinfo is None or cutoff.tzinfo is None or snapshot>imported.astimezone(ZoneInfo('Europe/Istanbul')).date(): fail()
+            if cutoff!=min(imported,datetime.combine(snapshot,time(23,59,59,999000),tzinfo=ZoneInfo('Europe/Istanbul'))): fail()
+        except (KeyError,ValueError,AttributeError,TypeError): fail()
+        handovers=baseline.get('handovers')
+        if not isinstance(handovers,list) or len(handovers)>720: fail()
+        keys=set()
+        for row in handovers:
+            if not isinstance(row,dict) or row.get('product') not in known or not isinstance(row.get('month'),str) or not re.fullmatch(str(baseline['year'])+r'-(0[1-9]|1[0-2])',row['month']) or not integer(row.get('quantity')): fail()
+            key=(row['product'],row['month'])
+            if key in keys: fail()
+            keys.add(key)
+
 def validate_filter_monthly_state(seed):
+    validate_filter_initial_stock_setup(seed)
+    baselines=seed.get('filterMonthlyDeliveryBaselines')
+    if baselines is not None:
+        if seed.get('productionArea')!='cubuk-filtre' or not isinstance(baselines,list) or len(baselines)>101: raise ValueError('Teslimat kesim listesi geçersiz.')
+        seen_years=set()
+        for baseline in baselines:
+            validate_filter_delivery_baseline(baseline,{p.get('product') for p in seed.get('products',[])})
+            if not isinstance(baseline,dict) or baseline['year'] in seen_years: raise ValueError('Teslimat kesim yılı tekrarlı.')
+            seen_years.add(baseline['year'])
     data = seed.get('monthlyCustomerDemand')
     if data is None: return
     def fail(): raise ValueError('Aylık müşteri kaynağı, adetleri veya tarihleri geçersiz.')
@@ -30,7 +89,22 @@ def validate_filter_monthly_state(seed):
     if not isinstance(metadata,dict): fail()
     if data['snapshotDate']>imported.astimezone(ZoneInfo('Europe/Istanbul')).date().isoformat(): fail()
     cutoff=instant(metadata.get('shipmentsThrough'))
-    expected=min(imported,datetime.combine(date.fromisoformat(data['snapshotDate']),time(23,59,59,999000),tzinfo=ZoneInfo('Europe/Istanbul')))
+    baseline=data.get('deliveryBaseline')
+    baseline_imported=imported; baseline_snapshot=data['snapshotDate']
+    if baseline is not None:
+        if not isinstance(baseline,dict) or baseline.get('year')!=year or not valid_date(baseline.get('snapshotDate')): fail()
+        baseline_imported=instant(baseline.get('importedAt')); baseline_snapshot=baseline['snapshotDate']
+        if baseline_imported>imported or baseline_snapshot>data['snapshotDate']: fail()
+        if instant(baseline.get('shipmentsThrough'))!=cutoff: fail()
+        baseline_handovers=baseline.get('handovers')
+        if not isinstance(baseline_handovers,list) or len(baseline_handovers)>720: fail()
+        baseline_keys=set()
+        for h in baseline_handovers:
+            if not isinstance(h,dict) or not isinstance(h.get('product'),str) or not isinstance(h.get('month'),str) or not re.fullmatch(str(year)+r'-(0[1-9]|1[0-2])',h['month']) or not integer(h.get('quantity')): fail()
+            key=(h['product'],h['month'])
+            if key in baseline_keys: fail()
+            baseline_keys.add(key)
+    expected=min(baseline_imported,datetime.combine(date.fromisoformat(baseline_snapshot),time(23,59,59,999000),tzinfo=ZoneInfo('Europe/Istanbul')))
     if instant(metadata.get('importedAt')) != imported or cutoff != expected: fail()
     rows=data.get('rows'); known={p.get('product') for p in seed.get('products',[])}
     if not isinstance(rows,list) or not 0<len(rows)<=60: fail()
@@ -45,7 +119,7 @@ def validate_filter_monthly_state(seed):
         if not isinstance(inputs,list) or len(inputs)!=len(expected_labels): fail()
         labels=[]
         for item in inputs:
-            if not isinstance(item,dict) or not isinstance(item.get('label'),str) or not twelve(item.get('quantities')) or not integer(item.get('sourceRow')) or item['sourceRow']==0: fail()
+            if not isinstance(item,dict) or not isinstance(item.get('label'),str) or not twelve(item.get('quantities')) or not integer(item.get('sourceRow')) or item['sourceRow']==0 and data.get('sourceKind')!='manual': fail()
             labels.append(label_key(item['label']))
         if sorted(labels)!=sorted(expected_labels): fail()
         if key in RULES:
@@ -53,6 +127,14 @@ def validate_filter_monthly_state(seed):
             expected_quantities=[((sum(item['quantities'][m] for item in inputs)*factor+100*unit-1)//(100*unit))*output for m in range(12)]
         else: expected_quantities=inputs[0]['quantities']
         if row['quantities']!=expected_quantities: fail()
+    if data.get('sourceKind') not in (None,'manual','upload'): fail()
+    originals=data.get('originalRows')
+    if originals is not None:
+        if not isinstance(originals,list) or len(originals)!=len(rows): fail()
+        # Reuse the same source/formula validator without recursive provenance.
+        original_data={**data,'rows':originals,'exceptions':[]}
+        original_data.pop('originalRows',None)
+        validate_filter_monthly_state({**seed,'monthlyCustomerDemand':original_data})
     handovers=data.get('handovers'); exceptions=data.get('exceptions')
     if not isinstance(handovers,list) or len(handovers)>720 or not isinstance(exceptions,list) or len(exceptions)>1000: fail()
     hseen={}
@@ -80,13 +162,12 @@ def validate_filter_monthly_state(seed):
         for row in opening['rows']:
             if not isinstance(row,dict) or not isinstance(row.get('product'),str) or row.get('product') not in known or row['product'] in stockseen or not all(k in row for k in ('delivered','visual','heat','milling','grinding')) or any(row.get(k) is not None and not integer(row[k]) for k in ('delivered','visual','heat','milling','grinding')): fail()
             stockseen.add(row['product'])
-            if row['product'] in seen and row['delivered'] is not None and opening['cutoffDate']==data['snapshotDate'] and hseen.get((row['product'],data['snapshotDate'][:7]))!=row['delivered']: fail()
 
-    reconciliation=data.get('stockReconciliation')
+    reconciliation=data.get('stockReconciliation') if not seed.get('filterInitialStockSetup') else None
     if reconciliation is not None:
         if not opening or not isinstance(reconciliation,dict) or reconciliation.get('cutoffDate')!=opening['cutoffDate']: fail()
         instant(reconciliation.get('recordedAt'))
-        source_rows=sorted([[r['product'],r['visual'],r['heat'],r['milling'],r['grinding']] for r in opening['rows']])
+        source_rows=sorted([[r['product'],r['visual'],r['heat'],r['milling'],r['grinding']] for r in reconciliation.get('sourceRows',opening['rows'])])
         source_key=json.dumps([opening['cutoffDate'],source_rows],ensure_ascii=False,separators=(',',':'))
         if reconciliation.get('sourceKey')!=source_key: fail()
         reviewed=reconciliation.get('rows')
@@ -98,5 +179,5 @@ def validate_filter_monthly_state(seed):
             original=next((r for r in opening['rows'] if r['product']==row['product']),None)
             if original is None: fail()
             for key in ('visual','heat','milling','grinding'):
-                if not integer(row.get(key)) or original[key] is not None and original[key]!=row[key]: fail()
-            if row['visual']+row['heat']>MAX: fail()
+                if not integer(row.get(key)): fail()
+            if row['visual']+row['heat']>MAX or 'delivered' in row and not integer(row['delivered']): fail()

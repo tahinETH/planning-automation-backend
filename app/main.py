@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 
 from .production_area import ProductionAreaMiddleware, production_area, validate_seed_area
 from .auth import CurrentUser, create_test_session, current_user, require_admin
@@ -151,6 +151,18 @@ async def preview_order_import(file: UploadFile = File(...), monthly: bool = Fal
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
+
+
+@app.get("/api/order-imports/monthly-template")
+def get_filter_monthly_template(year: int = Query(...), _: CurrentUser = Depends(current_user)):
+    from .filter_monthly_import import build_filter_monthly_template
+    if production_area.get() != "cubuk-filtre":
+        raise HTTPException(status_code=422, detail="Aylık şablon yalnız Çubuk Filtre alanındadır.")
+    try:
+        content = build_filter_monthly_template(year)
+    except OrderImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="siparis-sablonu-{year}.xlsx"'})
 
 
 @app.get("/api/order-imports/history")

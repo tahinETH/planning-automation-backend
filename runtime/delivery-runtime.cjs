@@ -1452,50 +1452,6 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial2(factoryDa
   return rolledMachineIds;
 }
 
-// lib/process-stock.ts
-function stockGroups(area) {
-  return area === "cubuk-filtre" ? [
-    { id: "form-front", label: "Form Ta\u015Flama \xF6n\xFCnde \xB7 Torna + \xC7ap Ta\u015Flama", nextProcesses: ["turning", "gtm", "diameter-grinding", "form-grinding"], min: 102199, max: 199953 },
-    { id: "mill-front", label: "Freze \xF6n\xFC \xB7 Form Ta\u015Flama + \xD6l\xE7me", nextProcesses: ["measuring", "milling"], min: 13331, max: 44434 },
-    { id: "visual-front", label: "Is\u0131l \u0130\u015Flem + G\xF6z Kontrol\xFC", nextProcesses: ["final-inspection", "filter-visual"], min: 84425, max: 124415 },
-    { id: "warehouse", label: "Ambar + BB", nextProcesses: [], min: 112600, max: 284760 }
-  ] : [
-    { id: "turning-end", label: "Torna sonu", nextProcesses: ["drilling"], min: 7372, max: 20412 },
-    { id: "drilling-end", label: "TBT sonu", nextProcesses: ["deburring"], min: 5671, max: 11340 },
-    { id: "visual-front", label: "GK \xF6n\xFC", nextProcesses: ["gkm"], min: 5671, max: 14742 },
-    { id: "warehouse", label: "Ambar + Konsinye", nextProcesses: [], min: 56702, max: 113402 }
-  ];
-}
-function validateProcessStockSettings(value, area) {
-  const fail2 = () => {
-    throw new Error("Stok ayarlar\u0131n\u0131 kontrol edin: adetler tam say\u0131, min \u2264 max ve \u0131skarta %0\u2013100 olmal\u0131d\u0131r.");
-  };
-  const groups = new Set(stockGroups(area).map((group) => group.id));
-  if (!value || value.version !== 1 || !Array.isArray(value.limits) || !Array.isArray(value.scrap) || !Array.isArray(value.opening) || value.scrap.length > 1e3 || value.opening.length > 1e3) return fail2();
-  const keys = /* @__PURE__ */ new Set();
-  for (const row of value.limits) {
-    if (!row || !groups.has(row.groupId) || keys.has(row.groupId) || ![row.min, row.max].every((n) => Number.isSafeInteger(n) && n >= 0) || row.min > row.max) return fail2();
-    keys.add(row.groupId);
-  }
-  if (keys.size !== groups.size) return fail2();
-  keys.clear();
-  for (const row of value.scrap) {
-    if (!row) return fail2();
-    const key = `${row.groupId}:${row.product}`;
-    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isFinite(row.percent) || row.percent < 0 || row.percent > 100) return fail2();
-    keys.add(key);
-  }
-  keys.clear();
-  for (const row of value.opening) {
-    if (!row) return fail2();
-    const key = `${row.groupId}:${row.product}`;
-    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isSafeInteger(row.quantity) || row.quantity < 0) return fail2();
-    keys.add(key);
-  }
-  if (value.opening.some((row) => row.quantity > 0) && (!/^\d{4}-\d{2}-\d{2}$/.test(value.openingDate) || !Number.isFinite(Date.parse(value.openingDate)) || new Date(value.openingDate).toISOString().slice(0, 10) !== value.openingDate)) return fail2();
-  return structuredClone(value);
-}
-
 // lib/delivery-deduction.ts
 function effectiveDeliveryTimestamp(entry) {
   if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
@@ -1509,10 +1465,12 @@ function effectiveDeliveryTimestamp(entry) {
 
 // lib/filter-monthly-demand.ts
 var FILTER_315 = "F.00V.P01.315";
+var FILTER_EXPECTED_GOOD_PERCENT = { "F.00V.P01.309": 96, [FILTER_315]: 96 };
 var integer = (n) => Number.isSafeInteger(n) && n >= 0;
 function filterGoodPieces(product, physical) {
   if (!integer(physical)) throw new Error("Fiziksel adet ge\xE7ersiz.");
-  return product === FILTER_315 ? Number(BigInt(physical) * BigInt(96) / BigInt(100)) : physical;
+  const percent = FILTER_EXPECTED_GOOD_PERCENT[product];
+  return percent === void 0 ? physical : Number(BigInt(physical) * BigInt(percent) / BigInt(100));
 }
 function filterSupplyGoodPieces(seed, product, physical, completed = false) {
   return seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && !completed ? filterGoodPieces(product, physical) : physical;
@@ -1700,6 +1658,50 @@ Plan`, kind: "plan" });
       })
     }))
   };
+}
+
+// lib/process-stock.ts
+function stockGroups(area) {
+  return area === "cubuk-filtre" ? [
+    { id: "form-front", label: "Form Ta\u015Flama \xF6n\xFCnde \xB7 Torna + \xC7ap Ta\u015Flama", nextProcesses: ["turning", "gtm", "diameter-grinding", "form-grinding"], min: 102199, max: 199953 },
+    { id: "mill-front", label: "Freze \xF6n\xFC \xB7 Form Ta\u015Flama + \xD6l\xE7me", nextProcesses: ["measuring", "milling"], min: 13331, max: 44434 },
+    { id: "visual-front", label: "Is\u0131l \u0130\u015Flem + G\xF6z Kontrol\xFC", nextProcesses: ["final-inspection", "filter-visual"], min: 84425, max: 124415 },
+    { id: "warehouse", label: "Ambar + BB", nextProcesses: [], min: 112600, max: 284760 }
+  ] : [
+    { id: "turning-end", label: "Torna sonu", nextProcesses: ["drilling"], min: 7372, max: 20412 },
+    { id: "drilling-end", label: "TBT sonu", nextProcesses: ["deburring"], min: 5671, max: 11340 },
+    { id: "visual-front", label: "GK \xF6n\xFC", nextProcesses: ["gkm"], min: 5671, max: 14742 },
+    { id: "warehouse", label: "Ambar + Konsinye", nextProcesses: [], min: 56702, max: 113402 }
+  ];
+}
+function validateProcessStockSettings(value, area) {
+  const fail2 = () => {
+    throw new Error("Stok ayarlar\u0131n\u0131 kontrol edin: adetler tam say\u0131, min \u2264 max ve \u0131skarta %0\u2013100 olmal\u0131d\u0131r.");
+  };
+  const groups = new Set(stockGroups(area).map((group) => group.id));
+  if (!value || value.version !== 1 || !Array.isArray(value.limits) || !Array.isArray(value.scrap) || !Array.isArray(value.opening) || value.scrap.length > 1e3 || value.opening.length > 1e3) return fail2();
+  const keys = /* @__PURE__ */ new Set();
+  for (const row of value.limits) {
+    if (!row || !groups.has(row.groupId) || keys.has(row.groupId) || ![row.min, row.max].every((n) => Number.isSafeInteger(n) && n >= 0) || row.min > row.max) return fail2();
+    keys.add(row.groupId);
+  }
+  if (keys.size !== groups.size) return fail2();
+  keys.clear();
+  for (const row of value.scrap) {
+    if (!row) return fail2();
+    const key = `${row.groupId}:${row.product}`;
+    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isFinite(row.percent) || row.percent < 0 || row.percent > 100) return fail2();
+    keys.add(key);
+  }
+  keys.clear();
+  for (const row of value.opening) {
+    if (!row) return fail2();
+    const key = `${row.groupId}:${row.product}`;
+    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isSafeInteger(row.quantity) || row.quantity < 0) return fail2();
+    keys.add(key);
+  }
+  if (value.opening.some((row) => row.quantity > 0) && (!/^\d{4}-\d{2}-\d{2}$/.test(value.openingDate) || !Number.isFinite(Date.parse(value.openingDate)) || new Date(value.openingDate).toISOString().slice(0, 10) !== value.openingDate)) return fail2();
+  return structuredClone(value);
 }
 
 // lib/plan-integrity.ts

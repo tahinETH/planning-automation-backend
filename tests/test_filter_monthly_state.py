@@ -159,12 +159,13 @@ def test_cf_ms11_selected_current_month_requires_explicit_handover_confirmation(
         validate_stock_planning(seed)
 
 
-def test_cf_ms12_source_delivery_count_cannot_disagree_with_same_cutoff_handover():
+def test_cf_ms12_corrected_delivery_preserves_original_source_count():
     seed = monthly_seed()
     seed['monthlyCustomerDemand']['openingStock'] = {'cutoffDate': '2026-10-18', 'rows': [
         {'product': C100, 'delivered': 123, 'visual': None, 'heat': None, 'milling': None, 'grinding': None}]}
-    with pytest.raises(ValueError):
-        validate_stock_planning(seed)
+    before=deepcopy(seed)
+    validate_stock_planning(seed)
+    assert seed==before
 
 
 def test_cf_ms13_absent_stock_field_is_not_an_explicit_blank():
@@ -232,7 +233,6 @@ def test_cf_ms16_reviewed_stock_accepts_explicit_blank_resolution_without_mutati
     lambda data: data['stockReconciliation'].update(recordedAt='2026-10-19T10:00:00'),
     lambda data: data['stockReconciliation'].update(rows=[]),
     lambda data: data['stockReconciliation']['rows'][0].update(product='UNKNOWN'),
-    lambda data: data['stockReconciliation']['rows'][0].update(heat=201),
     lambda data: data['stockReconciliation']['rows'][0].update(visual=None),
     lambda data: data['stockReconciliation']['rows'][0].update(visual=-1),
     lambda data: data['stockReconciliation']['rows'][0].update(visual=True),
@@ -290,3 +290,107 @@ def test_cf_ms19_ravi_summary_keeps_monthly_audit_quality_and_server_provenance(
     assert result['filterQualityShifts'] == 2
     assert result['orderImport']['shipmentsThrough'] == '2026-10-18T20:59:59.999Z'
     assert snapshot == before
+
+
+def test_cf_ms21_initial_stock_correction_keeps_original_count_evidence():
+    seed=reconciled_seed()
+    seed['monthlyCustomerDemand']['stockReconciliation']['rows'][0]['heat']=201
+    before=deepcopy(seed)
+    validate_stock_planning(seed)
+    assert seed==before
+
+
+def test_cf_ms22_order_timestamp_revision_retains_verified_delivery_baseline():
+    seed=monthly_seed();data=seed['monthlyCustomerDemand']
+    data['deliveryBaseline']={'year':2026,'snapshotDate':data['snapshotDate'],'importedAt':data['importedAt'],'shipmentsThrough':seed['orderImport']['shipmentsThrough'],'handovers':deepcopy(data['handovers'])}
+    data['importedAt']='2026-11-03T09:00:00Z';seed['orderImport']['importedAt']=data['importedAt']
+    validate_stock_planning(seed)
+    data['deliveryBaseline']['shipmentsThrough']='2026-10-19T09:00:00Z'
+    with pytest.raises(ValueError):validate_stock_planning(seed)
+
+
+def test_cf_ms23_initial_audit_survives_cleared_orders_and_rejects_replacement(tmp_path,monkeypatch):
+    from app import database
+    from app.config import settings
+    from app.production_area import production_area
+    monkeypatch.setitem(settings.__dict__,'database_path',tmp_path/'initial-once.sqlite')
+    token=production_area.set('cubuk-filtre')
+    try:
+        database.init_database();seed=reconciled_seed()
+        audit=deepcopy(seed['monthlyCustomerDemand']['stockReconciliation']);audit['sourceRows']=deepcopy(seed['monthlyCustomerDemand']['openingStock']['rows']);seed['filterInitialStockSetup']=audit
+        kwargs={'can_manage_settings':True,'stock_planning_version':1,'monthly_planning_version':1}
+        saved=database.save_planning_state(seed,**kwargs)
+        cleared=deepcopy(saved['seed']);cleared.pop('monthlyCustomerDemand');cleared.pop('filterInitialStockSetup')
+        saved=database.save_planning_state(cleared,saved['updatedAt'],**kwargs)
+        assert saved['seed']['filterInitialStockSetup']==audit
+        assert 'monthlyCustomerDemand' not in saved['seed']
+        validate_stock_planning(saved['seed']);before=deepcopy(database.planning_state())
+        forged=deepcopy(saved['seed']);forged['filterInitialStockSetup']['rows'][0]['heat']+=1
+        with pytest.raises(ValueError):database.save_planning_state(forged,saved['updatedAt'],**kwargs)
+        assert database.planning_state()==before
+        with pytest.raises(ValueError,match='yenileyin'):database.save_planning_state(cleared,saved['updatedAt'],can_manage_settings=True,stock_planning_version=1)
+        assert database.planning_state()==before
+        forged=deepcopy(saved['seed']);forged['filterInitialStockSetup']['sourceKey']='forged'
+        with pytest.raises(ValueError):validate_stock_planning(forged)
+    finally:production_area.reset(token)
+
+
+def test_cf_ms24_original_source_provenance_is_bounded_and_formulas_are_validated():
+    seed=monthly_seed();data=seed['monthlyCustomerDemand'];data['originalRows']=deepcopy(data['rows'])
+    validate_stock_planning(seed)
+    data['originalRows'][0]['quantities'][9]=0
+    with pytest.raises(ValueError):validate_stock_planning(seed)
+    data['originalRows']=[]
+    with pytest.raises(ValueError):validate_stock_planning(seed)
+
+
+def test_cf_ms25_real_save_later_timestamp_new_year_and_delivery_baseline_protection(tmp_path,monkeypatch):
+    from app import database
+    from app.config import settings
+    from app.production_area import production_area
+    monkeypatch.setitem(settings.__dict__,'database_path',tmp_path/'baseline-save.sqlite')
+    token=production_area.set('cubuk-filtre')
+    try:
+        database.init_database();seed=monthly_seed();data=seed['monthlyCustomerDemand']
+        data['deliveryBaseline']={'year':2026,'snapshotDate':data['snapshotDate'],'importedAt':data['importedAt'],'shipmentsThrough':seed['orderImport']['shipmentsThrough'],'handovers':deepcopy(data['handovers'])}
+        kwargs={'can_manage_settings':True,'stock_planning_version':1,'monthly_planning_version':1}
+        saved=database.save_planning_state(seed,**kwargs)
+        revised=deepcopy(saved['seed']);revised['monthlyCustomerDemand']['importedAt']='2026-11-03T10:00:00Z';revised['orderImport']['importedAt']='2026-11-03T10:00:00Z'
+        saved=database.save_planning_state(revised,saved['updatedAt'],**kwargs)
+        assert saved['seed']['orderImport']['shipmentsThrough']=='2026-10-18T20:59:59.999Z'
+        before=deepcopy(database.planning_state());forged=deepcopy(saved['seed']);forged['monthlyCustomerDemand']['deliveryBaseline']['snapshotDate']='2026-10-17'
+        with pytest.raises(ValueError):database.save_planning_state(forged,saved['updatedAt'],**kwargs)
+        assert database.planning_state()==before
+        following=deepcopy(saved['seed']);data=following['monthlyCustomerDemand'];data['year']=2027
+        data['snapshotDate']='2027-10-18';data['startDate']='2027-10-19';data['endDate']='2027-10-31';data['importedAt']='2027-10-19T10:00:00Z'
+        for row in data['handovers']:row['month']='2027-10'
+        following['orderImport']['importedAt']=data['importedAt'];following['orderImport']['shipmentsThrough']='2027-10-18T20:59:59.999Z'
+        data['deliveryBaseline']={'year':2027,'snapshotDate':data['snapshotDate'],'importedAt':data['importedAt'],'shipmentsThrough':following['orderImport']['shipmentsThrough'],'handovers':deepcopy(data['handovers'])}
+        saved=database.save_planning_state(following,saved['updatedAt'],**kwargs)
+        assert saved['seed']['monthlyCustomerDemand']['deliveryBaseline']['year']==2027
+    finally:production_area.reset(token)
+
+
+def test_cf_ms26_durable_yearly_handover_corrections_validate_without_active_orders(tmp_path,monkeypatch):
+    from app import database
+    from app.config import settings
+    from app.production_area import production_area
+    monkeypatch.setitem(settings.__dict__,'database_path',tmp_path/'delivery-corrections.sqlite')
+    token=production_area.set('cubuk-filtre')
+    try:
+        database.init_database();seed=monthly_seed();data=seed['monthlyCustomerDemand']
+        baseline={'year':2026,'snapshotDate':data['snapshotDate'],'importedAt':data['importedAt'],'shipmentsThrough':seed['orderImport']['shipmentsThrough'],'handovers':deepcopy(data['handovers'])}
+        seed['filterMonthlyDeliveryBaselines']=[baseline];data['deliveryBaseline']=deepcopy(baseline)
+        kwargs={'can_manage_settings':True,'stock_planning_version':1,'monthly_planning_version':1}
+        saved=database.save_planning_state(seed,**kwargs)
+        corrected=deepcopy(saved['seed']);corrected['filterMonthlyDeliveryBaselines'][0]['handovers'][0]['quantity']=123;corrected['monthlyCustomerDemand']['deliveryBaseline']['handovers'][0]['quantity']=123;corrected['monthlyCustomerDemand']['handovers'][0]['quantity']=123
+        saved=database.save_planning_state(corrected,saved['updatedAt'],**kwargs)
+        cleared=deepcopy(saved['seed']);cleared.pop('monthlyCustomerDemand');cleared.pop('filterMonthlyDeliveryBaselines')
+        saved=database.save_planning_state(cleared,saved['updatedAt'],**kwargs)
+        assert saved['seed']['filterMonthlyDeliveryBaselines'][0]['handovers'][0]['quantity']==123
+        before=deepcopy(database.planning_state());forged=deepcopy(saved['seed']);forged['filterMonthlyDeliveryBaselines'][0]['snapshotDate']='2026-10-17'
+        with pytest.raises(ValueError):database.save_planning_state(forged,saved['updatedAt'],**kwargs)
+        assert database.planning_state()==before
+        forged=deepcopy(saved['seed']);forged['filterMonthlyDeliveryBaselines'][0]['handovers'][0]['quantity']=-1
+        with pytest.raises(ValueError):validate_stock_planning(forged)
+    finally:production_area.reset(token)

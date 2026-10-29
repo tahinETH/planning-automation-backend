@@ -199,13 +199,13 @@ def stock_rows(offset=0):
 
 
 @pytest.mark.parametrize('offset', [0, 9])
-def test_cf_mi13_opening_count_uses_labels_maps_numeric_codes_and_keeps_blanks(offset):
+def test_cf_mi13_opening_count_uses_labels_maps_numeric_codes_and_blank_zero(offset):
     result = parse(extra=[('SİPARİŞ ŞABLONU', stock_rows(offset))])
     assert result['openingStock']['cutoffDate'] == '2026-10-18'
     rows = {row['product']: row for row in result['openingStock']['rows']}
     assert rows[P081] == {'product': P081, 'delivered': 100, 'visual': 300, 'heat': 0, 'milling': 500, 'grinding': 700}
-    assert rows['F.00V.P01.315'] == {'product': 'F.00V.P01.315', 'delivered': 200, 'visual': 18000, 'heat': None, 'milling': 600, 'grinding': None}
-    assert rows['2.433.084.245'] == {'product': '2.433.084.245', 'delivered': 0, 'visual': None, 'heat': 400, 'milling': None, 'grinding': None}
+    assert rows['F.00V.P01.315'] == {'product': 'F.00V.P01.315', 'delivered': 200, 'visual': 18000, 'heat': 0, 'milling': 600, 'grinding': 0}
+    assert rows['2.433.084.245'] == {'product': '2.433.084.245', 'delivered': 0, 'visual': 0, 'heat': 400, 'milling': 0, 'grinding': 0}
     assert all(999999 not in row.values() for row in rows.values())
 
 
@@ -322,3 +322,21 @@ def test_cf_mi25_stock_header_is_found_by_date_and_codes_with_a_blank_separator(
     result = parse(extra=[('SİPARİŞ ŞABLONU', stock)])
     assert result['openingStock']['cutoffDate'] == '2026-10-18'
     assert result['openingStock']['rows'][0]['visual'] == 300
+
+
+def test_cf_mi26_template_sheet_is_explicit_source_and_overrides_legacy_source():
+    template=monthly_rows(); template[9]['B']=80000
+    result=parse(extra=[('SİPARİŞ ŞABLONU',{**template,**stock_rows()})])
+    assert result['sheetName']=='SİPARİŞ ŞABLONU'
+    assert by_product(result)[C100]['quantities'][0]==90000
+    assert result['openingStock']['cutoffDate']=='2026-10-18'
+
+
+def test_cf_mi27_downloadable_blank_template_round_trips_all_sources_and_derived_rows():
+    from app.filter_monthly_import import build_filter_monthly_template
+    result=parse_order_xlsx(build_filter_monthly_template(2027),allow_filter_monthly=True)
+    assert result['sheetName']=='SİPARİŞ ŞABLONU'
+    assert result['year']==2027
+    assert len(result['rows'])==7
+    assert all(row['quantities']==[0]*12 for row in result['rows'])
+    with pytest.raises(OrderImportError):build_filter_monthly_template(1999)

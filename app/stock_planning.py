@@ -13,7 +13,7 @@ def _date(value):
     return isinstance(value, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)) and date.fromisoformat(value).isoformat() == value
 
 def uses_stock_planning(seed):
-    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "filterWaitShifts", "monthlyCustomerDemand", "filterQualityShifts")) or any(
+    return any(key in seed for key in ("processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "filterWaitShifts", "monthlyCustomerDemand", "filterQualityShifts", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines")) or any(
         stage.get("calendarMode") for product in (seed.get("processMasterData") or {}).get("products", [])
         for process in product.get("processes", []) for stage in process.get("leadStages", [])
     )

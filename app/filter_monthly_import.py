@@ -29,9 +29,14 @@ def parse_filter_monthly(archive, shared):
         key = normalized(name)
         if key in paths: raise OrderImportError('Sayfa adı tekrarlı veya belirsiz.')
         paths[key] = (name, path)
-    chosen = next((paths[key] for key in ('siparis', 'calisma gunler', 'calisma gunleri') if key in paths), None)
+    # A stock-only legacy template is not a monthly source.
+    template = paths.get('siparis sablonu')
+    if template:
+        template_values = _sheet_values(ET.fromstring(archive.read(template[1])), shared)
+        if not any(normalized(v[0]) in MONTH_HEADERS for cells in template_values.values() for v in cells.values()): template = None
+    chosen = template or next((paths[key] for key in ('siparis', 'calisma gunler', 'calisma gunleri') if key in paths), None)
     if not chosen:
-        raise OrderImportError('Aylık müşteri dosyasında SİPARİŞ veya Çalışma Günler sayfası bulunamadı.')
+        raise OrderImportError('Aylık müşteri dosyasında SİPARİŞ ŞABLONU, SİPARİŞ veya Çalışma Günler sayfası bulunamadı.')
     name, path = chosen
     sheet = ET.fromstring(archive.read(path))
     values = _sheet_values(sheet, shared)
@@ -95,7 +100,7 @@ def parse_filter_monthly(archive, shared):
         rows.append({'label': text(labels[key],'A'), 'product': FILTER_DAILY_PRODUCTS[key],
             'kind': 'internal' if key in RULES else 'external', 'sourceRow': labels[key],
             'quantities': amounts, 'rule': rule, 'inputs': inputs})
-    result = {'format': 'filter-monthly', 'sheetName': name, 'year': years[0], 'workingDays': days, 'rows': rows}
+    result = {'format': 'filter-monthly', 'sheetName': name, 'sourceKind': 'upload', 'year': years[0], 'workingDays': days, 'rows': rows}
     if 'siparis sablonu' in paths:
         stock_name, stock_path = paths['siparis sablonu']
         stock_sheet = ET.fromstring(archive.read(stock_path))
@@ -140,7 +145,42 @@ def parse_filter_monthly(archive, shared):
                     if f'{col}{r}' in uncached:
                         raise OrderImportError(f'{stock_name}!{col}{r}: formülün hesaplanmış değeri yok.')
                     cell = stock_values[r].get(col, ('',False))
-                    row[stage] = _parse_integer(*cell, r, stage) if cell[0].strip() else None
+                    row[stage] = _parse_integer(*cell, r, stage) if cell[0].strip() else 0
                 stock_rows.append(row)
             result['openingStock'] = {'cutoffDate': cutoff.isoformat(), 'rows': stock_rows}
     return result
+
+
+def build_filter_monthly_template(year):
+    """Build the blank source sheet. Derived grey rows are reference formulas."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    if type(year) is not int or not 2000 <= year <= 2100:
+        raise OrderImportError('Sipariş yılı 2000–2100 arasında olmalıdır.')
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'SİPARİŞ ŞABLONU'
+    sheet['A2'] = 'Day'
+    sheet['A6'] = f'{year} YILI'
+    for column,month in enumerate(['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'],2):
+        sheet.cell(8,column,month)
+        sheet.cell(2,column,0)
+    labels = ['501-RBTR','003-RBCD','001-RBCD','001-NaP','001-CtP','481-HoP','481-CtP/NaP','424-HoP/CtP','DRS Total','309-RBTR','C100-DRS','002-DRS','081-DRS','002-CtP','315-BAP','245-CtP','ÇF Total']
+    for row,label in enumerate(labels,9):
+        sheet.cell(row,1,label)
+        for column in range(2,14):
+            cell = sheet.cell(row,column,0)
+            c = get_column_letter(column)
+            if label == 'C100-DRS': cell.value = f'=ROUNDUP(SUM({c}9:{c}10)*1.03/15000,0)*15000'
+            elif label == '002-DRS': cell.value = f'=ROUNDUP(SUM({c}11:{c}13)*1.04/1000,0)*1000'
+            elif label == '081-DRS': cell.value = f'=ROUNDUP(SUM({c}14:{c}16)*1.04/1000,0)*1100'
+            if label in RULES: cell.fill = PatternFill('solid',fgColor='DDDDDD')
+    sheet['A28'] = 'Gri satırlar uygulamada kaynak miktarlardan hesaplanır. Kaynak adetleri düzenleyin.'
+    sheet.column_dimensions['A'].width = 25
+    for column in range(2,14): sheet.column_dimensions[get_column_letter(column)].width = 14
+    sheet.freeze_panes = 'B9'
+    for cell in sheet[8]: cell.font = Font(bold=True)
+    output = BytesIO(); workbook.save(output)
+    return output.getvalue()

@@ -79,7 +79,8 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 "orderQuantity": sum(max(0, item.get("quantity", 0)) for item in seed.get("orders", [])),
                 "orderSource": bounded({key: demand.get(key) for key in ("sourceFile", "snapshotDate", "importedAt", "activeScope", "calculationModel", "baselineDueDate")}),
                 "orderImport": bounded(seed.get("orderImport")), "activePlanRun": bounded(seed.get("activePlanRun")),
-                "monthlyOrderSource": bounded({key: (seed.get("monthlyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "year", "startDate", "endDate", "snapshotDate", "importedAt", "stockReconciliation")}),
+                "monthlyOrderSource": bounded({key: (seed.get("monthlyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "sourceKind", "year", "startDate", "endDate", "snapshotDate", "importedAt", "deliveryBaseline", "stockReconciliation")}),
+                "initialStockSetup": bounded(seed.get("filterInitialStockSetup") or (seed.get("monthlyCustomerDemand") or {}).get("stockReconciliation")),
                 "filterQualityShifts": seed.get("filterQualityShifts", 1) if seed.get("productionArea") == "cubuk-filtre" else None,
                 "filterWaitShifts": seed.get("filterWaitShifts", 1) if seed.get("productionArea") == "cubuk-filtre" else None, "dailyOrderSource": bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "snapshotDate", "endDate", "importedAt")}), "processWaitSettings": bounded(seed.get("processWaitSettings")), "setupSettings": bounded(seed.get("setupSettings")), "flowSettings": bounded(seed.get("flowSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
     collections = {
@@ -132,6 +133,10 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                          demand.get("baselineLabel") or "< CW …": row.get("baselineBalance"),
                          "weeks": [{"column": week.get("label") or week.get("weekId"), "balance": week.get("balance")} for week in window],
                          "nextWeekOffset": args.week_offset + len(window) if args.week_offset + len(window) < len(weeks) else None}
+        elif args.collection == "monthly_demand":
+            data = seed.get("monthlyCustomerDemand") or {}
+            original = next((item for item in data.get("originalRows", []) if item.get("product") == row.get("product")), None)
+            projected = bounded({**row, "originalInputs": original.get("inputs") if original else None})
         else:
             projected = bounded(row)
         if len(json.dumps([*selected, projected], ensure_ascii=False)) > 18000:
@@ -148,8 +153,8 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                               "note": "İçe aktarılmış Balance (confirmed) değerleri; dosya canlı açılmadı. Kullanıcı düzeltmeleri ayrıca overrides koleksiyonundadır."}
     if args.collection == "monthly_demand":
         data = seed.get("monthlyCustomerDemand") or {}
-        meta["userSource"] = bounded({key: data.get(key) for key in ("fileName", "sheetName", "year", "snapshotDate", "startDate", "endDate", "handovers", "exceptions")})
-        meta["calculationNote"] = "Kaydedilmiş aylık kaynak ve formül sonuçlarıdır; canlı Excel erişimi veya yeniden hesaplanan plan değildir. Kaynak adetler rows.inputs içinde, tamamlanan devirler handovers içindedir. Fiziksel stok ayrı process_stock / wip koleksiyonundadır."
+        meta["userSource"] = bounded({key: data.get(key) for key in ("fileName", "sheetName", "sourceKind", "year", "snapshotDate", "startDate", "endDate", "deliveryBaseline", "handovers", "exceptions")})
+        meta["calculationNote"] = "Kaydedilmiş aylık kaynak ve formül sonuçlarıdır; canlı Excel erişimi veya yeniden hesaplanan plan değildir. Güncel kaynak adetleri inputs, ilk kaynak değerleri originalInputs içindedir. Manuel girişte Excel hücre adresi yoktur. Tamamlanan devirler handovers içindedir. Fiziksel stok ayrı process_stock / wip koleksiyonundadır."
     if args.collection == "daily_demand":
         meta["workbookSource"] = bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "snapshotDate", "endDate", "importedAt")})
     if args.collection == "process_stock":

@@ -3,10 +3,180 @@
 // scripts/turning-partial-repair-runtime.ts
 var import_node_fs = require("node:fs");
 
+// lib/factory-time.ts
+var FACTORY_TIME_ZONE = "Europe/Istanbul";
+function factoryDateParts(value) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACTORY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(value);
+  const part = (type) => Number(parts.find((item) => item.type === type)?.value ?? 0);
+  return { year: part("year"), month: part("month"), day: part("day") };
+}
+function factoryDateInput(value = /* @__PURE__ */ new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const { year, month, day } = factoryDateParts(date);
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// lib/delivery-deduction.ts
+function effectiveDeliveryTimestamp(entry) {
+  if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
+  const deliveryDate = entry.deliveredAt?.slice(0, 10) ?? "";
+  if (deliveryDate && entry.statusChangedAt && factoryDateInput(entry.statusChangedAt) === deliveryDate) {
+    return new Date(entry.statusChangedAt).toISOString();
+  }
+  if (deliveryDate) return (/* @__PURE__ */ new Date(`${deliveryDate}T00:00:00+03:00`)).toISOString();
+  return entry.statusChangedAt && Number.isFinite(Date.parse(entry.statusChangedAt)) ? new Date(entry.statusChangedAt).toISOString() : "";
+}
+
+// lib/filter-monthly-demand.ts
+var FILTER_315 = "F.00V.P01.315";
+var FILTER_EXPECTED_GOOD_PERCENT = { "F.00V.P01.309": 96, [FILTER_315]: 96 };
+var integer = (n) => Number.isSafeInteger(n) && n >= 0;
+function filterGoodPieces(product, physical) {
+  if (!integer(physical)) throw new Error("Fiziksel adet ge\xE7ersiz.");
+  const percent = FILTER_EXPECTED_GOOD_PERCENT[product];
+  return percent === void 0 ? physical : Number(BigInt(physical) * BigInt(percent) / BigInt(100));
+}
+function filterSupplyGoodPieces(seed, product, physical, completed = false) {
+  return seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && !completed ? filterGoodPieces(product, physical) : physical;
+}
+function filterHistoryGoodPieces(seed, entry) {
+  if (seed.productionArea !== "cubuk-filtre" || !seed.monthlyCustomerDemand) return entry.completedQuantity;
+  const lots = (seed.wipLots ?? []).filter((l) => l.sourceHistoryEntryId === entry.id && l.availableQuantity > 0 && !["delivered", "scrapped"].includes(l.stage));
+  const linked = lots.reduce((s, l) => s + l.availableQuantity, 0);
+  if (linked > entry.completedQuantity) throw new Error(`${entry.product}: \u015Farj ve ar\u015Fiv miktarlar\u0131 uzla\u015Fm\u0131yor.`);
+  return lots.reduce((s, l) => s + filterSupplyGoodPieces(seed, l.product, l.availableQuantity, l.stage === "delivery-ready"), 0) + filterSupplyGoodPieces(seed, entry.product, entry.completedQuantity - linked);
+}
+
+// lib/production-interruptions.ts
+function activeLotInterruptions(seed, lot) {
+  return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
+}
+function isProductionInterruption(item) {
+  return item.producedQuantity !== 0 && item.kind !== "partial-completion";
+}
+function isProtectedProductionRemainder(item) {
+  return item.producedQuantity !== 0;
+}
+function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
+  const records = seed.productionInterruptions ?? [];
+  if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
+  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
+}
+function hasProtectedProductionRemainder(seed, chargeId, interruptionId) {
+  const records = seed.productionInterruptions ?? [];
+  if (records.some((item) => isProtectedProductionRemainder(item) && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
+  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
+}
+function protectedInterruptedBatches(seed, batches = []) {
+  const latest = /* @__PURE__ */ new Map();
+  for (const item of seed.productionInterruptions ?? []) if (item.process === "turning" && isProtectedProductionRemainder(item) && !item.completedAt && item.turningBatch) latest.set(item.chargeId, item);
+  return [...latest.values()].filter((item) => !seed.machines.some((machine) => machine.currentJob.batchId === item.chargeId && machine.currentJob.quantity > 0)).map((item) => {
+    const matches = (batch) => batch.id === item.chargeId && batch.interruptionId === item.id && batch.quantity === item.remainingQuantity;
+    return { ...batches.find(matches) ?? seed.manualBatches?.find(matches) ?? item.turningBatch };
+  });
+}
+function withInterruptedBatches(seed, batches) {
+  const live = protectedInterruptedBatches(seed, batches);
+  const known = new Set((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item)).map((item) => item.chargeId));
+  const result = batches.filter((batch) => !known.has(batch.id)).map((batch) => ({ ...batch }));
+  result.push(...live);
+  return result;
+}
+
+// lib/filter-quality-calendar.ts
+var FILTER_QUALITY_RESOURCE = "CF-KALITE";
+function filterQualityReadyAt(seed, completed) {
+  if (!Number.isFinite(completed) || completed <= 0) throw new Error("Kalite bekleme ba\u015Flang\u0131c\u0131 ge\xE7ersiz.");
+  const fraction = completed - Math.floor(completed);
+  const resource = { id: FILTER_QUALITY_RESOURCE, shiftFactor: seed.filterQualityShifts ?? 1 };
+  for (let day = Math.floor(completed) + 1; day <= Math.floor(completed) + 3660; day++) {
+    if (machineDayCapacity(seed, resource, day).shifts > 0) return day + fraction;
+  }
+  throw new Error("Kalite bekleme takviminde a\xE7\u0131k \xE7al\u0131\u015Fma g\xFCn\xFC bulunamad\u0131.");
+}
+
 // lib/process-waits.ts
 function processWaitWorkdays(seed, process2) {
   const item = seed.processWaitSettings?.[process2];
   return item?.enabled ? item.workdays : 0;
+}
+
+// lib/flow-settings.ts
+function flowRule(seed, family, from, to) {
+  return seed.productionArea !== "cubuk-filtre" && seed.flowSettings?.enabled ? seed.flowSettings.rules.find((rule) => rule.active && rule.family === family && rule.from === from && rule.to === to) : void 0;
+}
+function addDepartmentWorkMinutes(seed, start, minutes) {
+  if (!minutes) return start;
+  const settings = seed.flowSettings;
+  const shiftHours = Math.max(1, Math.min(24, seed.setupSettings?.shiftHours ?? 8));
+  let cursor = start, remaining = minutes;
+  for (let guard = 0; guard < 36600; guard += 1) {
+    const day = Math.floor(cursor);
+    const sunday = new Date(Date.UTC(1899, 11, 30) + day * 864e5).getUTCDay() === 0;
+    const holiday = seed.holidays.find((item) => Math.floor(item.serial) === day);
+    const override = settings.shiftOverrides.find((item) => item.date === day);
+    const shifts = override?.shifts ?? (holiday ? holiday.workingShifts ?? 0 : sunday ? 0 : settings.defaultShifts);
+    const end = day + Math.min(24, shifts * shiftHours) / 24;
+    const available = Math.max(0, end - cursor) * 1440;
+    if (available + 1e-7 >= remaining) return cursor + remaining / 1440;
+    remaining -= available;
+    cursor = day + 1;
+  }
+  throw new Error("Piston b\xF6l\xFCm\xFC i\xE7in \xE7al\u0131\u015F\u0131labilir bekleme saati bulunamad\u0131. Vardiya ve Mesai Bilgileri\u2019ni kontrol edin.");
+}
+
+// lib/delivery-calendar.ts
+var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+var DAY_MS = 864e5;
+var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
+function dayOfWeek(serial) {
+  return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
+}
+function addDeliveryWorkdays(completionSerial, workdays) {
+  if (!Number.isFinite(completionSerial) || completionSerial <= 0) return completionSerial;
+  const fraction = completionSerial - Math.floor(completionSerial);
+  let serial = Math.floor(completionSerial);
+  let remaining = Math.max(0, Math.trunc(workdays));
+  while (remaining > 0) {
+    serial += 1;
+    if (dayOfWeek(serial) !== 0) remaining -= 1;
+  }
+  return serial + fraction;
+}
+function isFactoryWorkday(seed, serialValue) {
+  const serial = Math.floor(serialValue);
+  const addedShift = (seed.calendarEvents ?? []).some(
+    (event) => event.kind === "shift" && event.shiftCount > 0 && serial >= Math.floor(event.start) && serial <= Math.floor(event.end)
+  );
+  if (addedShift) return true;
+  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
+  if (holiday) return (holiday.workingShifts ?? 0) > 0;
+  return dayOfWeek(serial) !== 0;
+}
+function addFactoryWorkdays(seed, startValue, workdaysValue) {
+  if (!Number.isFinite(startValue) || startValue <= 0) return startValue;
+  const workdays = Math.max(0, Math.trunc(workdaysValue));
+  if (!workdays) return startValue;
+  let serial = Math.floor(startValue);
+  let remaining = workdays;
+  while (remaining > 0) {
+    serial += 1;
+    if (isFactoryWorkday(seed, serial)) remaining -= 1;
+  }
+  return serial;
+}
+function turningDeliveryReadyAt(completionSerial) {
+  return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
+}
+function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
+  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
+  if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
+  return seed.productionArea === "cubuk-filtre" ? seed.monthlyCustomerDemand ? filterQualityReadyAt(seed, routeCompletionSerial) : routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
 }
 
 // lib/process-lead-time.ts
@@ -33,30 +203,6 @@ function applyProcessLeadStages(seed, start, stages) {
     } else cursor += stage.days;
   }
   return cursor;
-}
-
-// lib/flow-settings.ts
-function flowRule(seed, family, from, to) {
-  return seed.productionArea !== "cubuk-filtre" && seed.flowSettings?.enabled ? seed.flowSettings.rules.find((rule) => rule.active && rule.family === family && rule.from === from && rule.to === to) : void 0;
-}
-function addDepartmentWorkMinutes(seed, start, minutes) {
-  if (!minutes) return start;
-  const settings = seed.flowSettings;
-  const shiftHours = Math.max(1, Math.min(24, seed.setupSettings?.shiftHours ?? 8));
-  let cursor = start, remaining = minutes;
-  for (let guard = 0; guard < 36600; guard += 1) {
-    const day = Math.floor(cursor);
-    const sunday = new Date(Date.UTC(1899, 11, 30) + day * 864e5).getUTCDay() === 0;
-    const holiday = seed.holidays.find((item) => Math.floor(item.serial) === day);
-    const override = settings.shiftOverrides.find((item) => item.date === day);
-    const shifts = override?.shifts ?? (holiday ? holiday.workingShifts ?? 0 : sunday ? 0 : settings.defaultShifts);
-    const end = day + Math.min(24, shifts * shiftHours) / 24;
-    const available = Math.max(0, end - cursor) * 1440;
-    if (available + 1e-7 >= remaining) return cursor + remaining / 1440;
-    remaining -= available;
-    cursor = day + 1;
-  }
-  throw new Error("Piston b\xF6l\xFCm\xFC i\xE7in \xE7al\u0131\u015F\u0131labilir bekleme saati bulunamad\u0131. Vardiya ve Mesai Bilgileri\u2019ni kontrol edin.");
 }
 
 // lib/process-flow.ts
@@ -136,60 +282,6 @@ function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedS
     else right = middle;
   }
   return { ...schedule(left), targetEnd };
-}
-
-// lib/factory-time.ts
-var FACTORY_TIME_ZONE = "Europe/Istanbul";
-function factoryDateParts(value) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: FACTORY_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(value);
-  const part = (type) => Number(parts.find((item) => item.type === type)?.value ?? 0);
-  return { year: part("year"), month: part("month"), day: part("day") };
-}
-function factoryDateInput(value = /* @__PURE__ */ new Date()) {
-  const date = value instanceof Date ? value : new Date(value);
-  const { year, month, day } = factoryDateParts(date);
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-// lib/production-interruptions.ts
-function activeLotInterruptions(seed, lot) {
-  return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
-}
-function isProductionInterruption(item) {
-  return item.producedQuantity !== 0 && item.kind !== "partial-completion";
-}
-function isProtectedProductionRemainder(item) {
-  return item.producedQuantity !== 0;
-}
-function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
-  const records = seed.productionInterruptions ?? [];
-  if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
-  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
-}
-function hasProtectedProductionRemainder(seed, chargeId, interruptionId) {
-  const records = seed.productionInterruptions ?? [];
-  if (records.some((item) => isProtectedProductionRemainder(item) && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
-  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
-}
-function protectedInterruptedBatches(seed, batches = []) {
-  const latest = /* @__PURE__ */ new Map();
-  for (const item of seed.productionInterruptions ?? []) if (item.process === "turning" && isProtectedProductionRemainder(item) && !item.completedAt && item.turningBatch) latest.set(item.chargeId, item);
-  return [...latest.values()].filter((item) => !seed.machines.some((machine) => machine.currentJob.batchId === item.chargeId && machine.currentJob.quantity > 0)).map((item) => {
-    const matches = (batch) => batch.id === item.chargeId && batch.interruptionId === item.id && batch.quantity === item.remainingQuantity;
-    return { ...batches.find(matches) ?? seed.manualBatches?.find(matches) ?? item.turningBatch };
-  });
-}
-function withInterruptedBatches(seed, batches) {
-  const live = protectedInterruptedBatches(seed, batches);
-  const known = new Set((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item)).map((item) => item.chargeId));
-  const result = batches.filter((batch) => !known.has(batch.id)).map((batch) => ({ ...batch }));
-  result.push(...live);
-  return result;
 }
 
 // lib/turning-queue-identity.ts
@@ -364,67 +456,6 @@ function resourceSupportsProcessProduct(resource, product) {
 }
 function processLabel(process2) {
   return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
-}
-
-// lib/filter-quality-calendar.ts
-var FILTER_QUALITY_RESOURCE = "CF-KALITE";
-function filterQualityReadyAt(seed, completed) {
-  if (!Number.isFinite(completed) || completed <= 0) throw new Error("Kalite bekleme ba\u015Flang\u0131c\u0131 ge\xE7ersiz.");
-  const fraction = completed - Math.floor(completed);
-  const resource = { id: FILTER_QUALITY_RESOURCE, shiftFactor: seed.filterQualityShifts ?? 1 };
-  for (let day = Math.floor(completed) + 1; day <= Math.floor(completed) + 3660; day++) {
-    if (machineDayCapacity(seed, resource, day).shifts > 0) return day + fraction;
-  }
-  throw new Error("Kalite bekleme takviminde a\xE7\u0131k \xE7al\u0131\u015Fma g\xFCn\xFC bulunamad\u0131.");
-}
-
-// lib/delivery-calendar.ts
-var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
-var DAY_MS = 864e5;
-var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
-function dayOfWeek(serial) {
-  return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
-}
-function addDeliveryWorkdays(completionSerial, workdays) {
-  if (!Number.isFinite(completionSerial) || completionSerial <= 0) return completionSerial;
-  const fraction = completionSerial - Math.floor(completionSerial);
-  let serial = Math.floor(completionSerial);
-  let remaining = Math.max(0, Math.trunc(workdays));
-  while (remaining > 0) {
-    serial += 1;
-    if (dayOfWeek(serial) !== 0) remaining -= 1;
-  }
-  return serial + fraction;
-}
-function isFactoryWorkday(seed, serialValue) {
-  const serial = Math.floor(serialValue);
-  const addedShift = (seed.calendarEvents ?? []).some(
-    (event) => event.kind === "shift" && event.shiftCount > 0 && serial >= Math.floor(event.start) && serial <= Math.floor(event.end)
-  );
-  if (addedShift) return true;
-  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
-  if (holiday) return (holiday.workingShifts ?? 0) > 0;
-  return dayOfWeek(serial) !== 0;
-}
-function addFactoryWorkdays(seed, startValue, workdaysValue) {
-  if (!Number.isFinite(startValue) || startValue <= 0) return startValue;
-  const workdays = Math.max(0, Math.trunc(workdaysValue));
-  if (!workdays) return startValue;
-  let serial = Math.floor(startValue);
-  let remaining = workdays;
-  while (remaining > 0) {
-    serial += 1;
-    if (isFactoryWorkday(seed, serial)) remaining -= 1;
-  }
-  return serial;
-}
-function turningDeliveryReadyAt(completionSerial) {
-  return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
-}
-function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
-  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
-  if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
-  return seed.productionArea === "cubuk-filtre" ? seed.monthlyCustomerDemand ? filterQualityReadyAt(seed, routeCompletionSerial) : routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
 }
 
 // lib/wip-ledger.ts
@@ -1043,6 +1074,68 @@ function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidat
   return { state: operations.length ? "planned" : "empty", operations, jobs, warnings, gaps, completion, deliveryCompletion, queueEntries };
 }
 
+// lib/delivery-readiness.ts
+function datedEvents(seed, result, processPlan) {
+  const representedBatchIds = /* @__PURE__ */ new Set([
+    ...processPlan.jobs.filter((job) => job.source === "turning-plan" && Boolean(seed.processMasterData)).map((job) => job.batchId),
+    ...(seed.wipLots ?? []).map((lot) => lot.sourceBatchId).filter(Boolean)
+  ]);
+  const representedLotIds = new Set(processPlan.jobs.filter((job) => job.source === "wip" && job.deliveryReadyAt > 0).map((job) => job.batchId));
+  const routed = processPlan.jobs.filter((job) => {
+    const lot = seed.wipLots?.find((item) => item.id === job.wipLotId);
+    return !lot || lot.stage !== "on-hold" && lot.stage !== "unclassified";
+  }).filter((job) => job.quantity > 0 && job.deliveryReadyAt > 0 && (Boolean(processMasterDataForProduct(seed.processMasterData, job.product)?.route) || job.operations.some((operation) => operation.process === "gkm") || (seed.wipLots ?? []).some((lot) => lot.id === job.wipLotId && lot.stage === "delivery-ready"))).map((job) => ({ id: `route:${job.batchId}`, product: job.product.toUpperCase(), quantity: filterSupplyGoodPieces(seed, job.product, job.quantity, Boolean(seed.wipLots?.find((lot) => lot.id === job.wipLotId && lot.stage === "delivery-ready"))), readyAt: job.deliveryReadyAt, source: "routed", routeSource: job.source, wipLotId: job.wipLotId }));
+  const fallbackBatches = result.batches.filter((batch) => !seed.processMasterData && batch.status === "planned" && !hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) && batch.quantity > 0 && batch.end > 0 && !representedBatchIds.has(batch.id)).map((batch) => ({ id: `batch:${batch.id}`, product: batch.product.toUpperCase(), quantity: batch.quantity, readyAt: turningDeliveryReadyAt(batch.end), source: "turning-fallback" }));
+  const fallbackReadyWip = (seed.wipLots ?? []).filter((lot) => !seed.processMasterData && lot.stage === "delivery-ready" && lot.availableQuantity > 0 && lot.readyAt > 0 && !representedLotIds.has(lot.id)).map((lot) => ({ id: `wip:${lot.id}`, product: lot.product.toUpperCase(), quantity: lot.availableQuantity, readyAt: lot.readyAt, source: "wip-fallback" }));
+  return [...routed, ...fallbackBatches, ...fallbackReadyWip].filter((event) => Number.isFinite(event.readyAt) && event.readyAt > 0).sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
+}
+function buildDeliveryReadinessEvents(seed, result) {
+  return datedEvents(seed, result, buildDownstreamProcessPlan(seed, result));
+}
+function buildDeliveryReadinessProjection(seed, result) {
+  const plan = buildDownstreamProcessPlan(seed, result);
+  const events = datedEvents(seed, result, plan);
+  const subjects = /* @__PURE__ */ new Map();
+  const put = (subject) => {
+    if (!Number.isSafeInteger(subject.quantity) || subject.quantity < 0) throw new Error(`${subject.product} i\xE7in teslimat miktar\u0131 ge\xE7ersiz.`);
+    if (subject.quantity > 0) subjects.set(subject.id, subject);
+  };
+  for (const job of plan.jobs) put({ id: job.batchId, product: job.product, quantity: job.quantity, workOrder: job.workOrder, source: job.source });
+  for (const row of seed.processStockSettings?.opening ?? []) if (row.quantity > 0) put({ id: `stock-count:${row.groupId}:${row.product}`, product: row.product, quantity: row.quantity, workOrder: "Grup say\u0131m\u0131 \xB7 kesin proses konumu gerekli", source: "wip" });
+  const lots = seed.wipLots ?? [];
+  for (const lot of lots.filter((lot2) => lot2.availableQuantity > 0 && lot2.stage !== "delivered" && lot2.stage !== "scrapped")) {
+    put({ id: lot.id, product: lot.product, quantity: lot.availableQuantity, workOrder: lot.workOrder ?? "", source: "wip" });
+  }
+  for (const machine of seed.machines.filter((m) => m.currentJob.product && m.currentJob.quantity > 0)) {
+    put({ id: `current:${machine.id}`, product: machine.currentJob.product, quantity: machine.currentJob.quantity, workOrder: machine.currentJob.workOrder ?? "", source: "current-turning" });
+  }
+  for (const batch of result.batches.filter((b) => b.status === "planned" && b.quantity > 0)) {
+    if (!batch.interruptionId && lots.some((lot) => lot.sourceBatchId === batch.id)) continue;
+    put({ id: batch.id, product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", source: "turning-plan" });
+  }
+  if (seed.monthlyCustomerDemand) for (const entry of semiFinishedProduction(seed)) {
+    const linked = lots.filter((l) => l.sourceHistoryEntryId === entry.id && l.stage !== "delivered" && l.stage !== "scrapped").reduce((sum, l) => sum + l.availableQuantity, 0);
+    if (entry.completedQuantity > linked) put({ id: `history:${entry.id}`, product: entry.product, quantity: entry.completedQuantity - linked, workOrder: entry.workOrder, source: "wip" });
+  }
+  const datedIds = new Set(events.map((e) => e.id.replace(/^(route|batch|wip):/, "")));
+  const undated = [...subjects.values()].filter((s) => !datedIds.has(s.id)).map((subject) => {
+    const job = plan.jobs.find((j) => j.batchId === subject.id);
+    const warnings = plan.warnings.filter((w) => w.batchId === subject.id || !w.batchId && w.product === subject.product);
+    const reasons = subject.id.startsWith("stock-count:") ? [{ code: "stock-position", message: "Grup say\u0131m\u0131 miktar\u0131 korur; sevkiyat tarihi i\xE7in kesin proses konumu ve \u015Farj kayd\u0131 gerekir." }] : job?.readinessIssues?.length ? job.readinessIssues : warnings.length ? warnings.map((w) => ({ code: w.code, message: w.message })) : [{ code: "missing-schedule", message: "Rota tamamlanmad\u0131; proses, kabul veya kapasite bekleniyor." }];
+    return { ...subject, quantity: filterSupplyGoodPieces(seed, subject.product, subject.quantity, Boolean(lots.find((lot) => lot.id === subject.id && lot.stage === "delivery-ready")) || subject.id.startsWith("stock-count:warehouse:")), product: subject.product.trim().toUpperCase(), reasons };
+  });
+  return { events, undated, undatedQuantity: undated.reduce((sum, row) => sum + row.quantity, 0) };
+}
+function deliveryReadyQuantityByDate(seed, result, product, serial) {
+  return deliveryReadyQuantityFromEvents(seed, buildDeliveryReadinessEvents(seed, result), product, serial);
+}
+function deliveryReadyQuantityFromEvents(seed, events, product, serial) {
+  const code2 = product.trim().toUpperCase();
+  const dueDay = Math.floor(serial);
+  const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code2] ?? 0);
+  return openingStock + events.filter((event) => event.product === code2 && Math.floor(event.readyAt) <= dueDay).reduce((sum, event) => sum + event.quantity, 0);
+}
+
 // data/product-setup-families.json
 var product_setup_families_default = {
   "center-pin": [
@@ -1126,141 +1219,6 @@ function catalogProductSetupFamily(productCode) {
 }
 function resolvedProductSetupFamily(productCode, storedFamily) {
   return normalizeProductSetupFamily(storedFamily) ?? catalogProductSetupFamily(productCode);
-}
-
-// lib/process-stock.ts
-function stockGroups(area) {
-  return area === "cubuk-filtre" ? [
-    { id: "form-front", label: "Form Ta\u015Flama \xF6n\xFCnde \xB7 Torna + \xC7ap Ta\u015Flama", nextProcesses: ["turning", "gtm", "diameter-grinding", "form-grinding"], min: 102199, max: 199953 },
-    { id: "mill-front", label: "Freze \xF6n\xFC \xB7 Form Ta\u015Flama + \xD6l\xE7me", nextProcesses: ["measuring", "milling"], min: 13331, max: 44434 },
-    { id: "visual-front", label: "Is\u0131l \u0130\u015Flem + G\xF6z Kontrol\xFC", nextProcesses: ["final-inspection", "filter-visual"], min: 84425, max: 124415 },
-    { id: "warehouse", label: "Ambar + BB", nextProcesses: [], min: 112600, max: 284760 }
-  ] : [
-    { id: "turning-end", label: "Torna sonu", nextProcesses: ["drilling"], min: 7372, max: 20412 },
-    { id: "drilling-end", label: "TBT sonu", nextProcesses: ["deburring"], min: 5671, max: 11340 },
-    { id: "visual-front", label: "GK \xF6n\xFC", nextProcesses: ["gkm"], min: 5671, max: 14742 },
-    { id: "warehouse", label: "Ambar + Konsinye", nextProcesses: [], min: 56702, max: 113402 }
-  ];
-}
-function validateProcessStockSettings(value, area) {
-  const fail2 = () => {
-    throw new Error("Stok ayarlar\u0131n\u0131 kontrol edin: adetler tam say\u0131, min \u2264 max ve \u0131skarta %0\u2013100 olmal\u0131d\u0131r.");
-  };
-  const groups = new Set(stockGroups(area).map((group) => group.id));
-  if (!value || value.version !== 1 || !Array.isArray(value.limits) || !Array.isArray(value.scrap) || !Array.isArray(value.opening) || value.scrap.length > 1e3 || value.opening.length > 1e3) return fail2();
-  const keys = /* @__PURE__ */ new Set();
-  for (const row of value.limits) {
-    if (!row || !groups.has(row.groupId) || keys.has(row.groupId) || ![row.min, row.max].every((n) => Number.isSafeInteger(n) && n >= 0) || row.min > row.max) return fail2();
-    keys.add(row.groupId);
-  }
-  if (keys.size !== groups.size) return fail2();
-  keys.clear();
-  for (const row of value.scrap) {
-    if (!row) return fail2();
-    const key = `${row.groupId}:${row.product}`;
-    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isFinite(row.percent) || row.percent < 0 || row.percent > 100) return fail2();
-    keys.add(key);
-  }
-  keys.clear();
-  for (const row of value.opening) {
-    if (!row) return fail2();
-    const key = `${row.groupId}:${row.product}`;
-    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isSafeInteger(row.quantity) || row.quantity < 0) return fail2();
-    keys.add(key);
-  }
-  if (value.opening.some((row) => row.quantity > 0) && (!/^\d{4}-\d{2}-\d{2}$/.test(value.openingDate) || !Number.isFinite(Date.parse(value.openingDate)) || new Date(value.openingDate).toISOString().slice(0, 10) !== value.openingDate)) return fail2();
-  return structuredClone(value);
-}
-
-// lib/delivery-deduction.ts
-function effectiveDeliveryTimestamp(entry) {
-  if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
-  const deliveryDate = entry.deliveredAt?.slice(0, 10) ?? "";
-  if (deliveryDate && entry.statusChangedAt && factoryDateInput(entry.statusChangedAt) === deliveryDate) {
-    return new Date(entry.statusChangedAt).toISOString();
-  }
-  if (deliveryDate) return (/* @__PURE__ */ new Date(`${deliveryDate}T00:00:00+03:00`)).toISOString();
-  return entry.statusChangedAt && Number.isFinite(Date.parse(entry.statusChangedAt)) ? new Date(entry.statusChangedAt).toISOString() : "";
-}
-
-// lib/filter-monthly-demand.ts
-var FILTER_315 = "F.00V.P01.315";
-var integer = (n) => Number.isSafeInteger(n) && n >= 0;
-function filterGoodPieces(product, physical) {
-  if (!integer(physical)) throw new Error("Fiziksel adet ge\xE7ersiz.");
-  return product === FILTER_315 ? Number(BigInt(physical) * BigInt(96) / BigInt(100)) : physical;
-}
-function filterSupplyGoodPieces(seed, product, physical, completed = false) {
-  return seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && !completed ? filterGoodPieces(product, physical) : physical;
-}
-function filterHistoryGoodPieces(seed, entry) {
-  if (seed.productionArea !== "cubuk-filtre" || !seed.monthlyCustomerDemand) return entry.completedQuantity;
-  const lots = (seed.wipLots ?? []).filter((l) => l.sourceHistoryEntryId === entry.id && l.availableQuantity > 0 && !["delivered", "scrapped"].includes(l.stage));
-  const linked = lots.reduce((s, l) => s + l.availableQuantity, 0);
-  if (linked > entry.completedQuantity) throw new Error(`${entry.product}: \u015Farj ve ar\u015Fiv miktarlar\u0131 uzla\u015Fm\u0131yor.`);
-  return lots.reduce((s, l) => s + filterSupplyGoodPieces(seed, l.product, l.availableQuantity, l.stage === "delivery-ready"), 0) + filterSupplyGoodPieces(seed, entry.product, entry.completedQuantity - linked);
-}
-
-// lib/delivery-readiness.ts
-function datedEvents(seed, result, processPlan) {
-  const representedBatchIds = /* @__PURE__ */ new Set([
-    ...processPlan.jobs.filter((job) => job.source === "turning-plan" && Boolean(seed.processMasterData)).map((job) => job.batchId),
-    ...(seed.wipLots ?? []).map((lot) => lot.sourceBatchId).filter(Boolean)
-  ]);
-  const representedLotIds = new Set(processPlan.jobs.filter((job) => job.source === "wip" && job.deliveryReadyAt > 0).map((job) => job.batchId));
-  const routed = processPlan.jobs.filter((job) => {
-    const lot = seed.wipLots?.find((item) => item.id === job.wipLotId);
-    return !lot || lot.stage !== "on-hold" && lot.stage !== "unclassified";
-  }).filter((job) => job.quantity > 0 && job.deliveryReadyAt > 0 && (Boolean(processMasterDataForProduct(seed.processMasterData, job.product)?.route) || job.operations.some((operation) => operation.process === "gkm") || (seed.wipLots ?? []).some((lot) => lot.id === job.wipLotId && lot.stage === "delivery-ready"))).map((job) => ({ id: `route:${job.batchId}`, product: job.product.toUpperCase(), quantity: filterSupplyGoodPieces(seed, job.product, job.quantity, Boolean(seed.wipLots?.find((lot) => lot.id === job.wipLotId && lot.stage === "delivery-ready"))), readyAt: job.deliveryReadyAt, source: "routed", routeSource: job.source, wipLotId: job.wipLotId }));
-  const fallbackBatches = result.batches.filter((batch) => !seed.processMasterData && batch.status === "planned" && !hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) && batch.quantity > 0 && batch.end > 0 && !representedBatchIds.has(batch.id)).map((batch) => ({ id: `batch:${batch.id}`, product: batch.product.toUpperCase(), quantity: batch.quantity, readyAt: turningDeliveryReadyAt(batch.end), source: "turning-fallback" }));
-  const fallbackReadyWip = (seed.wipLots ?? []).filter((lot) => !seed.processMasterData && lot.stage === "delivery-ready" && lot.availableQuantity > 0 && lot.readyAt > 0 && !representedLotIds.has(lot.id)).map((lot) => ({ id: `wip:${lot.id}`, product: lot.product.toUpperCase(), quantity: lot.availableQuantity, readyAt: lot.readyAt, source: "wip-fallback" }));
-  return [...routed, ...fallbackBatches, ...fallbackReadyWip].filter((event) => Number.isFinite(event.readyAt) && event.readyAt > 0).sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
-}
-function buildDeliveryReadinessEvents(seed, result) {
-  return datedEvents(seed, result, buildDownstreamProcessPlan(seed, result));
-}
-function buildDeliveryReadinessProjection(seed, result) {
-  const plan = buildDownstreamProcessPlan(seed, result);
-  const events = datedEvents(seed, result, plan);
-  const subjects = /* @__PURE__ */ new Map();
-  const put = (subject) => {
-    if (!Number.isSafeInteger(subject.quantity) || subject.quantity < 0) throw new Error(`${subject.product} i\xE7in teslimat miktar\u0131 ge\xE7ersiz.`);
-    if (subject.quantity > 0) subjects.set(subject.id, subject);
-  };
-  for (const job of plan.jobs) put({ id: job.batchId, product: job.product, quantity: job.quantity, workOrder: job.workOrder, source: job.source });
-  for (const row of seed.processStockSettings?.opening ?? []) if (row.quantity > 0) put({ id: `stock-count:${row.groupId}:${row.product}`, product: row.product, quantity: row.quantity, workOrder: "Grup say\u0131m\u0131 \xB7 kesin proses konumu gerekli", source: "wip" });
-  const lots = seed.wipLots ?? [];
-  for (const lot of lots.filter((lot2) => lot2.availableQuantity > 0 && lot2.stage !== "delivered" && lot2.stage !== "scrapped")) {
-    put({ id: lot.id, product: lot.product, quantity: lot.availableQuantity, workOrder: lot.workOrder ?? "", source: "wip" });
-  }
-  for (const machine of seed.machines.filter((m) => m.currentJob.product && m.currentJob.quantity > 0)) {
-    put({ id: `current:${machine.id}`, product: machine.currentJob.product, quantity: machine.currentJob.quantity, workOrder: machine.currentJob.workOrder ?? "", source: "current-turning" });
-  }
-  for (const batch of result.batches.filter((b) => b.status === "planned" && b.quantity > 0)) {
-    if (!batch.interruptionId && lots.some((lot) => lot.sourceBatchId === batch.id)) continue;
-    put({ id: batch.id, product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", source: "turning-plan" });
-  }
-  if (seed.monthlyCustomerDemand) for (const entry of semiFinishedProduction(seed)) {
-    const linked = lots.filter((l) => l.sourceHistoryEntryId === entry.id && l.stage !== "delivered" && l.stage !== "scrapped").reduce((sum, l) => sum + l.availableQuantity, 0);
-    if (entry.completedQuantity > linked) put({ id: `history:${entry.id}`, product: entry.product, quantity: entry.completedQuantity - linked, workOrder: entry.workOrder, source: "wip" });
-  }
-  const datedIds = new Set(events.map((e) => e.id.replace(/^(route|batch|wip):/, "")));
-  const undated = [...subjects.values()].filter((s) => !datedIds.has(s.id)).map((subject) => {
-    const job = plan.jobs.find((j) => j.batchId === subject.id);
-    const warnings = plan.warnings.filter((w) => w.batchId === subject.id || !w.batchId && w.product === subject.product);
-    const reasons = subject.id.startsWith("stock-count:") ? [{ code: "stock-position", message: "Grup say\u0131m\u0131 miktar\u0131 korur; sevkiyat tarihi i\xE7in kesin proses konumu ve \u015Farj kayd\u0131 gerekir." }] : job?.readinessIssues?.length ? job.readinessIssues : warnings.length ? warnings.map((w) => ({ code: w.code, message: w.message })) : [{ code: "missing-schedule", message: "Rota tamamlanmad\u0131; proses, kabul veya kapasite bekleniyor." }];
-    return { ...subject, quantity: filterSupplyGoodPieces(seed, subject.product, subject.quantity, Boolean(lots.find((lot) => lot.id === subject.id && lot.stage === "delivery-ready")) || subject.id.startsWith("stock-count:warehouse:")), product: subject.product.trim().toUpperCase(), reasons };
-  });
-  return { events, undated, undatedQuantity: undated.reduce((sum, row) => sum + row.quantity, 0) };
-}
-function deliveryReadyQuantityByDate(seed, result, product, serial) {
-  return deliveryReadyQuantityFromEvents(seed, buildDeliveryReadinessEvents(seed, result), product, serial);
-}
-function deliveryReadyQuantityFromEvents(seed, events, product, serial) {
-  const code2 = product.trim().toUpperCase();
-  const dueDay = Math.floor(serial);
-  const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code2] ?? 0);
-  return openingStock + events.filter((event) => event.product === code2 && Math.floor(event.readyAt) <= dueDay).reduce((sum, event) => sum + event.quantity, 0);
 }
 
 // lib/planning.ts
@@ -1859,6 +1817,50 @@ Plan`, kind: "plan" });
       })
     }))
   };
+}
+
+// lib/process-stock.ts
+function stockGroups(area) {
+  return area === "cubuk-filtre" ? [
+    { id: "form-front", label: "Form Ta\u015Flama \xF6n\xFCnde \xB7 Torna + \xC7ap Ta\u015Flama", nextProcesses: ["turning", "gtm", "diameter-grinding", "form-grinding"], min: 102199, max: 199953 },
+    { id: "mill-front", label: "Freze \xF6n\xFC \xB7 Form Ta\u015Flama + \xD6l\xE7me", nextProcesses: ["measuring", "milling"], min: 13331, max: 44434 },
+    { id: "visual-front", label: "Is\u0131l \u0130\u015Flem + G\xF6z Kontrol\xFC", nextProcesses: ["final-inspection", "filter-visual"], min: 84425, max: 124415 },
+    { id: "warehouse", label: "Ambar + BB", nextProcesses: [], min: 112600, max: 284760 }
+  ] : [
+    { id: "turning-end", label: "Torna sonu", nextProcesses: ["drilling"], min: 7372, max: 20412 },
+    { id: "drilling-end", label: "TBT sonu", nextProcesses: ["deburring"], min: 5671, max: 11340 },
+    { id: "visual-front", label: "GK \xF6n\xFC", nextProcesses: ["gkm"], min: 5671, max: 14742 },
+    { id: "warehouse", label: "Ambar + Konsinye", nextProcesses: [], min: 56702, max: 113402 }
+  ];
+}
+function validateProcessStockSettings(value, area) {
+  const fail2 = () => {
+    throw new Error("Stok ayarlar\u0131n\u0131 kontrol edin: adetler tam say\u0131, min \u2264 max ve \u0131skarta %0\u2013100 olmal\u0131d\u0131r.");
+  };
+  const groups = new Set(stockGroups(area).map((group) => group.id));
+  if (!value || value.version !== 1 || !Array.isArray(value.limits) || !Array.isArray(value.scrap) || !Array.isArray(value.opening) || value.scrap.length > 1e3 || value.opening.length > 1e3) return fail2();
+  const keys = /* @__PURE__ */ new Set();
+  for (const row of value.limits) {
+    if (!row || !groups.has(row.groupId) || keys.has(row.groupId) || ![row.min, row.max].every((n) => Number.isSafeInteger(n) && n >= 0) || row.min > row.max) return fail2();
+    keys.add(row.groupId);
+  }
+  if (keys.size !== groups.size) return fail2();
+  keys.clear();
+  for (const row of value.scrap) {
+    if (!row) return fail2();
+    const key = `${row.groupId}:${row.product}`;
+    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isFinite(row.percent) || row.percent < 0 || row.percent > 100) return fail2();
+    keys.add(key);
+  }
+  keys.clear();
+  for (const row of value.opening) {
+    if (!row) return fail2();
+    const key = `${row.groupId}:${row.product}`;
+    if (!row || !groups.has(row.groupId) || typeof row.product !== "string" || !/^[A-Z0-9][A-Z0-9._/-]{1,63}$/.test(row.product) || keys.has(key) || !Number.isSafeInteger(row.quantity) || row.quantity < 0) return fail2();
+    keys.add(key);
+  }
+  if (value.opening.some((row) => row.quantity > 0) && (!/^\d{4}-\d{2}-\d{2}$/.test(value.openingDate) || !Number.isFinite(Date.parse(value.openingDate)) || new Date(value.openingDate).toISOString().slice(0, 10) !== value.openingDate)) return fail2();
+  return structuredClone(value);
 }
 
 // lib/plan-integrity.ts

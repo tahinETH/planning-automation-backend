@@ -487,8 +487,30 @@ def save_planning_state(
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
         if stock_planning_version < 1 and any(uses_stock_planning(state) for state in [seed, current["seed"] if current else {}]):
             raise ValueError("Günlük sipariş, stok ve bekleme takvimini korumak için uygulamayı yenileyin.")
-        if monthly_planning_version < 1 and any((state.get("monthlyCustomerDemand") is not None or "filterQualityShifts" in state) for state in [seed, current["seed"] if current else {}]):
+        if monthly_planning_version < 1 and any((state.get("monthlyCustomerDemand") is not None or "filterQualityShifts" in state or "filterInitialStockSetup" in state or "filterMonthlyDeliveryBaselines" in state) for state in [seed, current["seed"] if current else {}]):
             raise ValueError("Aylık müşteri planını korumak için uygulamayı yenileyin.")
+        # Initial count is a one-time physical baseline. Order/scenario saves cannot erase or replace it.
+        previous_setup = (current['seed'].get('filterInitialStockSetup') or (current['seed'].get('monthlyCustomerDemand') or {}).get('stockReconciliation')) if current else None
+        if previous_setup:
+            if 'sourceRows' not in previous_setup:
+                previous_setup = {**previous_setup, 'sourceRows': (current['seed'].get('monthlyCustomerDemand') or {}).get('openingStock',{}).get('rows',[])}
+            incoming_setup = seed.get('filterInitialStockSetup')
+            if incoming_setup is not None and incoming_setup != previous_setup:
+                raise ValueError('Başlangıç sayımı bir kez uygulanır. Normal stok işlemlerini kullanın.')
+            seed = {**seed, 'filterInitialStockSetup': previous_setup}
+        if current and current['seed'].get('filterMonthlyDeliveryBaselines'):
+            prior_baselines=current['seed']['filterMonthlyDeliveryBaselines']
+            incoming_baselines=seed.get('filterMonthlyDeliveryBaselines',prior_baselines)
+            seed={**seed,'filterMonthlyDeliveryBaselines':incoming_baselines}
+            for prior in prior_baselines:
+                incoming=next((item for item in incoming_baselines if item.get('year')==prior['year']),None) if isinstance(incoming_baselines,list) else None
+                if incoming is None or {k:v for k,v in incoming.items() if k!='handovers'}!={k:v for k,v in prior.items() if k!='handovers'}:
+                    raise ValueError('Kayıtlı teslimat kesimi korunmalıdır.')
+        previous_monthly=(current['seed'].get('monthlyCustomerDemand') or {}) if current else {}
+        next_monthly=seed.get('monthlyCustomerDemand') or {}
+        if previous_monthly.get('year')==next_monthly.get('year') and previous_monthly.get('deliveryBaseline'):
+            if {k:v for k,v in (next_monthly.get('deliveryBaseline') or {}).items() if k!='handovers'}!={k:v for k,v in previous_monthly['deliveryBaseline'].items() if k!='handovers'}:
+                raise ValueError('Kayıtlı teslimat kesimi korunmalıdır. Aylık ihtiyacı güncel kayıttan düzenleyin.')
         validate_stock_planning(seed)
         if "flowSettings" in seed:
             validate_flow_settings(seed["flowSettings"])
