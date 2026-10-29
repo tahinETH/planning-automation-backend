@@ -82,7 +82,7 @@ function protectedInterruptedBatches(seed, batches = []) {
 }
 function withInterruptedBatches(seed, batches) {
   const live = protectedInterruptedBatches(seed, batches);
-  const known = new Set((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item)).map((item) => item.chargeId));
+  const known = new Set((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item) && item.turningBatch).map((item) => item.chargeId));
   const result = batches.filter((batch) => !known.has(batch.id)).map((batch) => ({ ...batch }));
   result.push(...live);
   return result;
