@@ -11,11 +11,11 @@ def reconcile_turning_queue(seed, batches):
 
 def _recovered_turning_batches(seed):
     original = seed.get("manualBatches", [])
-    known = {item["chargeId"] for item in seed.get("productionInterruptions", []) if item.get("process") == "turning" and item.get("chargeId") and item.get("turningBatch")}
+    known = {item["chargeId"] for item in seed.get("productionInterruptions", []) if item.get("process") == "turning" and item.get("producedQuantity") != 0 and item.get("chargeId") and item.get("turningBatch")}
     batches = [batch for batch in original if batch.get("id") not in known]
     latest = {}
     for item in seed.get("productionInterruptions", []):
-        if item.get("chargeId") in known and item.get("process") == "turning" and not item.get("completedAt"):
+        if item.get("chargeId") in known and item.get("process") == "turning" and item.get("producedQuantity") != 0 and item.get("turningBatch") and not item.get("completedAt"):
             latest[item["chargeId"]] = item
     for identity, item in latest.items():
         if any(m.get("currentJob", {}).get("batchId") == identity and m["currentJob"].get("quantity", 0) > 0 for m in seed.get("machines", [])):

@@ -232,3 +232,68 @@ def test_unrelated_interruption_recovery_remains_mandatory_while_another_conflic
     changed = copy.deepcopy(seed); changed['manualBatches'] = [b for b in changed['manualBatches'] if b['id'] != 'remainder']
     with pytest.raises(ValueError, match='Yarım kalan'):
         assert_turning_identity_transition(seed, changed)
+
+
+@pytest.mark.parametrize('saved_queue', [False, True])
+def test_pln_clear_02_zero_output_recovery_does_not_restore_or_erase_saved_queue(saved_queue):
+    seed = fixture()
+    seed['machines'] = []
+    batch = dict(seed['manualBatches'][0], interruptionId='zero')
+    seed['manualBatches'] = [batch] if saved_queue else []
+    seed['productionInterruptions'] = [dict(id='zero', chargeId=batch['id'], process='turning', producedQuantity=0, remainingQuantity=batch['quantity'], turningBatch=batch)]
+    before = copy.deepcopy(seed)
+    assert reconcile_turning_seed(seed) == before
+    assert seed == before
+
+
+@pytest.mark.parametrize('produced', [200, None])
+def test_pln_clear_04_zero_output_event_cannot_replace_real_or_unknown_recovery(produced):
+    seed = fixture()
+    seed['machines'] = []
+    real = dict(seed['manualBatches'][0], quantity=400, interruptionId='real')
+    seed['manualBatches'] = []
+    event = dict(id='real', chargeId=real['id'], process='turning', producedQuantity=produced, remainingQuantity=400, turningBatch=real)
+    seed['productionInterruptions'] = [event, dict(event, id='zero', producedQuantity=0, turningBatch=dict(real, interruptionId='zero'))]
+    before = copy.deepcopy(seed)
+    assert reconcile_turning_seed(seed)['manualBatches'] == [real]
+    assert seed == before
+
+
+@pytest.mark.parametrize('mode', ['operational', 'planning'])
+def test_pln_clear_02_cleared_zero_output_queue_stays_empty_on_save_and_reload(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(database, 'settings', SimpleNamespace(database_path=tmp_path/'test.sqlite', upload_dir=tmp_path/'uploads'))
+    database.init_database()
+    seed = fixture()
+    batch = dict(seed['manualBatches'][0], id='zero-queue', workOrder='ZERO-QUEUE', interruptionId='zero')
+    seed['manualBatches'] = [batch]
+    seed['productionInterruptions'] = [dict(id='zero', chargeId=batch['id'], process='turning', producedQuantity=0, remainingQuantity=batch['quantity'], turningBatch=batch)]
+    saved = database.save_planning_state(seed, expected_updated_at='', mode='operational')
+    cleared = copy.deepcopy(seed)
+    cleared['manualBatches'] = []
+    cleared['planNeedsRecalculation'] = True
+    result = database.save_planning_state(cleared, expected_updated_at=saved['updatedAt'], mode=mode)
+    assert result['seed']['manualBatches'] == []
+    reloaded = database.planning_state()
+    assert reloaded['seed']['manualBatches'] == []
+    assert reloaded['seed']['productionInterruptions'] == seed['productionInterruptions']
+    assert reloaded['seed']['machines'] == seed['machines']
+    with pytest.raises(database.PlanningStateConflict):
+        database.save_planning_state(seed, expected_updated_at=saved['updatedAt'], mode='operational')
+    assert database.planning_state()['updatedAt'] == result['updatedAt']
+
+
+@pytest.mark.parametrize('area', ['torna', 'cubuk-filtre'])
+@pytest.mark.parametrize('produced', [0, 200, None])
+def test_clear_area_recovery_preserves_physical_work_and_area(area, produced):
+    seed = fixture()
+    seed['productionArea'] = area
+    seed['machines'] = []
+    batch = dict(seed['manualBatches'][0], quantity=400, interruptionId='area-event')
+    seed['manualBatches'] = []
+    seed['productionInterruptions'] = [dict(id='area-event', chargeId=batch['id'], process='turning', producedQuantity=produced, remainingQuantity=400, turningBatch=batch)]
+    before = copy.deepcopy(seed)
+    result = reconcile_turning_seed(seed)
+    assert result['manualBatches'] == ([] if produced == 0 else [batch])
+    assert result['productionArea'] == area
+    assert result['productionInterruptions'] == seed['productionInterruptions']
+    assert seed == before

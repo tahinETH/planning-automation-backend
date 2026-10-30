@@ -407,3 +407,15 @@ def test_archive_actual_shipment_and_scrap_deletion_guidance():
             assert "Silme, Yarı mamule geri al değildir" in topic["body"]
         assert "confirmedDeliveryBuffer" not in topic["body"]
         assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_pln_clear_exception_explains_production_evidence_and_reload_with_visible_sources():
+    for topic_id in ('planning-engine', 'scenarios-persistence', 'production-interruptions', 'machines', 'processes-wip', 'process-gantt-placement'):
+        topic = knowledge.for_model(knowledge.read_topic(topic_id))
+        assert 'kilitli olsalar da kaldırır' in topic['body']
+        assert 'Üretim durumu belirsiz kayıtlar da korunur' in topic['body']
+        assert 'Üretilen adet sıfırsa' in topic['body']
+        assert 'kayıtlı tarihleri değişmez' in topic['body']
+        assert any('Planı Temizle' in source for source in topic['userSources'])
+        assert 'hasRecordedTurningProduction' not in topic['body']
+        assert 'implementationNotes' not in topic
