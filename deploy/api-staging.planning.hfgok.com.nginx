@@ -2,6 +2,25 @@ server {
     listen 80;
     server_name api-staging.planning.hfgok.com;
 
+    # NG-PLAN01: valid saved plans exceed nginx's default 1 MiB request limit.
+    # Bound this allowance to the exact plan endpoint; keep other routes unchanged.
+    location = /api/planning-state {
+        client_max_body_size 8m;
+        proxy_pass http://127.0.0.1:8003;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
     # The app accepts 5 MiB files; reserve room for the multipart envelope.
     location = /api/order-imports/preview {
         client_max_body_size 6m;

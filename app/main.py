@@ -10,12 +10,14 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, Response
 
 from .production_area import ProductionAreaMiddleware, production_area, validate_seed_area
 from .auth import CurrentUser, create_test_session, current_user, require_admin
 from .config import settings
 from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
+from .database import planning_history_summaries, planning_history_detail, revision_summaries, revision_detail
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .delivery_reports import DeliveryReportError, report_snapshot
@@ -43,6 +45,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Selsa Planlama API", version="1.0.0", lifespan=lifespan)
 app.include_router(ravi_router)
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=3)
 app.add_middleware(ProductionAreaMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Production-Area"])
 
@@ -281,8 +284,16 @@ def get_planning_state(_: CurrentUser = Depends(current_user)):
 
 
 @app.get("/api/planning-state/history")
-def get_planning_state_history(_: CurrentUser = Depends(current_user)):
-    return planning_state_history()
+def get_planning_state_history(summary: bool = False, _: CurrentUser = Depends(current_user)):
+    return planning_history_summaries() if summary else planning_state_history()
+
+
+@app.get("/api/planning-state/history/{record_id}")
+def get_planning_history_detail(record_id: str, _: CurrentUser = Depends(current_user)):
+    record = planning_history_detail(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Versiyon bulunamadı")
+    return record
 
 
 @app.get("/api/production-archive/history")
@@ -405,8 +416,16 @@ def remove_scenario(scenario_id: str, _: CurrentUser = Depends(current_user)):
 
 
 @app.get("/api/revisions")
-def get_revisions(_: CurrentUser = Depends(current_user)):
-    return revisions()
+def get_revisions(summary: bool = False, _: CurrentUser = Depends(current_user)):
+    return revision_summaries() if summary else revisions()
+
+
+@app.get("/api/revisions/{record_id}")
+def get_revision_detail(record_id: str, _: CurrentUser = Depends(current_user)):
+    record = revision_detail(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Revizyon bulunamadı")
+    return record
 
 
 @app.post("/api/revisions", status_code=201)

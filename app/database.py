@@ -268,6 +268,42 @@ def planning_state_history() -> list[dict[str, Any]]:
     } for row in rows]
 
 
+def planning_history_summaries() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute("""SELECT h.id,h.created_at,h.created_by_id,h.created_by_name,
+            (SELECT COUNT(*) FROM json_each(h.seed_json,'$.wipLots') lot
+             WHERE json_extract(lot.value,'$.availableQuantity') > 0
+             AND COALESCE(json_extract(lot.value,'$.stage'),'') NOT IN ('delivered','scrapped')) AS open_wip_count
+            FROM planning_state_history h ORDER BY created_at DESC LIMIT 20""").fetchall()
+    return [{"id": r["id"], "createdAt": r["created_at"],
+             "createdBy": {"id": r["created_by_id"], "name": r["created_by_name"]},
+             "openWipCount": r["open_wip_count"]} for r in rows]
+
+
+def planning_history_detail(record_id: str) -> dict[str, Any] | None:
+    with connection() as db:
+        row = db.execute("SELECT * FROM planning_state_history WHERE id=?", (record_id,)).fetchone()
+    return None if row is None else {"id": row["id"], "seed": _loads(row["seed_json"]),
+        "createdAt": row["created_at"], "createdBy": {"id": row["created_by_id"], "name": row["created_by_name"]}}
+
+
+def revision_summaries() -> list[dict[str, Any]]:
+    with connection() as db:
+        rows = db.execute("""SELECT id,order_id,product,status,created_at,approved_at,
+            original_json,request_json,impact_json FROM order_revisions ORDER BY approved_at DESC""").fetchall()
+    return [{"id": r["id"], "orderId": r["order_id"], "product": r["product"], "status": r["status"],
+        "createdAt": r["created_at"], "approvedAt": r["approved_at"], "original": _loads(r["original_json"]),
+        "requested": _loads(r["request_json"]), "impact": _loads(r["impact_json"])} for r in rows]
+
+
+def revision_detail(record_id: str) -> dict[str, Any] | None:
+    with connection() as db:
+        r = db.execute("SELECT * FROM order_revisions WHERE id=?", (record_id,)).fetchone()
+    return None if r is None else {"id": r["id"], "orderId": r["order_id"], "product": r["product"], "status": r["status"],
+        "createdAt": r["created_at"], "approvedAt": r["approved_at"], "original": _loads(r["original_json"]),
+        "requested": _loads(r["request_json"]), "impact": _loads(r["impact_json"]),
+        "seed": _loads(r["seed_json"]), "result": _loads(r["result_json"])}
+
 def production_archive_history() -> list[dict[str, Any]]:
     """Return the durable, unpruned archive snapshots used for recovery."""
     with connection() as db:
