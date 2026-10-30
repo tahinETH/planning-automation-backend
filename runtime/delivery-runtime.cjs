@@ -947,8 +947,8 @@ function datedEvents(seed, result, processPlan) {
   const fallbackReadyWip = (seed.wipLots ?? []).filter((lot) => !seed.processMasterData && lot.stage === "delivery-ready" && lot.availableQuantity > 0 && lot.readyAt > 0 && !representedLotIds.has(lot.id)).map((lot) => ({ id: `wip:${lot.id}`, product: lot.product.toUpperCase(), quantity: lot.availableQuantity, readyAt: lot.readyAt, source: "wip-fallback" }));
   return [...routed, ...fallbackBatches, ...fallbackReadyWip].filter((event) => Number.isFinite(event.readyAt) && event.readyAt > 0).sort((left, right) => left.readyAt - right.readyAt || left.id.localeCompare(right.id));
 }
-function buildDeliveryReadinessEvents(seed, result) {
-  return datedEvents(seed, result, buildDownstreamProcessPlan(seed, result));
+function buildDeliveryReadinessEvents(seed, result, plan = buildDownstreamProcessPlan(seed, result)) {
+  return datedEvents(seed, result, plan);
 }
 function buildDeliveryReadinessProjection(seed, result) {
   const plan = buildDownstreamProcessPlan(seed, result);
@@ -1097,9 +1097,18 @@ function diameterNumeric(value) {
 function excelSerialToDate(serial) {
   return new Date(Date.UTC(1899, 11, 30) + serial * 864e5);
 }
+var excelDateFormatters = /* @__PURE__ */ new Map();
+var MAX_EXCEL_DATE_FORMATTERS = 32;
 function formatExcelDate(serial, options) {
   if (!serial || !Number.isFinite(serial)) return "\u2014";
-  return new Intl.DateTimeFormat("tr-TR", { ...options ?? { day: "2-digit", month: "short", year: "numeric" }, timeZone: "UTC" }).format(excelSerialToDate(serial));
+  const formatOptions = { ...options ?? { day: "2-digit", month: "short", year: "numeric" }, timeZone: "UTC" };
+  const key = JSON.stringify(Object.entries(formatOptions).sort(([left], [right]) => left.localeCompare(right)));
+  let formatter = excelDateFormatters.get(key);
+  if (!formatter) formatter = new Intl.DateTimeFormat("tr-TR", formatOptions);
+  else excelDateFormatters.delete(key);
+  excelDateFormatters.set(key, formatter);
+  if (excelDateFormatters.size > MAX_EXCEL_DATE_FORMATTERS) excelDateFormatters.delete(excelDateFormatters.keys().next().value);
+  return formatter.format(excelSerialToDate(serial));
 }
 function shiftCount(value) {
   if (!Number.isFinite(value)) return 0;
