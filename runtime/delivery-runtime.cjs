@@ -1258,8 +1258,8 @@ function currentJobRouteIdentity(machine) {
 function inputDateSerial2(value) {
   return value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
 }
-function productionQuantityByDate(seed, batches, product, serial) {
-  if (seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand) return deliveryReadyQuantityByDate(seed, { batches }, product, serial);
+function productionQuantityByDate(seed, batches, product, serial, readinessEvents) {
+  if (seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand) return readinessEvents ? deliveryReadyQuantityFromEvents(seed, readinessEvents, product, serial) : deliveryReadyQuantityByDate(seed, { batches }, product, serial);
   const code2 = product.toUpperCase();
   const dueDay = Math.floor(serial);
   const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code2] ?? 0);
@@ -1277,12 +1277,12 @@ function productionQuantityByTurningDate(seed, batches, product, serial) {
   const planned = batches.filter((batch) => batch.status === "planned" && batch.product.toUpperCase() === code2 && Math.floor(batch.end) <= dueDay).reduce((sum, batch) => sum + batch.quantity, 0);
   return openingStock + completed + current + planned;
 }
-function orderProductionBreakdown(seed, batches, order) {
+function orderProductionBreakdown(seed, batches, order, readinessEvents) {
   const code2 = order.product.toUpperCase();
   const existingTotal = (seed.processStockSettings?.opening ?? []).filter((row) => row.product === code2).reduce((sum, row) => sum + filterSupplyGoodPieces(seed, row.product, row.quantity, row.groupId === "warehouse"), 0) + (seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code2] ?? 0)) + semiFinishedProduction(seed).filter((entry) => entry.product.toUpperCase() === code2).reduce((sum, entry) => sum + filterHistoryGoodPieces(seed, entry), 0) + seed.machines.filter((machine) => machine.currentJob.product.toUpperCase() === code2).reduce((sum, machine) => sum + filterSupplyGoodPieces(seed, machine.currentJob.product, machine.currentJob.quantity), 0);
   const plannedTotal = batches.filter((batch) => batch.status === "planned" && batch.product.toUpperCase() === code2).reduce((sum, batch) => sum + filterSupplyGoodPieces(seed, batch.product, batch.quantity), 0);
   const dueSerial = inputDateSerial2(order.dueDate);
-  const onTimeTotal = dueSerial ? seed.activePlanRun?.optimizationGoal === "coarse" && !seed.monthlyCustomerDemand ? productionQuantityByTurningDate(seed, batches, order.product, dueSerial) : productionQuantityByDate(seed, batches, order.product, dueSerial) : null;
+  const onTimeTotal = dueSerial ? seed.activePlanRun?.optimizationGoal === "coarse" && !seed.monthlyCustomerDemand ? productionQuantityByTurningDate(seed, batches, order.product, dueSerial) : productionQuantityByDate(seed, batches, order.product, dueSerial, readinessEvents) : null;
   const productOrders = seed.orders.filter((item) => item.product.toUpperCase() === code2).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || a.sourceRow - b.sourceRow || a.id.localeCompare(b.id));
   const position = productOrders.findIndex((item) => item.id === order.id);
   const priorDemand = productOrders.slice(0, Math.max(0, position)).reduce((sum, item) => sum + item.quantity, 0);
@@ -1309,9 +1309,10 @@ function scenarioResultFromBatches(seed, batches) {
     const code2 = batch.product.toUpperCase();
     machinesByProduct.set(code2, unique([...machinesByProduct.get(code2) ?? [], batch.machineId]));
   }
+  const readinessEvents = seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && seed.orders.some((order) => inputDateSerial2(order.dueDate)) ? buildDeliveryReadinessEvents(seed, { batches }) : void 0;
   const orders = seed.orders.map((order) => {
     const code2 = order.product.toUpperCase();
-    const breakdown = orderProductionBreakdown(seed, batches, order);
+    const breakdown = orderProductionBreakdown(seed, batches, order, readinessEvents);
     const planned2 = breakdown.existingProduction + breakdown.newlyPlanned;
     return { ...order, planned: planned2, difference: planned2 - order.quantity, ...breakdown, assignedMachines: machinesByProduct.get(code2) ?? order.savedMachines };
   });
