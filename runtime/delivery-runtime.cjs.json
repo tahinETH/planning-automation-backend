@@ -24,7 +24,7 @@
     "lib/process-master-data.ts": "3d69ece282ddd4c3f433ae530c687e55cee269492d0787582db397615457a1b8",
     "lib/process-planning.ts": "5ddc76e23a3951682c53e57b4bcb2f5f94721fd795c24730c15918f6b3e85d25",
     "lib/process-route-state.ts": "b1d6650b66f65830937a4a474e318cd15596035102527d5b4c20152940af3ea3",
-    "lib/process-stock.ts": "0224601f6016baa723d4ee1f59703945410b54d408d92004cfe82feb1e313cd0",
+    "lib/process-stock.ts": "ebd468e0dcd1bc6e4fd534d64f575f2b1711cd473353c4c8c8185b3ffa04a454",
     "lib/process-waits.ts": "07f9d63612051bbabe38c1b52ac00f20c69a102ae28e58c534c90d6047667876",
     "lib/production-archive.ts": "df7147f1b8e949324f47ecf0b2897b1dbc9389359a14f35b0c88789e1fcf90d8",
     "lib/production-interruptions.ts": "ce36573649ec7841edaa40ed843c4474eecc7c3feffaf026bb6e07144214629c",
