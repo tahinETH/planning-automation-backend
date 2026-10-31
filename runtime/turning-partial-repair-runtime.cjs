@@ -1490,6 +1490,9 @@ function assertOperationalMachineIdentity(seed, result, machineId) {
   if (turningIdentityScope(baseline).machineIds.includes(machineId)) throw new Error(`${machineId}: Bu tezgah inceleme bekleyen \u015Farja ba\u011Fl\u0131. \xD6nce \u0130ncele ve d\xFCzelt ile kay\u0131tlar\u0131 do\u011Frulay\u0131n.`);
 }
 function recalculateManualScenario(seed, sourceBatches, options = { allowPlanEndOverflow: true }) {
+  return scenarioResultFromBatches(seed, recalculateManualBatches(seed, sourceBatches, options));
+}
+function recalculateManualBatches(seed, sourceBatches, options = { allowPlanEndOverflow: true }) {
   sourceBatches = reconcileTurningQueue(seed, sourceBatches);
   const products = new Map(seed.products.map((product) => [product.product.toUpperCase(), product]));
   const queues = new Map(seed.machines.map((machine) => [machine.id, []]));
@@ -1555,7 +1558,7 @@ function recalculateManualScenario(seed, sourceBatches, options = { allowPlanEnd
       previousDiameter = product.diameter;
     }
   }
-  return scenarioResultFromBatches(seed, [...recalculated, ...unplanned].sort((a, b) => a.sequence - b.sequence));
+  return [...recalculated, ...unplanned].sort((a, b) => a.sequence - b.sequence);
 }
 function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial2(factoryDateInput()), options = {}) {
   if (!Number.isFinite(asOf) || asOf <= 0) throw new Error("Devreden i\u015Fler i\xE7in ge\xE7erli bir ba\u015Flang\u0131\xE7 tarihi se\xE7in.");
