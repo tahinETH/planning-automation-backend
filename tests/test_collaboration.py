@@ -432,3 +432,39 @@ def test_ops_ts09_old_or_invalid_partial_completion_does_not_write(factory, extr
     assert db.planning_state() == world
     with db.connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM production_commands').fetchone()[0] == 0
+
+
+def test_draft_pub06_lock_and_note_chain_allows_preview_but_physical_output_requires_review(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    seed['manualBatches'] = [dict(id='lock-preview', machineId='C-04', product='R902745116', workOrder='LOCK-PREVIEW', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=1, locked=True, diameter='10', setupHours=0)]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    draft = collab.save_scenario({**scenario(world['seed']), 'worldRevision': world['updatedAt']}, A)
+    unlock = dict(requestId='preview-unlock', expectedBasis=state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='setMachineQueueLock', args=['C-04', None]))
+    collab.production_command(unlock, B)
+    note = dict(chargeKey='lock-preview', segmentId='delay-test', kind='delay', process='turning', start=46266, end=46267, note='Reviewed test note')
+    collab.production_command(dict(requestId='preview-note', expectedBasis=state_hash([]), command=dict(kind='saveJourneyNote', args=[note])), B)
+    current = db.planning_state()
+    preview = collab.publication_preview(draft['id'], dict(revision=draft['revision'], worldRevision=current['updatedAt'], previousId=None), A)
+    assert preview['previewId']
+    assert db.planning_state() == current
+    assert collab.collaboration_status()['publicationId'] is None
+    delivery = copy.deepcopy(factory['commands'][0])
+    basis = copy.deepcopy(current['seed'])
+    lot = next(row for row in basis['wipLots'] if row['id'] == 'lot-a')
+    ids = {value for value in [lot['id'], lot.get('sourceHistoryEntryId'), lot.get('sourceBatchId'), lot.get('parentLotId')] if value}
+    for field in ['wipLots', 'wipMovements', 'productionHistory']:
+        basis[field] = [row for row in basis.get(field, []) if any(isinstance(value, str) and value in ids for value in row.values())]
+    basis.update(chargeJourneyNotes=[], planningEvents=[], planNeedsRecalculation=False, lastAutomaticPlan=None, planRunSequence=None)
+    delivery['expectedBasis'] = state_hash(basis)
+    collab.production_command(delivery, A)
+    physical = db.planning_state()
+    with pytest.raises(HTTPException) as error:
+        collab.publication_preview(draft['id'], dict(revision=draft['revision'], worldRevision=physical['updatedAt'], previousId=None), A)
+    assert error.value.status_code == 409
+    assert 'Bu sırayla yeniden hesapla' in error.value.detail
+    assert db.planning_state() == physical
+    assert collab.collaboration_status()['publicationId'] is None

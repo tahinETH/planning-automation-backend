@@ -364,7 +364,7 @@ def production_command(value, user):
         return {"current": _world_reply(saved, value.get("responseMode")), "requestId": value["requestId"], "appliedRevision": saved["updatedAt"], "replayed": False}
 
 
-PLAN_NEUTRAL_COMMANDS = {"saveJourneyNote"}
+PLAN_NEUTRAL_COMMANDS = {"saveJourneyNote", "setMachineQueueLock"}
 
 
 def _only_plan_neutral_since(db, start, end):

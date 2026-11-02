@@ -4414,9 +4414,17 @@
         {
           "path": "backend/app/collaboration.py",
           "symbol": "production_command"
+        },
+        {
+          "path": "backend/app/collaboration.py",
+          "symbol": "publication_preview"
+        },
+        {
+          "path": "backend/app/collaboration.py",
+          "symbol": "_only_plan_neutral_since"
         }
       ],
-      "implementationNotes": "Screen context selects this bounded topic when the workspace card or publication dialog is open, or the current view is scenarios. Browser values are untrusted observations, not authorization. Backend authenticatedRole and collaboration authorization remain authoritative. Publication metadata comes from activePublication; legacy names are not inferred. The compact four-step guide identifies operator preparation/sharing and administrator copy/calculation/publication separately. Plan name notification is a manual handoff instruction, not an automatic message or new permission. Existing guideOpen context is unchanged.",
+      "implementationNotes": "Screen context selects this bounded topic when the workspace card or publication dialog is open, or the current view is scenarios. Browser values are untrusted observations, not authorization. Backend authenticatedRole and collaboration authorization remain authoritative. Publication metadata comes from activePublication; legacy names are not inferred. The compact four-step guide identifies operator preparation/sharing and administrator copy/calculation/publication separately. Plan name notification is a manual handoff instruction, not an automatic message or new permission. Existing guideOpen context is unchanged.\nDRAFT-PUB06: publication_preview follows the exact production_commands revision chain through _only_plan_neutral_since. Only saveJourneyNote and setMachineQueueLock are plan-neutral. A physical command, an unknown revision or more than 200 links requires recalculation. Preview still checks current world/scenario revisions, official inputs, protected jobs and the plan window; an existing preview cannot be confirmed after a world change.",
       "userSources": [
         "Üst çubuk → Ortak plan / Kişisel taslak / Yeni taslak",
         "Senaryolar → Planlarım → Paylaş",
