@@ -364,6 +364,22 @@ def production_command(value, user):
         return {"current": _world_reply(saved, value.get("responseMode")), "requestId": value["requestId"], "appliedRevision": saved["updatedAt"], "replayed": False}
 
 
+PLAN_NEUTRAL_COMMANDS = {"saveJourneyNote"}
+
+
+def _only_plan_neutral_since(db, start, end):
+    """Follow the exact command chain. Any other write between the revisions needs a new plan review."""
+    revision = end
+    for _ in range(200):
+        if revision == start:
+            return True
+        row = db.execute("SELECT kind,base_revision FROM production_commands WHERE result_revision=?", (revision,)).fetchone()
+        if not row or row["kind"] not in PLAN_NEUTRAL_COMMANDS:
+            return False
+        revision = row["base_revision"]
+    return False
+
+
 def publication_preview(scenario_id, value, user):
     if not user.is_admin:
         raise HTTPException(403, "Planı yalnız yönetici yayınlayabilir.")
@@ -376,8 +392,8 @@ def publication_preview(scenario_id, value, user):
         previous_id = active[0] if active else None
         if (scenario["revision"] != value["revision"] or current["updatedAt"] != value["worldRevision"] or previous_id != value.get("previousId")):
             raise HTTPException(409, "Plan veya üretim kaydı değişti. Önizlemeyi yenileyin.")
-        if scenario.get("worldRevision") != current["updatedAt"]:
-            raise HTTPException(409, "Taslak güncel üretimle kaydedilmedi. Önce taslağı inceleyip kaydedin.")
+        if scenario.get("worldRevision") != current["updatedAt"] and not _only_plan_neutral_since(db, scenario.get("worldRevision"), current["updatedAt"]):
+            raise HTTPException(409, "Ortak üretim taslaktan sonra değişti. Kişisel taslak kartından Bu sırayla yeniden hesapla kullanın.")
         accepted = run_domain({"action": "publish", "seed": current["seed"], "draft": scenario["seed"]})
         preview_id = str(uuid.uuid4())
         db.execute("INSERT INTO publication_previews VALUES(?,?,?,?,?,?,?,?)", (preview_id, user.id, scenario_id, scenario["revision"], current["updatedAt"], previous_id, now_iso(), json.dumps(accepted)))
@@ -386,6 +402,7 @@ def publication_preview(scenario_id, value, user):
         changes = [{"id": key, "before": before.get(key), "after": after.get(key)} for key in dict.fromkeys([*before, *after]) if before.get(key) != after.get(key)]
         return {"previewId": preview_id, "scenarioId": scenario_id, "revision": scenario["revision"], "name": scenario["name"],
                 "worldRevision": current["updatedAt"], "previousId": previous_id, "changes": changes,
+                "processOverrideChanges": sum(1 for row in accepted["seed"].get("processOperationOverrides", []) if row not in current["seed"].get("processOperationOverrides", [])) + sum(1 for row in current["seed"].get("processOperationOverrides", []) if row not in accepted["seed"].get("processOperationOverrides", [])),
                 "batchCount": len(after), "quantity": sum(row.get("quantity", 0) for row in after.values())}
 
 

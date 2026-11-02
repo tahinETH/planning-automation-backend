@@ -99,15 +99,26 @@ function canonicalSwitchSnapshot(snapshot) {
   };
   return JSON.stringify(stable2([...snapshot.slice(0, 10), queue]));
 }
+function compactSnapshot(canonical) {
+  let a = 3735928559, b = 1103547991;
+  for (let index = 0; index < canonical.length; index++) {
+    const code3 = canonical.charCodeAt(index);
+    a = Math.imul(a ^ code3, 2654435761);
+    b = Math.imul(b ^ code3, 1597334677);
+  }
+  a = Math.imul(a ^ a >>> 16, 2246822507) ^ Math.imul(b ^ b >>> 13, 3266489909);
+  b = Math.imul(b ^ b >>> 16, 2246822507) ^ Math.imul(a ^ a >>> 13, 3266489909);
+  return `v2:${canonical.length}:${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}`;
+}
 function productionSwitchSignature(seed, batches) {
-  return canonicalSwitchSnapshot([seed.machines, seed.processCurrentJobs ?? [], seed.wipLots ?? [], seed.productionInterruptions ?? [], seed.processOperationOverrides ?? [], seed.processMasterData, seed.calendarEvents, seed.products, seed.holidays, seed.setupSettings, batches]);
+  return compactSnapshot(canonicalSwitchSnapshot([seed.machines, seed.processCurrentJobs ?? [], seed.wipLots ?? [], seed.productionInterruptions ?? [], seed.processOperationOverrides ?? [], seed.processMasterData, seed.calendarEvents, seed.products, seed.holidays, seed.setupSettings, batches]));
 }
 function assertProductionSwitchSnapshot(seed, batches, input) {
   if (!input?.expectedSignature) return;
   const current = productionSwitchSignature(seed, batches);
   if (input.expectedSignature === current) return;
   try {
-    if (canonicalSwitchSnapshot(JSON.parse(input.expectedSignature)) === current) return;
+    if (compactSnapshot(canonicalSwitchSnapshot(JSON.parse(input.expectedSignature))) === current) return;
   } catch {
   }
   throw new Error("Mevcut i\u015F veya kuyruk de\u011Fi\u015Fti. Pencereyi kapat\u0131p g\xFCncel kay\u0131tla yeniden a\xE7\u0131n.");
@@ -8902,7 +8913,7 @@ function cloneSeed(seed) {
 }
 
 // lib/production-command.ts
-var productionCommandNames = ["setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
+var productionCommandNames = ["setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
 function productionCommandBasis(seed, command) {
   if (command.kind === "saveJourneyNote") {
     const input = command.args[0];
@@ -8976,6 +8987,65 @@ function replaceTurningCurrentJob(seed, result, machineId, targetBatchId, input,
   next.planRunSequence = void 0;
   next.planNeedsRecalculation = true;
   return { seed: next, result: nextResult };
+}
+function recordOutsidePlanProduction(seed, result, input, now) {
+  assertProductionSwitchSnapshot(seed, result.batches, { kind: "partial-completion", produced: true, expectedSignature: input.expectedSignature });
+  const batch = result.batches.find((item) => item.id === input.batchId && item.status === "planned");
+  if (!batch) throw new Error("Kuyrukta se\xE7ilen \u015Farj bulunamad\u0131. Pencereyi kapat\u0131p g\xFCncel kay\u0131tla yeniden a\xE7\u0131n.");
+  const reason = input.reason?.trim() ?? "";
+  if (!reason || reason.length > 2e3) throw new Error("Plan d\u0131\u015F\u0131 \xFCretim nedeni zorunludur ve en fazla 2000 karakter olabilir.");
+  if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0 || input.quantity > batch.quantity) throw new Error(`\xDCretilen adet 1 ile ${batch.quantity} aras\u0131nda tam say\u0131 olmal\u0131d\u0131r.`);
+  if (!Number.isFinite(input.producedAt) || input.producedAt <= 0 || input.producedAt > now + 1e-8) throw new Error("\xDCretim tarihi gelecekte olamaz.");
+  const next = structuredClone(seed);
+  const machine = next.machines.find((item) => item.id === batch.machineId);
+  if (!machine) throw new Error(`${batch.machineId} tezgah\u0131 bulunamad\u0131.`);
+  const partial = input.quantity < batch.quantity;
+  const splitId = partial ? `split-${crypto.randomUUID()}` : void 0;
+  const archivedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const history = {
+    id: `history-${crypto.randomUUID()}`,
+    sourceBatchId: partial ? `output-${splitId}` : batch.id,
+    interruptionIds: splitId ? [splitId] : void 0,
+    machineId: machine.id,
+    machineName: machine.name,
+    workOrder: batch.workOrder ?? "",
+    product: batch.product,
+    originalQuantity: input.quantity,
+    completedQuantity: input.quantity,
+    start: input.producedAt,
+    plannedEnd: batch.end,
+    completedAt: input.producedAt,
+    archivedAt,
+    process: "turning",
+    inventoryStatus: "semi-finished",
+    statusChangedAt: archivedAt,
+    statusChangeReason: `Plan d\u0131\u015F\u0131 \xFCretim kayd\u0131. ${reason}`
+  };
+  next.productionHistory = [history, ...next.productionHistory ?? []];
+  const remaining = partial ? { ...batch, quantity: batch.quantity - input.quantity, interruptionId: splitId, manuallyPlaced: true, reason: "Plan d\u0131\u015F\u0131 \xFCretimin kalan i\u015Fi.", explanation: reason } : void 0;
+  finishProductionInterruptions(next, batch.id, "turning", input.producedAt);
+  if (partial) next.productionInterruptions = [...next.productionInterruptions ?? [], {
+    id: splitId,
+    kind: "partial-completion",
+    chargeId: batch.id,
+    process: "turning",
+    resourceId: machine.id,
+    product: batch.product,
+    workOrder: batch.workOrder ?? "",
+    producedQuantity: input.quantity,
+    remainingQuantity: remaining.quantity,
+    reason,
+    occurredAt: input.producedAt,
+    turningBatch: { ...remaining }
+  }];
+  if (!registerTurningCompletion(next, history)) throw new Error("\xDCretilen adedin yar\u0131 mam\xFCl kayd\u0131 i\xE7in \xFCr\xFCn rotas\u0131n\u0131 tamamlay\u0131n.");
+  const batches = result.batches.flatMap((item) => item.id !== batch.id ? [{ ...item }] : remaining ? [remaining] : []);
+  const nextResult = scenarioResultFromBatches(next, batches);
+  next.manualBatches = nextResult.batches;
+  next.lastAutomaticPlan = void 0;
+  next.planRunSequence = void 0;
+  next.planNeedsRecalculation = true;
+  return { seed: next, result: nextResult, batch };
 }
 
 // lib/archive-corrections.ts
@@ -9371,6 +9441,12 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     commitOperationalChange(next.seed, next.result, `Mevcut i\u015F de\u011Fi\u015Ftirildi \xB7 ${label2}`, { type: "current-job", machineId, message: `${label2} ${input.produced ? `${input.quantity} adet \xFCretildi. ${input.reason?.trim()}` : "\xDCretim yap\u0131lmad\u0131."}` }, "Mevcut i\u015F de\u011Fi\u015Fikli\u011Fi geri al\u0131nabilir");
     setDirty(true);
   }
+  function recordOutsidePlanProduction2(input) {
+    const next = recordOutsidePlanProduction(seed, result, input, factoryNowSerial());
+    const label2 = `${next.batch.workOrder || next.batch.product} \xB7 ${formatInteger(input.quantity)} adet plan d\u0131\u015F\u0131 \xFCretim kaydedildi`;
+    commitOperationalChange(next.seed, next.result, `${label2} \xB7 plan\u0131 yeniden \xE7al\u0131\u015Ft\u0131r\u0131n`, { type: "current-job", machineId: next.batch.machineId, message: `${label2}. ${input.reason.trim()}` }, "Plan d\u0131\u015F\u0131 \xFCretim kayd\u0131 geri al\u0131nabilir");
+    setDirty(true);
+  }
   function completeCurrentJob(machineId, completedAt, completedQuantity, remainderAction) {
     const current = seed.machines.find((machine) => machine.id === machineId)?.currentJob;
     if (!current) throw new Error("Tezgah bulunamad\u0131.");
@@ -9591,6 +9667,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     placeDownstreamQueueOperation,
     replanDownstreamProcess,
     replaceTurningJob,
+    recordOutsidePlanProduction: recordOutsidePlanProduction2,
     saveCurrentJob,
     completeCurrentJob,
     changeProductionHistoryStatus,
@@ -9763,6 +9840,11 @@ function reviewProductionCancellation(seed, id, decision, note = "", now = /* @_
 }
 
 // lib/scenario-safety.ts
+var officialInputFields = ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock"];
+function officialInputValue(seed, field) {
+  if (field !== "machines") return seed[field] ?? null;
+  return seed.machines.map(({ availableStart: _available, operationalAvailableStart: _operational, currentJob: _current, ...machine }) => machine);
+}
 function copy(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -9844,6 +9926,19 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   }
   return reconcileTurningSeed(merged);
 }
+function mergePublishedOverrides(draft, live) {
+  const physical = /* @__PURE__ */ new Set();
+  for (const lot of live.wipLots ?? []) {
+    physical.add(lot.id);
+    if (lot.sourceBatchId) physical.add(lot.sourceBatchId);
+  }
+  for (const job of live.processCurrentJobs ?? []) physical.add(job.batchId);
+  const isPhysical = (batchId) => batchId.startsWith("current:") || physical.has(batchId);
+  return [
+    ...(live.processOperationOverrides ?? []).filter((item) => isPhysical(item.batchId)),
+    ...(draft.processOperationOverrides ?? []).filter((item) => !isPhysical(item.batchId))
+  ];
+}
 function rebaseScenarioPlan(seed, savedResult) {
   const result = recalculateManualScenario(seed, mergeRemainderLocks(seed, reconcileTurningQueue(seed, savedResult.batches)), { allowPlanEndOverflow: true });
   const machines = new Map(seed.machines.map((machine) => [machine.id, machine]));
@@ -9874,7 +9969,9 @@ function stable(value) {
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, stable(v)]));
   return value;
 }
+var lockedIdentity = (batch) => batch ? [batch.id, batch.machineId, batch.product, batch.workOrder ?? "", batch.quantity, batch.planColumn, Boolean(batch.locked), Boolean(batch.routeCommitted), batch.routeTargetDate ?? null, batch.interruptionId ?? null] : null;
 var hash = (value) => (0, import_node_crypto.createHash)("sha256").update(JSON.stringify(stable(value))).digest("hex");
+var planNeutralCommands = ["saveJourneyNote", "setMachineQueueLock"];
 try {
   const request = JSON.parse((0, import_node_fs.readFileSync)(0, "utf8"));
   const seed = request.seed;
@@ -9893,8 +9990,8 @@ try {
     if (draft.planNeedsRecalculation) throw Error("Taslak g\xFCncel de\u011Fil. Ortak \xFCretimle plan\u0131 yeniden inceleyip \xE7al\u0131\u015Ft\u0131r\u0131n.");
     const official = scenarioPlanningSeed(cloneSeed(seed));
     const candidate = scenarioPlanningSeed(cloneSeed(draft));
-    for (const field of ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock"]) {
-      if (hash(candidate[field] ?? null) !== hash(official[field] ?? null)) throw Error("Taslak sipari\u015F veya parametreleri ortak kay\u0131tla farkl\u0131. \xD6nce ortak girdilerle plan\u0131 yeniden inceleyin.");
+    for (const field of officialInputFields) {
+      if (hash(officialInputValue(candidate, field)) !== hash(officialInputValue(official, field))) throw Error("Taslak sipari\u015F veya parametreleri ortak kay\u0131tla farkl\u0131. \xD6nce ortak girdilerle plan\u0131 yeniden inceleyin.");
     }
     const next = structuredClone(seed);
     for (const field of fields) {
@@ -9902,8 +9999,9 @@ try {
       else delete next[field];
     }
     for (const batch of seed.manualBatches ?? []) {
-      if ((batch.locked || batch.routeCommitted) && hash(next.manualBatches?.find((row) => row.id === batch.id) ?? null) !== hash(batch)) throw Error("Yay\u0131nlama kilitli i\u015Fi de\u011Fi\u015Ftiremez. Y\xFCr\xFCrl\xFCkteki plan\u0131 inceleyin.");
+      if ((batch.locked || batch.routeCommitted) && hash(lockedIdentity(next.manualBatches?.find((row) => row.id === batch.id))) !== hash(lockedIdentity(batch))) throw Error("Yay\u0131nlama kilitli i\u015Fi de\u011Fi\u015Ftiremez. Y\xFCr\xFCrl\xFCkteki plan\u0131 inceleyin.");
     }
+    next.processOperationOverrides = mergePublishedOverrides(draft, seed);
     const merged = mergeScenarioWithLiveOperations(next, seed);
     const rebased = rebaseScenarioPlan(merged, scenarioResultFromBatches(merged, merged.manualBatches ?? []));
     if (rebased.overflows.length) throw Error("Plan penceresini a\u015Fan i\u015Fler var. Yay\u0131nlamadan \xF6nce plan\u0131 inceleyin.");
@@ -9931,7 +10029,7 @@ try {
       },
       commitOperationalChange: (nextSeed, nextResult, message, event) => {
         nextSeed.manualBatches = nextResult.batches;
-        nextSeed.planNeedsRecalculation = true;
+        nextSeed.planNeedsRecalculation = planNeutralCommands.includes(command.kind) ? Boolean(seed.planNeedsRecalculation) : true;
         if (event) nextSeed.planningEvents = [{ ...event, id: crypto.randomUUID(), createdAt: (/* @__PURE__ */ new Date()).toISOString() }, ...nextSeed.planningEvents ?? []].slice(0, 200);
         accepted = { seed: nextSeed, result: nextResult, message };
       }
