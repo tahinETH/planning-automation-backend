@@ -44,6 +44,7 @@ def _auth_test_mode() -> bool:
 @dataclass(frozen=True)
 class Settings:
     app_env: str = os.getenv("APP_ENV", "development")
+    enable_filter_production: bool = _bool("ENABLE_FILTER_PRODUCTION")
     database_path: Path = _path("DATABASE_PATH", BASE_DIR / "data" / "app.sqlite")
     upload_dir: Path = _path("UPLOAD_DIR", BASE_DIR / "data" / "uploads")
     cors_origins: tuple[str, ...] = _csv("CORS_ORIGINS", "http://localhost:3000")

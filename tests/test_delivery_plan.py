@@ -3,8 +3,8 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
-os.environ["DATABASE_PATH"] = "/tmp/selsa-planlama-feedback-test.sqlite"
-os.environ["UPLOAD_DIR"] = "/tmp/selsa-planlama-feedback-uploads"
+os.environ.setdefault("DATABASE_PATH", "/tmp/selsa-planlama-feedback-test.sqlite")
+os.environ.setdefault("UPLOAD_DIR", "/tmp/selsa-planlama-feedback-uploads")
 os.environ["ADMIN_PASSWORD"] = "test-password"
 os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 
@@ -173,3 +173,19 @@ def test_delivery_plan_expands_week_columns_beyond_the_original_six():
     assert sheet["F7"].value == "=SUM(P7:T7)"
     assert sheet["T50"].value == "=SUM(T7:T49)"
     assert sheet.auto_filter.ref == "B6:T49"
+
+
+def test_filter_product_group_is_written_from_payload_without_changing_shipments_or_plan():
+    template = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
+    payload = corrected_payload()
+    payload["rows"] = [{"product": "F.00V.C15.100", "family": "ÇUBUK FİLTRE", "orderQuantity": 16000, "weeklyQuantities": [0, 16000, 0, 71, 0, 0]}]
+    validated = DeliveryPlanPayload.model_validate(payload).model_dump()
+    sheet = load_workbook(BytesIO(build_delivery_plan(template, validated)), data_only=False)["Teslimat Planı"]
+    assert sheet["B7"].value == "F.00V.C15.100"
+    assert sheet["C7"].value == "ÇUBUK FİLTRE"
+    assert sheet["D7"].value == 16000
+    assert sheet["M7"].value == 16000
+    assert sheet["O7"].value == 71
+    assert sheet["E7"].value == "=SUM(M7,P7)"
+    assert sheet["F7"].value == "=SUM(O7,Q7)"
+    assert sheet["G7"].value == "=E7+F7-D7"

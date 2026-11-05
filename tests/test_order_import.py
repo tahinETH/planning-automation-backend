@@ -7,8 +7,8 @@ from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-os.environ["DATABASE_PATH"] = "/tmp/selsa-planlama-feedback-test.sqlite"
-os.environ["UPLOAD_DIR"] = "/tmp/selsa-planlama-feedback-uploads"
+os.environ.setdefault("DATABASE_PATH", "/tmp/selsa-planlama-feedback-test.sqlite")
+os.environ.setdefault("UPLOAD_DIR", "/tmp/selsa-planlama-feedback-uploads")
 os.environ["ADMIN_PASSWORD"] = "test-password"
 os.environ["APP_SESSION_SECRET"] = "test-session-secret-that-is-long-enough"
 

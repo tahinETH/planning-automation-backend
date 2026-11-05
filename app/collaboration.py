@@ -130,6 +130,16 @@ def list_scenarios(user, limit=None, offset=0):
 def _save(db, value, user, previous=None, source=None):
     timestamp = now_iso()
     revision = previous["revision"] + 1 if previous else 1
+    from .production_area import validate_seed_area
+    from .stock_planning import validate_stock_planning
+    try:
+        validate_seed_area(value["seed"])
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    try:
+        validate_stock_planning(value["seed"])
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
     seed = planning_only(value["seed"])
     created = previous["createdAt"] if previous else timestamp
     db.execute("""INSERT INTO scenarios(id,name,created_at,notes,inputs_json,result_json) VALUES(?,?,?,?,?,?)
@@ -350,7 +360,7 @@ def production_command(value, user):
         accepted = run_domain({"action": "command", "seed": current["seed"], "command": value["command"], "expectedBasis": value["expectedBasis"]})
         saved = save_planning_state(accepted["seed"], current["updatedAt"], mode="operational", actor_id=user.id,
             actor_name=user.name, can_manage_settings=user.is_admin, flow_settings_version=1, route_placement_version=1,
-            production_split_version=1, process_wait_settings_version=1, internal_connection=db)
+            production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1, internal_connection=db)
         if value["command"]["kind"] == "reviseOfficialOrder":
             request = accepted["orderReview"]["requested"]
             original = next(row for row in current["seed"]["orders"] if row["id"] == request["orderId"])
@@ -435,7 +445,7 @@ def publish_scenario(scenario_id, value, user):
             raise HTTPException(409, "Plan önizlemesi güncel değil. Önizlemeyi yenileyin.")
         saved = save_planning_state(accepted["seed"], current["updatedAt"], mode="planning", actor_id=user.id,
             actor_name=user.name, can_manage_settings=True, flow_settings_version=1, route_placement_version=1,
-            production_split_version=1, process_wait_settings_version=1, internal_connection=db)
+            production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1, internal_connection=db)
         publication_id = preview["id"]
         db.execute("""INSERT INTO published_plans(id,scope,scenario_id,scenario_revision,actor_id,created_at,
             previous_id,world_revision,value_json,actor_name,scenario_name) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
@@ -452,7 +462,9 @@ def collaboration_status():
         if not row:
             raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
         active = _active_publication(db, row["scope"])
-        return {"worldRevision": row["updated_at"], "publicationId": active["id"] if active else None, "activePublication": active,
+        from .handover import generation
+        from .production_area import area_available
+        return {"availableAreas": [area for area in ("torna", "cubuk-filtre") if area_available(area)], "generation": generation(db), "worldRevision": row["updated_at"], "publicationId": active["id"] if active else None, "activePublication": active,
                 "lastCommand": db.execute("SELECT COALESCE(MAX(sequence),0) FROM production_commands").fetchone()[0]}
 
 

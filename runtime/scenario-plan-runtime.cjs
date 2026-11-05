@@ -3,6 +3,37 @@
 // scripts/scenario-plan-runtime.ts
 var import_node_fs = require("node:fs");
 
+// lib/production-interruptions.ts
+function activeLotInterruptions(seed, lot) {
+  return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
+}
+function isProductionInterruption(item) {
+  return item.producedQuantity !== 0 && item.kind !== "partial-completion";
+}
+function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
+  const records = seed.productionInterruptions ?? [];
+  if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
+  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
+}
+
+// lib/filter-quality-calendar.ts
+var FILTER_QUALITY_RESOURCE = "CF-KALITE";
+function filterQualityReadyAt(seed, completed) {
+  if (!Number.isFinite(completed) || completed <= 0) throw new Error("Kalite bekleme ba\u015Flang\u0131c\u0131 ge\xE7ersiz.");
+  const fraction = completed - Math.floor(completed);
+  const resource = { id: FILTER_QUALITY_RESOURCE, shiftFactor: seed.filterQualityShifts ?? 1 };
+  for (let day = Math.floor(completed) + 1; day <= Math.floor(completed) + 3660; day++) {
+    if (machineDayCapacity(seed, resource, day).shifts > 0) return day + fraction;
+  }
+  throw new Error("Kalite bekleme takviminde a\xE7\u0131k \xE7al\u0131\u015Fma g\xFCn\xFC bulunamad\u0131.");
+}
+
+// lib/process-waits.ts
+function processWaitWorkdays(seed, process2) {
+  const item = seed.processWaitSettings?.[process2];
+  return item?.enabled ? item.workdays : 0;
+}
+
 // lib/flow-settings.ts
 function validateFlowSettings(value) {
   const fail = () => {
@@ -56,692 +87,143 @@ function addDepartmentWorkMinutes(seed, start, minutes) {
   throw new Error("Piston b\xF6l\xFCm\xFC i\xE7in \xE7al\u0131\u015F\u0131labilir bekleme saati bulunamad\u0131. Vardiya ve Mesai Bilgileri\u2019ni kontrol edin.");
 }
 
-// data/product-weights.json
-var product_weights_default = {
-  sourceFile: "Delme ve C\u0327apak alma Parametre bilgileri (2).xlsx",
-  sourceSheet: "\xDCR\xDCN A\u011EIRLIKLARI",
-  sha256: "f62457050fd305059909aa34c0704ee7f9397f493c0a612e7d3861484c8800e9",
-  unit: "Gram",
-  rows: [
-    {
-      product: "R902200287",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 74.45,
-      sourceRow: 619
-    },
-    {
-      product: "R902375400",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 380.63,
-      sourceRow: 640
-    },
-    {
-      product: "R902719052",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 74.45,
-      sourceRow: 580
-    },
-    {
-      product: "R902719076",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 43.15,
-      sourceRow: 575
-    },
-    {
-      product: "R902719738",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170008",
-      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
-      grams: 80.45,
-      sourceRow: 584
-    },
-    {
-      product: "R902719739",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170009",
-      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
-      grams: 228.91,
-      sourceRow: 566
-    },
-    {
-      product: "R902719740",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 402.33,
-      sourceRow: 587
-    },
-    {
-      product: "R902719741",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 504.17,
-      sourceRow: 588
-    },
-    {
-      product: "R902719742",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 697.93,
-      sourceRow: 595
-    },
-    {
-      product: "R902719743",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 75.13,
-      sourceRow: 576
-    },
-    {
-      product: "R902719762",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 71.42,
-      sourceRow: 577
-    },
-    {
-      product: "R902719763",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 70.35,
-      sourceRow: 581
-    },
-    {
-      product: "R902719764",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170008",
-      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
-      grams: 77.95,
-      sourceRow: 585
-    },
-    {
-      product: "R902719765",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170009",
-      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
-      grams: 228.91,
-      sourceRow: 568
-    },
-    {
-      product: "R902719766",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 378.84,
-      sourceRow: 569
-    },
-    {
-      product: "R902719767",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 477.84,
-      sourceRow: 571
-    },
-    {
-      product: "R902719768",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 662.66,
-      sourceRow: 594
-    },
-    {
-      product: "R902719812",
-      productName: "P\u0130STON",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 37.09,
-      sourceRow: 578
-    },
-    {
-      product: "R902725682",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 45.13,
-      sourceRow: 579
-    },
-    {
-      product: "R902729695",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 402.33,
-      sourceRow: 567
-    },
-    {
-      product: "R902729941",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 504.17,
-      sourceRow: 590
-    },
-    {
-      product: "R902744004",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 697.93,
-      sourceRow: 593
-    },
-    {
-      product: "R902745116",
-      productName: "P\u0130STON",
-      materialCode: "Z170008",
-      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
-      grams: 181,
-      sourceRow: 363
-    },
-    {
-      product: "R902745117",
-      productName: "P\u0130STON",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 340,
-      sourceRow: 366
-    },
-    {
-      product: "R902745119",
-      productName: "P\u0130STON",
-      materialCode: "Z170009",
-      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
-      grams: 222,
-      sourceRow: 374
-    },
-    {
-      product: "R902745121",
-      productName: "P\u0130STON",
-      materialCode: "Z170009",
-      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
-      grams: 204,
-      sourceRow: 375
-    },
-    {
-      product: "R902745123",
-      productName: "P\u0130STON",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 380,
-      sourceRow: 376
-    },
-    {
-      product: "R902745127",
-      productName: "P\u0130STON",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 67,
-      sourceRow: 377
-    },
-    {
-      product: "R902745129",
-      productName: "P\u0130STON",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 67,
-      sourceRow: 379
-    },
-    {
-      product: "R902745131",
-      productName: "P\u0130STON",
-      materialCode: "Z170007",
-      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
-      grams: 67,
-      sourceRow: 378
-    },
-    {
-      product: "R902745133",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 380
-    },
-    {
-      product: "R902745135",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 381
-    },
-    {
-      product: "R902745138",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 382
-    },
-    {
-      product: "R902745143",
-      productName: "P\u0130STON",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 461.76,
-      sourceRow: 383
-    },
-    {
-      product: "R902745145",
-      productName: "P\u0130STON",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 461.76,
-      sourceRow: 384
-    },
-    {
-      product: "R902745147",
-      productName: "P\u0130STON",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 651,
-      sourceRow: 385
-    },
-    {
-      product: "R902745149",
-      productName: "P\u0130STON",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 651,
-      sourceRow: 386
-    },
-    {
-      product: "R902745161",
-      productName: "P\u0130STON( CLUSTER 2)",
-      materialCode: "Z170016",
-      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
-      grams: 266,
-      sourceRow: 389
-    },
-    {
-      product: "R902745163",
-      productName: "P\u0130STON( CLUSTER 1)",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 360,
-      sourceRow: 390
-    },
-    {
-      product: "R902745165",
-      productName: "P\u0130STON( CLUSTER 1)",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 360,
-      sourceRow: 391
-    },
-    {
-      product: "R902745167",
-      productName: "P\u0130STON( CLUSTER 1)",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 360,
-      sourceRow: 392
-    },
-    {
-      product: "R902745169",
-      productName: "P\u0130STON( CLUSTER 2)",
-      materialCode: "Z170016",
-      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
-      grams: 260,
-      sourceRow: 393
-    },
-    {
-      product: "R902747620",
-      productName: "P\u0130STON( CLUSTER 2)",
-      materialCode: "Z170016",
-      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
-      grams: 266,
-      sourceRow: 387
-    },
-    {
-      product: "R902747621",
-      productName: "P\u0130STON( CLUSTER 2)",
-      materialCode: "Z170016",
-      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
-      grams: 266,
-      sourceRow: 388
-    },
-    {
-      product: "R902747824",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 469,
-      sourceRow: 565
-    },
-    {
-      product: "R902748350",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 380.63,
-      sourceRow: 589
-    },
-    {
-      product: "R902970039",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 468.02,
-      sourceRow: 570
-    },
-    {
-      product: "R902970233",
-      productName: "P\u0130STON( CLUSTER 1)",
-      materialCode: "Z170010",
-      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
-      grams: 360,
-      sourceRow: 520
-    },
-    {
-      product: "R902970275",
-      productName: "P\u0130STON( CLUSTER 4)",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 461.76,
-      sourceRow: 397
-    },
-    {
-      product: "R902970276",
-      productName: "P\u0130STON( CLUSTER 4)",
-      materialCode: "Z170011",
-      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
-      grams: 461.76,
-      sourceRow: 398
-    },
-    {
-      product: "R902970277",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 626.57,
-      sourceRow: 591
-    },
-    {
-      product: "R902970513",
-      productName: "P\u0130STON( CLUSTER 3)",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 487
-    },
-    {
-      product: "R902970514",
-      productName: "P\u0130STON( CLUSTER 3)",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 394
-    },
-    {
-      product: "R902970515",
-      productName: "P\u0130STON( CLUSTER 3)",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 121,
-      sourceRow: 395
-    },
-    {
-      product: "R902970516",
-      productName: "P\u0130STON( CLUSTER 3)",
-      materialCode: "Z170008",
-      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
-      grams: 160,
-      sourceRow: 396
-    },
-    {
-      product: "R902970517",
-      productName: "P\u0130STON( CLUSTER 3)",
-      materialCode: "Z170008",
-      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
-      grams: 158.91,
-      sourceRow: 460
-    },
-    {
-      product: "R902970729",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170009",
-      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
-      grams: 201.63,
-      sourceRow: 586
-    },
-    {
-      product: "R902970862",
-      productName: "P\u0130STON ( CLUSTER 6)",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 595,
-      sourceRow: 547
-    },
-    {
-      product: "R902970863",
-      productName: "P\u0130STON ( CLUSTER 6)",
-      materialCode: "Z170012",
-      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
-      grams: 595,
-      sourceRow: 548
-    },
-    {
-      product: "R902970964",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170018",
-      materialName: "\xD8  33,5    31 CRMOV 9V + SH + E",
-      grams: 885.4,
-      sourceRow: 592
-    },
-    {
-      product: "R902972555",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 65.28,
-      sourceRow: 572
-    },
-    {
-      product: "R902972556",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 65.28,
-      sourceRow: 573
-    },
-    {
-      product: "R902972557",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 65.28,
-      sourceRow: 622
-    },
-    {
-      product: "R902974041",
-      productName: "P\u0130STON",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 111.33,
-      sourceRow: 582
-    },
-    {
-      product: "R902974042",
-      productName: "A2 CENTER PIN",
-      materialCode: "Z170004",
-      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
-      grams: 126.89,
-      sourceRow: 583
+// lib/delivery-calendar.ts
+var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+var DAY_MS = 864e5;
+function dayOfWeek(serial) {
+  return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
+}
+function isFactoryWorkday(seed, serialValue) {
+  const serial = Math.floor(serialValue);
+  const addedShift = (seed.calendarEvents ?? []).some(
+    (event) => event.kind === "shift" && event.shiftCount > 0 && serial >= Math.floor(event.start) && serial <= Math.floor(event.end)
+  );
+  if (addedShift) return true;
+  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
+  if (holiday) return (holiday.workingShifts ?? 0) > 0;
+  return dayOfWeek(serial) !== 0;
+}
+function addFactoryWorkdays(seed, startValue, workdaysValue) {
+  if (!Number.isFinite(startValue) || startValue <= 0) return startValue;
+  const workdays = Math.max(0, Math.trunc(workdaysValue));
+  if (!workdays) return startValue;
+  let serial = Math.floor(startValue);
+  let remaining = workdays;
+  while (remaining > 0) {
+    serial += 1;
+    if (isFactoryWorkday(seed, serial)) remaining -= 1;
+  }
+  return serial;
+}
+function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
+  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
+  if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
+  return seed.productionArea === "cubuk-filtre" ? seed.monthlyCustomerDemand ? filterQualityReadyAt(seed, routeCompletionSerial) : routeCompletionSerial + 0.5 : addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
+}
+
+// lib/process-lead-time.ts
+var FILTER_WAIT_RESOURCE = "CF-BEKLEME";
+function applyProcessLeadStages(seed, start, stages) {
+  const resource = { id: FILTER_WAIT_RESOURCE, shiftFactor: seed.filterWaitShifts ?? 1, finishOffset: 0 };
+  let cursor = start;
+  for (const stage of stages ?? []) {
+    if (!Number.isFinite(stage.days) || stage.days < 0 || stage.days > 366) throw new Error("Bekleme s\xFCresi 0\u2013366 g\xFCn aras\u0131nda olmal\u0131d\u0131r.");
+    if (stage.days === 0) continue;
+    if (stage.calendarMode && resource.shiftFactor === 0 && !seed.calendarEvents?.some((event) => event.machineId === FILTER_WAIT_RESOURCE && event.end >= Math.floor(cursor) && (event.shiftCount ?? 0) > 0) && !seed.holidays.some((holiday) => holiday.serial >= Math.floor(cursor) && (holiday.workingShifts ?? 0) > 0)) throw new Error("\xC7ubuk Filtre bekleme takviminde \xE7al\u0131\u015Fma vardiyas\u0131 yok.");
+    if (stage.calendarMode === "workdays") {
+      if (!Number.isInteger(stage.days) || stage.days < 0) throw new Error("Bekleme i\u015F g\xFCn\xFC pozitif tam say\u0131 veya s\u0131f\u0131r olmal\u0131d\u0131r.");
+      const fraction = cursor - Math.floor(cursor);
+      let day = Math.floor(cursor), remaining = stage.days, guard = 0;
+      while (remaining > 0) {
+        day++;
+        if (machineDayCapacity(seed, resource, day).shifts > 0) remaining--;
+        if (++guard > 36600) throw new Error("\xC7ubuk Filtre bekleme takviminde \xE7al\u0131\u015Fma g\xFCn\xFC bulunamad\u0131.");
+      }
+      cursor = day + fraction;
+    } else if (stage.calendarMode === "workhours") {
+      cursor = addMachineCapacityHours(seed, resource, cursor, stage.days * 24).end;
+    } else cursor += stage.days;
+  }
+  return cursor;
+}
+
+// lib/process-flow.ts
+function curve(seed, resource, start, end, setupHours, quantity) {
+  const windows = [];
+  let setup = setupHours, hours = 0;
+  if (end - start > 36600 || end <= start || quantity <= 0) return void 0;
+  for (let day = Math.floor(start); day <= Math.floor(end); day += 1) {
+    const shifts = machineDayCapacity(seed, resource, day).shifts;
+    let left = Math.max(start, day);
+    const right = Math.min(end, day + shifts * getSetupSettings(seed).shiftHours / 24);
+    const skipped = Math.min(setup, Math.max(0, right - left) * 24);
+    setup -= skipped;
+    left += skipped / 24;
+    if (right > left) {
+      windows.push({ start: left, end: right });
+      hours += (right - left) * 24;
     }
-  ]
-};
-
-// lib/product-weights.ts
-function initialProductWeights() {
-  return structuredClone(product_weights_default.rows);
-}
-
-// lib/raw-material-settings.ts
-function initialRawMaterialSettings() {
-  return { scrapPercent: 2, stockDate: "", stocks: [] };
-}
-
-// data/product-setup-families.json
-var product_setup_families_default = {
-  "center-pin": [
-    "R902747824",
-    "R902970729",
-    "R902719738",
-    "R902719052",
-    "R902719743",
-    "R902719740",
-    "R902719739",
-    "R902970277",
-    "R902725682",
-    "R902970039",
-    "R902375400",
-    "R902748350",
-    "R902719742",
-    "R902729941",
-    "R902970964",
-    "R902719741",
-    "R902719765",
-    "R902719764",
-    "R902744004",
-    "R902719763",
-    "R902719766",
-    "R902719767",
-    "R902729695"
-  ],
-  piston: [
-    "R902745143",
-    "R902745138",
-    "R902747620",
-    "R902745121",
-    "R902745149",
-    "R902745145",
-    "R902747621",
-    "R902970515",
-    "R902970275",
-    "R902745163",
-    "R902745169",
-    "R902745119",
-    "R902745133",
-    "R902719812",
-    "R902745116",
-    "R902745129",
-    "R902745135",
-    "R902745117",
-    "R902745123",
-    "R902745127",
-    "R902745161",
-    "R902970516",
-    "R902745147",
-    "R902745131",
-    "R902970513",
-    "R902970276",
-    "R902745165",
-    "R902970862",
-    "R902970233",
-    "R902970514",
-    "R902970517",
-    "R902970863"
-  ]
-};
-
-// lib/setup-families.ts
-var FAMILY_VALUES = /* @__PURE__ */ new Set(["center-pin", "piston"]);
-var catalog = product_setup_families_default;
-var familyByProduct = /* @__PURE__ */ new Map();
-for (const family of ["center-pin", "piston"]) {
-  for (const rawProduct of catalog[family]) {
-    const product = rawProduct.trim().toUpperCase();
-    const existing = familyByProduct.get(product);
-    if (existing && existing !== family) throw new Error(`${product} hem ${existing} hem ${family} setup ailesinde tan\u0131ml\u0131.`);
-    familyByProduct.set(product, family);
   }
-}
-function normalizeProductSetupFamily(value) {
-  return typeof value === "string" && FAMILY_VALUES.has(value) ? value : void 0;
-}
-function catalogProductSetupFamily(productCode) {
-  return familyByProduct.get(productCode.trim().toUpperCase());
-}
-function resolvedProductSetupFamily(productCode, storedFamily) {
-  return normalizeProductSetupFamily(storedFamily) ?? catalogProductSetupFamily(productCode);
-}
-
-// lib/weekly-demand.ts
-var NET_SHORTAGE_CALCULATION_MODEL = "net-shortage-v1";
-function isoDateToUtc(value) {
-  const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime())) {
-    throw new Error(`Ge\xE7ersiz ISO tarih: ${value}`);
-  }
-  return date;
-}
-function addUtcDays(value, days) {
-  const date = isoDateToUtc(value);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-function normalizeCustomerDemandDataset(dataset) {
-  const weeks = dataset.weeks.map((week) => ({
-    ...week,
-    weekEnd: addUtcDays(week.weekStart, 5)
-  }));
-  const baselineDueDate = weeks[0] ? addUtcDays(weeks[0].weekStart, -2) : dataset.baselineDueDate;
-  const normalizedWeeks = new Map(weeks.map((week) => [week.id, week]));
-  const products = dataset.products.map((product) => {
-    let cumulativeQuantity = Math.max(0, -Number(product.baselineBalance || 0));
-    const priorDemand = cumulativeQuantity;
-    const weeklyDemands = product.weeklyDemands.map((week) => {
-      const normalizedWeek = normalizedWeeks.get(week.weekId);
-      const requiredQuantity = Math.max(0, -Number(week.balance || 0));
-      const nextCumulativeQuantity = Math.max(cumulativeQuantity, requiredQuantity);
-      const quantity = nextCumulativeQuantity - cumulativeQuantity;
-      cumulativeQuantity = nextCumulativeQuantity;
-      return {
-        ...week,
-        weekStart: normalizedWeek?.weekStart ?? week.weekStart,
-        weekEnd: normalizedWeek?.weekEnd ?? addUtcDays(week.weekStart, 5),
-        quantity,
-        cumulativeQuantity,
-        requiredQuantity
-      };
-    });
-    return {
-      ...product,
-      baselineDueDate,
-      priorDemand,
-      weeklyDemands,
-      totalDemand: cumulativeQuantity
-    };
+  if (hours <= 1e-8) return void 0;
+  let before = 0;
+  const rate = quantity / hours * 24;
+  const segments = windows.map((window) => {
+    const segment = { ...window, before, rate };
+    before += (window.end - window.start) * rate;
+    return segment;
   });
-  const weeksWithQuantity = weeks.map((week) => ({
-    ...week,
-    quantity: products.reduce(
-      (sum, product) => sum + (product.weeklyDemands.find((point) => point.weekId === week.id)?.quantity ?? 0),
-      0
-    )
-  }));
-  return {
-    ...dataset,
-    calculationModel: NET_SHORTAGE_CALCULATION_MODEL,
-    baselineDueDate,
-    weeks: weeksWithQuantity,
-    products
+  return { segments, quantity, start: windows[0].start, end: windows.at(-1).end };
+}
+function produced(curve2, time) {
+  if (time < curve2.start - 1e-10) return 0;
+  if (time >= curve2.end) return curve2.quantity;
+  const segment = curve2.segments.find((item) => time <= item.end) ?? curve2.segments.at(-1);
+  return Math.min(curve2.quantity, segment.before + Math.max(0, time - segment.start) * segment.rate);
+}
+function noStarvation(supply, demand) {
+  const times = [...supply.segments, ...demand.segments].flatMap((item) => [item.start, item.end]);
+  for (const time of times) {
+    if (time < demand.start - 1e-10 || time > demand.end + 1e-10) continue;
+    const needed = Math.min(demand.quantity, produced(demand, time) + Math.min(1, demand.quantity));
+    if (produced(supply, time) + 1e-5 < needed) return false;
+  }
+  for (const segment of demand.segments) {
+    const time = segment.start + (demand.quantity - Math.min(1, demand.quantity) - segment.before) / segment.rate;
+    if (time >= segment.start && time <= segment.end && produced(supply, time) + 1e-5 < demand.quantity) return false;
+  }
+  return true;
+}
+function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedStart, setupHours, runHours, quantity, targetMinutes) {
+  const machine = { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 };
+  const schedule = (start) => addMachineCapacityHours(calendarSeed, machine, start, setupHours + runHours);
+  const targetEnd = predecessor.end + targetMinutes / 1440;
+  const upstream = predecessor.process === "turning" ? seed.machines.find((item) => item.id === predecessor.resourceId) : seed.processMasterData?.resources.find((item) => item.id === predecessor.resourceId);
+  const upstreamCalendar = predecessor.resourceId.startsWith("B-01-") ? { ...seed, calendarEvents: seed.calendarEvents?.map((event) => event.machineId === "B-01" ? { ...event, machineId: predecessor.resourceId } : event) } : seed;
+  const supply = upstream && !predecessor.current && !(predecessor.process === "turning" && predecessor.source === "current-turning") && !predecessor.actual && predecessor.quantity === quantity ? curve(upstreamCalendar, { id: upstream.id, shiftFactor: "shiftFactor" in upstream ? upstream.shiftFactor : upstream.defaultShifts }, predecessor.start, predecessor.end, predecessor.setupHours, quantity) : void 0;
+  if (!supply) return { ...schedule(Math.max(requestedStart, predecessor.end)), targetEnd, reason: "\xD6nceki prosesin g\xFCvenilir par\xE7a \xE7\u0131k\u0131\u015F e\u011Frisi yok; kay\u0131tl\u0131 biti\u015F sonras\u0131 g\xFCvenli ba\u015Flang\u0131\xE7 kullan\u0131ld\u0131." };
+  const safe = (start) => {
+    const timing = schedule(start);
+    const consumption = curve(calendarSeed, machine, timing.start, timing.end, setupHours, quantity);
+    return !!consumption && noStarvation(supply, consumption);
   };
+  let left = Math.max(requestedStart, predecessor.start), right = Math.max(left, predecessor.end);
+  if (!safe(left)) {
+    for (let iteration = 0; iteration < 36; iteration += 1) {
+      const middle = (left + right) / 2;
+      if (safe(middle)) right = middle;
+      else left = middle;
+    }
+    left = right;
+  }
+  const earliest = schedule(left + 1e-8);
+  if (earliest.end > targetEnd + 1e-6) return { ...earliest, targetEnd, reason: "Hedef; par\xE7a beslemesi, setup, vardiya/bak\u0131m veya dolu kuyruk nedeniyle sa\u011Flanam\u0131yor. En erken kesintisiz ve g\xFCvenli biti\u015F g\xF6steriliyor." };
+  right = Math.max(left, targetEnd);
+  for (let iteration = 0; iteration < 36; iteration += 1) {
+    const middle = (left + right) / 2;
+    if (schedule(middle).end <= targetEnd + 1e-7) left = middle;
+    else right = middle;
+  }
+  return { ...schedule(left), targetEnd };
 }
 
 // data/process-master-data.json
@@ -4814,6 +4296,14 @@ var process_master_data_default = {
 function activeProcessResourceIds(parameter) {
   return parameter.resourcePriority.filter((id) => !parameter.inactiveResourceIds?.includes(id));
 }
+var FILTER_PROCESS_ORDER = ["turning", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"];
+function productionProcessOrder(seed) {
+  return seed.productionArea === "cubuk-filtre" ? FILTER_PROCESS_ORDER : PRODUCT_PROCESS_ORDER;
+}
+function effectiveProductRoute(product, turningResourceId) {
+  const route = productProcessRoute(product);
+  return product.family === "cubuk-filtre" && ["L-01", "L-02"].includes(turningResourceId ?? "") ? route.filter((p) => p !== "gtm") : route;
+}
 var PRODUCT_PROCESS_ORDER = ["turning", "drilling", "deburring", "gkm"];
 function productProcessRoute(product) {
   return product.route ?? ["turning", ...product.processes.slice().sort((a, b) => a.sequence - b.sequence).map((item) => item.process)];
@@ -4835,60 +4325,7 @@ function resourceSupportsProcessProduct(resource, product) {
   return resource.eligibleProductGroups.some((item) => item.trim().toLocaleLowerCase("tr-TR") === group);
 }
 function processLabel(process2) {
-  return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM" }[process2];
-}
-
-// lib/process-waits.ts
-function processWaitWorkdays(seed, process2) {
-  const item = seed.processWaitSettings?.[process2];
-  return item?.enabled ? item.workdays : 0;
-}
-
-// lib/production-interruptions.ts
-function activeLotInterruptions(seed, lot) {
-  return (seed.productionInterruptions ?? []).filter((item) => isProductionInterruption(item) && !item.completedAt && lot?.interruptionIds?.includes(item.id));
-}
-function isProductionInterruption(item) {
-  return item.producedQuantity !== 0 && item.kind !== "partial-completion";
-}
-function hasActiveProductionInterruption(seed, chargeId, interruptionId) {
-  const records = seed.productionInterruptions ?? [];
-  if (records.some((item) => isProductionInterruption(item) && !item.completedAt && (Boolean(chargeId && item.chargeId === chargeId) || item.id === interruptionId))) return true;
-  return Boolean(interruptionId && !records.some((item) => item.id === interruptionId));
-}
-
-// lib/delivery-calendar.ts
-var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
-var DAY_MS = 864e5;
-function dayOfWeek(serial) {
-  return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
-}
-function isFactoryWorkday(seed, serialValue) {
-  const serial = Math.floor(serialValue);
-  const addedShift = (seed.calendarEvents ?? []).some(
-    (event) => event.kind === "shift" && event.shiftCount > 0 && serial >= Math.floor(event.start) && serial <= Math.floor(event.end)
-  );
-  if (addedShift) return true;
-  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
-  if (holiday) return (holiday.workingShifts ?? 0) > 0;
-  return dayOfWeek(serial) !== 0;
-}
-function addFactoryWorkdays(seed, startValue, workdaysValue) {
-  if (!Number.isFinite(startValue) || startValue <= 0) return startValue;
-  const workdays = Math.max(0, Math.trunc(workdaysValue));
-  if (!workdays) return startValue;
-  let serial = Math.floor(startValue);
-  let remaining = workdays;
-  while (remaining > 0) {
-    serial += 1;
-    if (isFactoryWorkday(seed, serial)) remaining -= 1;
-  }
-  return serial;
-}
-function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess = "gkm") {
-  const rule = family ? flowRule(seed, family, lastProcess, "delivery") : void 0;
-  if (rule?.mode === "static") return addDepartmentWorkMinutes(seed, routeCompletionSerial, rule.minutes);
-  return addFactoryWorkdays(seed, routeCompletionSerial, processWaitWorkdays(seed, lastProcess));
+  return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
 }
 
 // lib/wip-ledger.ts
@@ -4981,16 +4418,19 @@ function hydrateWipFromProductionHistory(seed) {
 }
 function applyCustomRouteProgress(seed, lot, process2, completedAt) {
   const product = processMasterDataForProduct(seed.processMasterData, lot.product);
-  const next = product.route[product.route.indexOf(process2) + 1];
+  const route = effectiveProductRoute(product, lot.completedSteps.find((s) => s.process === "turning")?.resourceId);
+  const next = route[route.indexOf(process2) + 1];
   if (next && next !== "turning") {
     const parameter = product.processes.find((item) => item.process === next);
+    if (!parameter) throw new Error(`${lot.product} i\xE7in ${processLabel(next)} parametreleri tamamlanmal\u0131; mevcut \xFCretim korunuyor.`);
+    const wait = product.family === "cubuk-filtre" ? parameter.waitWorkdaysBefore : processWaitWorkdays(seed, process2);
     lot.nextProcess = next;
-    lot.stage = next === "drilling" ? processWaitWorkdays(seed, process2) > 0 ? "quality-hold" : "drilling-queue" : next === "deburring" ? "deburring-queue" : processWaitWorkdays(seed, process2) > 0 ? "gkm-buffer" : "gkm-queue";
-    lot.readyAt = addWipWaitWorkdays(seed, completedAt, processWaitWorkdays(seed, process2));
+    lot.stage = product.family === "cubuk-filtre" ? parameter.leadStages?.length ? "process-buffer" : "process-queue" : next === "drilling" ? wait > 0 ? "quality-hold" : "drilling-queue" : next === "deburring" ? "deburring-queue" : wait > 0 ? "gkm-buffer" : "gkm-queue";
+    lot.readyAt = applyProcessLeadStages(seed, addWipWaitWorkdays(seed, completedAt, wait), parameter.leadStages);
   } else {
     lot.stage = "delivery-ready";
     delete lot.nextProcess;
-    lot.readyAt = routedDeliveryReadyAt(seed, completedAt, void 0, process2);
+    lot.readyAt = routedDeliveryReadyAt(seed, completedAt, lot.family, process2);
   }
 }
 function applyCompletedFlow(seed, lot, process2, completedAt) {
@@ -5001,394 +4441,11 @@ function applyCompletedFlow(seed, lot, process2, completedAt) {
   if (lot.nextProcess === "gkm") lot.stage = lot.readyAt > completedAt ? "washing-buffer" : "gkm-queue";
 }
 
-// lib/planning-state.ts
-var CURRENT_PLANNING_SCHEMA_VERSION = 22;
-var CUSTOMER_DEMAND_PLAN_RESET_VERSION = 8;
-var OPERATIONAL_AVAILABILITY_VERSION = 10;
-var PRODUCT_FAMILY_SETUP_VERSION = 12;
-var PROCESS_MASTER_DATA_VERSION = 13;
-var WIP_LEDGER_VERSION = 14;
-var PROCESS_RESOURCE_CONFIGURATION_VERSION = 16;
-var DRILLING_TRANSFER_FLOW_VERSION = 18;
-var FACTORY_ROUTE_CALENDAR_VERSION = 19;
-var DOOSAN_ALTERNATIVE_CONFIGURATION_VERSION = 20;
-var LEGACY_ORDER_PERIOD = "2026-08";
-var periodPattern = /^(\d{4})-(0[1-9]|1[0-2])$/;
-function previousSaturdayIfSunday(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.getTime()) || date.getUTCDay() !== 0) return value;
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
-}
-function inputDateToSerial(value) {
-  return value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
-}
-function isPeriodId(value) {
-  return typeof value === "string" && periodPattern.test(value);
-}
-function periodIndex(periodId) {
-  if (!isPeriodId(periodId)) throw new Error(`Ge\xE7ersiz d\xF6nem: ${String(periodId)}`);
-  const [year, month] = periodId.split("-").map(Number);
-  return year * 12 + month - 1;
-}
-function periodFromIndex(index) {
-  if (!Number.isInteger(index) || index < 0) throw new Error(`Ge\xE7ersiz d\xF6nem indeksi: ${index}`);
-  const year = Math.floor(index / 12);
-  const month = index % 12 + 1;
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
-function periodRange(scope) {
-  const start = periodIndex(scope.startPeriod);
-  const end = periodIndex(scope.endPeriod);
-  if (start > end) throw new Error("Planlama ba\u015Flang\u0131\xE7 d\xF6nemi biti\u015F d\xF6neminden sonra olamaz.");
-  return Array.from({ length: end - start + 1 }, (_, offset) => periodFromIndex(start + offset));
-}
-function normalizePlanningScope(scope) {
-  periodRange(scope);
-  return { startPeriod: scope.startPeriod, endPeriod: scope.endPeriod };
-}
-function migratePlanningSeed(seed, fallbackPeriod = LEGACY_ORDER_PERIOD) {
-  if (!isPeriodId(fallbackPeriod)) throw new Error(`Ge\xE7ersiz ge\xE7i\u015F d\xF6nemi: ${fallbackPeriod}`);
-  const copy = JSON.parse(JSON.stringify(seed));
-  if (copy.flowSettings !== void 0) copy.flowSettings = validateFlowSettings(copy.flowSettings);
-  if (copy.productWeights === void 0) copy.productWeights = initialProductWeights();
-  if (copy.rawMaterialSettings === void 0) copy.rawMaterialSettings = initialRawMaterialSettings();
-  const previousSchemaVersion = Number(copy.schemaVersion ?? 0);
-  if (previousSchemaVersion < 21 && copy.manualBatches?.length) copy.planNeedsRecalculation = true;
-  if (previousSchemaVersion < 22 && copy.flowSettings?.enabled && copy.processWaitSettings && copy.manualBatches?.length) copy.planNeedsRecalculation = true;
-  copy.schemaVersion = CURRENT_PLANNING_SCHEMA_VERSION;
-  if (previousSchemaVersion < PROCESS_MASTER_DATA_VERSION || !copy.processMasterData) {
-    copy.processMasterData = cloneFoundationalProcessMasterData();
-  }
-  if (copy.processMasterData) {
-    copy.processMasterData.products = copy.processMasterData.products.map((product) => ({
-      ...product,
-      productGroup: product.productGroup?.trim() || product.family
-    }));
-    copy.processMasterData.planningStrategies = {
-      drilling: copy.processMasterData.planningStrategies?.drilling ?? "campaign",
-      deburring: copy.processMasterData.planningStrategies?.deburring ?? "earliest-ready",
-      gkm: copy.processMasterData.planningStrategies?.gkm ?? "earliest-ready"
-    };
-    copy.processMasterData.transferBatchQuantities = {
-      ...copy.processMasterData.transferBatchQuantities,
-      drilling: copy.processMasterData.transferBatchQuantities?.drilling ?? 100
-    };
-    if (previousSchemaVersion < DRILLING_TRANSFER_FLOW_VERSION) {
-      copy.processMasterData.products = copy.processMasterData.products.map((product) => ({
-        ...product,
-        processes: product.processes.map((parameter) => parameter.process === "drilling" ? { ...parameter, waitWorkdaysBefore: 0 } : parameter)
-      }));
-    }
-    copy.processMasterData.resources = copy.processMasterData.resources.map((resource) => {
-      const defaultGroups = resource.process === "gkm" ? resource.id === "V-01" || resource.id === "V-02" || resource.id === "V-03" ? ["piston", "center-pin"] : [] : ["piston", "center-pin"];
-      const configureGkm = previousSchemaVersion < PROCESS_RESOURCE_CONFIGURATION_VERSION && resource.process === "gkm";
-      return {
-        ...resource,
-        active: configureGkm ? resource.id === "V-01" || resource.id === "V-02" : resource.active,
-        defaultShifts: Math.max(0, Math.min(3, Math.trunc(Number(resource.defaultShifts) || 0))),
-        availableStart: Number.isFinite(resource.availableStart) && resource.availableStart > 0 ? Math.floor(resource.availableStart) : void 0,
-        planEnd: Number.isFinite(resource.planEnd) && resource.planEnd > 0 ? Math.ceil(resource.planEnd) : void 0,
-        eligibleProductGroups: resource.eligibleProductGroups ?? defaultGroups
-      };
-    });
-  }
-  copy.processOperationOverrides = (copy.processOperationOverrides ?? []).filter(
-    (override) => Boolean(override.batchId && override.process && override.resourceId && Number.isFinite(override.requestedStart) && override.requestedStart > 0)
-  );
-  copy.products = copy.products.map((product) => {
-    const setupFamily = resolvedProductSetupFamily(product.product, product.setupFamily);
-    return setupFamily ? { ...product, setupFamily } : product;
-  });
-  if (previousSchemaVersion < DOOSAN_ALTERNATIVE_CONFIGURATION_VERSION) {
-    const productCodes = ["R902970277", "R902719742", "R902970964"];
-    const machineIds = ["C-11", "C-12", "C-08"];
-    for (const productCode of productCodes) {
-      const product = copy.products.find((item) => item.product.toUpperCase() === productCode);
-      const fallbackShiftRate = machineIds.map((machineId) => Number(copy.machines.find((machine) => machine.id === machineId)?.rates[productCode]) || 0).find((rate) => rate > 0) ?? (Number(product?.shiftRate) > 0 ? Number(product?.shiftRate) : Number(product?.dailyRate) / 3);
-      const preference = copy.preferences.find((item) => item.key.toUpperCase() === productCode);
-      const repairedPreference = {
-        key: productCode,
-        machines: [...machineIds],
-        ruleType: "operational-alternative",
-        description: "C-11 ve C-12 i\xE7in C-08 Doosan alternatif tezgah\u0131",
-        source: "Operasyon karar\u0131 \xB7 2026-08-27"
-      };
-      if (preference) Object.assign(preference, repairedPreference);
-      else copy.preferences.push(repairedPreference);
-      if (product) {
-        product.eligibleMachines = [...machineIds];
-        product.alternativeMachines = [...machineIds];
-      }
-      if (fallbackShiftRate > 0) {
-        for (const machineId of machineIds) {
-          const machine = copy.machines.find((item) => item.id === machineId);
-          if (machine && !(Number(machine.rates[productCode]) > 0)) machine.rates[productCode] = fallbackShiftRate;
-        }
-      }
-    }
-  }
-  if (previousSchemaVersion < PRODUCT_FAMILY_SETUP_VERSION) {
-    const legacy = copy.setupSettings;
-    copy.setupSettings = {
-      model: "product-family",
-      shiftHours: Number.isFinite(legacy?.shiftHours) ? Number(legacy?.shiftHours) : 8,
-      sameDiameterHours: 1,
-      differentDiameterHours: Number.isFinite(legacy?.differentDiameterHours) ? Number(legacy?.differentDiameterHours) : 3,
-      sameFamilyDifferentDiameterHours: 2,
-      crossFamilyHours: 5
-    };
-  }
-  copy.orders = copy.orders.map((order) => ({
-    ...order,
-    periodId: isPeriodId(order.periodId) ? order.periodId : fallbackPeriod
-  }));
-  if (Array.isArray(copy.demandTargets)) {
-    copy.demandTargets = copy.demandTargets.map((target) => ({
-      ...target,
-      periodId: isPeriodId(target.periodId) ? target.periodId : fallbackPeriod
-    }));
-  }
-  copy.customerOrderOverrides = (copy.customerOrderOverrides ?? []).map((override) => ({
-    product: String(override.product ?? "").trim().toUpperCase(),
-    quantity: Math.max(0, Math.trunc(Number(override.quantity) || 0)),
-    dueDate: String(override.dueDate ?? "").trim(),
-    updatedAt: String(override.updatedAt ?? "")
-  })).filter((override) => Boolean(override.product));
-  copy.productionHistory = (copy.productionHistory ?? []).map((entry) => ({
-    ...entry,
-    process: entry.process ?? "turning",
-    inventoryStatus: entry.inventoryStatus ?? "semi-finished",
-    statusChangedAt: entry.statusChangedAt ?? entry.archivedAt
-  }));
-  copy.wipLots = (copy.wipLots ?? []).map((lot) => {
-    const completedSteps = lot.completedSteps ?? [];
-    const lastStep = completedSteps.at(-1);
-    const legacyRouteReadyAt = previousSchemaVersion < FACTORY_ROUTE_CALENDAR_VERSION && lot.stage === "delivery-ready" && lastStep?.process === "gkm" ? addFactoryWorkdays(copy, lastStep.end, 1) : lot.readyAt;
-    return {
-      ...lot,
-      readyAt: legacyRouteReadyAt,
-      availableQuantity: Math.max(0, Number(lot.availableQuantity) || 0),
-      deliveredQuantity: Math.max(0, Number(lot.deliveredQuantity) || 0),
-      scrappedQuantity: Math.max(0, Number(lot.scrappedQuantity) || 0),
-      nextProcess: lot.nextProcess ?? nextProcessForWipStage(lot.stage),
-      completedSteps
-    };
-  });
-  copy.productionInterruptions = copy.productionInterruptions ?? [];
-  copy.wipMovements = copy.wipMovements ?? [];
-  copy.chargeJourneyNotes = (copy.chargeJourneyNotes ?? []).filter((note) => Boolean(note.chargeKey && note.segmentId && note.note?.trim()));
-  if (previousSchemaVersion < WIP_LEDGER_VERSION || !copy.wipLots.length) hydrateWipFromProductionHistory(copy);
-  const activeScopeStart = copy.activePlanRun?.scope.kind === "customer-weeks" ? inputDateToSerial(copy.activePlanRun.scope.startDate) : 0;
-  copy.machines = copy.machines.map((machine) => {
-    if (Number.isFinite(machine.operationalAvailableStart)) return machine;
-    let operationalAvailableStart = machine.availableStart;
-    if (previousSchemaVersion < OPERATIONAL_AVAILABILITY_VERSION && activeScopeStart > 0) {
-      const currentJobEnd = Number(machine.currentJob?.end) || 0;
-      operationalAvailableStart = currentJobEnd > 0 ? Math.min(machine.availableStart, currentJobEnd) : Math.min(machine.availableStart, activeScopeStart);
-    }
-    return { ...machine, operationalAvailableStart };
-  });
-  if (copy.customerDemand) {
-    const previousDemand = copy.customerDemand;
-    copy.customerDemand = normalizeCustomerDemandDataset(copy.customerDemand);
-    const dateReplacements = new Map([
-      [previousDemand.baselineDueDate, copy.customerDemand.baselineDueDate],
-      ...previousDemand.weeks.map((week, index) => [week.weekEnd, copy.customerDemand.weeks[index]?.weekEnd ?? week.weekEnd])
-    ]);
-    const overriddenProducts = new Set(copy.customerOrderOverrides.map((override) => override.product));
-    const normalizedCustomerDate = (orderId, value) => dateReplacements.get(value) ?? (orderId.startsWith("confirmed-") ? previousSaturdayIfSunday(value) : value);
-    copy.orders = copy.orders.map((order) => overriddenProducts.has(order.product.toUpperCase()) ? order : {
-      ...order,
-      dueDate: normalizedCustomerDate(order.id, order.dueDate),
-      partialDeliveryDate: normalizedCustomerDate(order.id, order.partialDeliveryDate),
-      deliveryMilestones: order.deliveryMilestones?.map((milestone) => ({
-        ...milestone,
-        date: normalizedCustomerDate(order.id, milestone.date)
-      }))
-    });
-    if (previousSchemaVersion < CUSTOMER_DEMAND_PLAN_RESET_VERSION) {
-      copy.manualBatches = [];
-      copy.activePlanRun = void 0;
-      copy.planRunSequence = void 0;
-      copy.lastAutomaticPlan = void 0;
-    }
-  }
-  copy.openingStock = copy.customerDemand ? {} : Object.entries(copy.openingStock ?? {}).reduce((stock, [product, quantity]) => {
-    const code = product.trim().toUpperCase();
-    const normalizedQuantity = Math.max(0, Number(quantity) || 0);
-    if (code && normalizedQuantity > 0) stock[code] = normalizedQuantity;
-    return stock;
-  }, {});
-  const existingScope = copy.activePlanningScope;
-  copy.activePlanningScope = existingScope && isPeriodId(existingScope.startPeriod) && isPeriodId(existingScope.endPeriod) ? normalizePlanningScope(existingScope) : { startPeriod: fallbackPeriod, endPeriod: fallbackPeriod };
-  return copy;
-}
-
-// lib/planning.ts
-function excelSerialToDate(serial) {
-  return new Date(Date.UTC(1899, 11, 30) + serial * 864e5);
-}
-function shiftCount(value) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(3, Math.trunc(value)));
-}
-function machineDayCapacity(seed, machine, serialValue) {
-  const serial = Math.floor(serialValue);
-  const events = (seed.calendarEvents ?? []).filter((event) => event.machineId === machine.id && serial >= Math.floor(event.start) && serial <= Math.floor(event.end));
-  const maintenance = events.find((event) => event.kind === "maintenance");
-  if (maintenance) return { shifts: 0, kind: "maintenance", label: maintenance.name || "Planl\u0131 bak\u0131m" };
-  const shiftOverride = [...events].reverse().find((event) => event.kind === "shift");
-  if (shiftOverride) return { shifts: shiftCount(shiftOverride.shiftCount), kind: "shift", label: shiftOverride.name || "Vardiya de\u011Fi\u015Fikli\u011Fi" };
-  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
-  if (holiday) {
-    const shifts = shiftCount(holiday.workingShifts);
-    return { shifts, kind: "holiday", label: shifts ? `${holiday.name} \xB7 ${shifts} vardiya` : holiday.name };
-  }
-  if (excelSerialToDate(serial).getUTCDay() === 0) return { shifts: 0, kind: "sunday", label: "Pazar \xB7 \xFCretim yok" };
-  return { shifts: shiftCount(machine.shiftFactor), kind: "normal", label: `${shiftCount(machine.shiftFactor)} vardiya` };
-}
-var DEFAULT_SETUP_SETTINGS = {
-  model: "product-family",
-  shiftHours: 8,
-  sameDiameterHours: 1,
-  differentDiameterHours: 3,
-  sameFamilyDifferentDiameterHours: 2,
-  crossFamilyHours: 5
-};
-function getSetupSettings(seed) {
-  const source = seed.setupSettings ?? DEFAULT_SETUP_SETTINGS;
-  const model = source.model === "diameter-only" ? "diameter-only" : "product-family";
-  const nonNegative = (value, fallback) => Number.isFinite(value) ? Math.max(0, Number(value)) : fallback;
-  return {
-    model,
-    shiftHours: Math.max(1, Math.min(24, nonNegative(source.shiftHours, DEFAULT_SETUP_SETTINGS.shiftHours))),
-    sameDiameterHours: nonNegative(source.sameDiameterHours, DEFAULT_SETUP_SETTINGS.sameDiameterHours),
-    differentDiameterHours: nonNegative(source.differentDiameterHours, DEFAULT_SETUP_SETTINGS.differentDiameterHours),
-    sameFamilyDifferentDiameterHours: nonNegative(source.sameFamilyDifferentDiameterHours, DEFAULT_SETUP_SETTINGS.sameFamilyDifferentDiameterHours),
-    crossFamilyHours: nonNegative(source.crossFamilyHours, DEFAULT_SETUP_SETTINGS.crossFamilyHours)
-  };
-}
-function addMachineCapacityHours(seed, machine, startValue, hoursValue) {
-  let cursor = Math.max(0, startValue);
-  let remaining = Math.max(0, hoursValue);
-  let actualStart = 0;
-  let guard = 0;
-  const shiftHours = getSetupSettings(seed).shiftHours;
-  while (remaining > 0 || !actualStart) {
-    const day = Math.floor(cursor);
-    const capacityHours = machineDayCapacity(seed, machine, day).shifts * shiftHours;
-    const windowStart = day;
-    const windowEnd = day + capacityHours / 24;
-    if (capacityHours <= 0 || cursor >= windowEnd - 1e-8) {
-      cursor = day + 1;
-      guard += 1;
-      if (guard > 36600) throw new Error(`${machine.id} i\xE7in \xE7al\u0131\u015F\u0131labilir takvim saati bulunamad\u0131.`);
-      continue;
-    }
-    cursor = Math.max(cursor, windowStart);
-    if (!actualStart) actualStart = cursor;
-    if (remaining <= 0) break;
-    const availableHours = Math.max(0, (windowEnd - cursor) * 24);
-    const consumed = Math.min(remaining, availableHours);
-    cursor += consumed / 24;
-    remaining -= consumed;
-    if (remaining > 1e-8) cursor = day + 1;
-    guard += 1;
-    if (guard > 36600) throw new Error(`${machine.id} i\xE7in \xE7al\u0131\u015F\u0131labilir takvim saati bulunamad\u0131.`);
-  }
-  return { start: actualStart, end: Math.round((cursor + machine.finishOffset) * 1e6) / 1e6 };
-}
-function currentJobRouteIdentity(machine) {
-  const job = machine.currentJob;
-  return JSON.stringify(job.batchId ? [machine.id, job.batchId, job.product] : [machine.id, job.product, job.workOrder, job.start, job.originalQuantity ?? job.quantity]);
-}
-
-// lib/process-flow.ts
-function curve(seed, resource, start, end, setupHours, quantity) {
-  const windows = [];
-  let setup = setupHours, hours = 0;
-  if (end - start > 36600 || end <= start || quantity <= 0) return void 0;
-  for (let day = Math.floor(start); day <= Math.floor(end); day += 1) {
-    const shifts = machineDayCapacity(seed, resource, day).shifts;
-    let left = Math.max(start, day);
-    const right = Math.min(end, day + shifts * getSetupSettings(seed).shiftHours / 24);
-    const skipped = Math.min(setup, Math.max(0, right - left) * 24);
-    setup -= skipped;
-    left += skipped / 24;
-    if (right > left) {
-      windows.push({ start: left, end: right });
-      hours += (right - left) * 24;
-    }
-  }
-  if (hours <= 1e-8) return void 0;
-  let before = 0;
-  const rate = quantity / hours * 24;
-  const segments = windows.map((window) => {
-    const segment = { ...window, before, rate };
-    before += (window.end - window.start) * rate;
-    return segment;
-  });
-  return { segments, quantity, start: windows[0].start, end: windows.at(-1).end };
-}
-function produced(curve2, time) {
-  if (time < curve2.start - 1e-10) return 0;
-  if (time >= curve2.end) return curve2.quantity;
-  const segment = curve2.segments.find((item) => time <= item.end) ?? curve2.segments.at(-1);
-  return Math.min(curve2.quantity, segment.before + Math.max(0, time - segment.start) * segment.rate);
-}
-function noStarvation(supply, demand) {
-  const times = [...supply.segments, ...demand.segments].flatMap((item) => [item.start, item.end]);
-  for (const time of times) {
-    if (time < demand.start - 1e-10 || time > demand.end + 1e-10) continue;
-    const needed = Math.min(demand.quantity, produced(demand, time) + Math.min(1, demand.quantity));
-    if (produced(supply, time) + 1e-5 < needed) return false;
-  }
-  for (const segment of demand.segments) {
-    const time = segment.start + (demand.quantity - Math.min(1, demand.quantity) - segment.before) / segment.rate;
-    if (time >= segment.start && time <= segment.end && produced(supply, time) + 1e-5 < demand.quantity) return false;
-  }
-  return true;
-}
-function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedStart, setupHours, runHours, quantity, targetMinutes) {
-  const machine = { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 };
-  const schedule = (start) => addMachineCapacityHours(calendarSeed, machine, start, setupHours + runHours);
-  const targetEnd = predecessor.end + targetMinutes / 1440;
-  const upstream = predecessor.process === "turning" ? seed.machines.find((item) => item.id === predecessor.resourceId) : seed.processMasterData?.resources.find((item) => item.id === predecessor.resourceId);
-  const upstreamCalendar = predecessor.resourceId.startsWith("B-01-") ? { ...seed, calendarEvents: seed.calendarEvents?.map((event) => event.machineId === "B-01" ? { ...event, machineId: predecessor.resourceId } : event) } : seed;
-  const supply = upstream && !predecessor.current && !(predecessor.process === "turning" && predecessor.source === "current-turning") && !predecessor.actual && predecessor.quantity === quantity ? curve(upstreamCalendar, { id: upstream.id, shiftFactor: "shiftFactor" in upstream ? upstream.shiftFactor : upstream.defaultShifts }, predecessor.start, predecessor.end, predecessor.setupHours, quantity) : void 0;
-  if (!supply) return { ...schedule(Math.max(requestedStart, predecessor.end)), targetEnd, reason: "\xD6nceki prosesin g\xFCvenilir par\xE7a \xE7\u0131k\u0131\u015F e\u011Frisi yok; kay\u0131tl\u0131 biti\u015F sonras\u0131 g\xFCvenli ba\u015Flang\u0131\xE7 kullan\u0131ld\u0131." };
-  const safe = (start) => {
-    const timing = schedule(start);
-    const consumption = curve(calendarSeed, machine, timing.start, timing.end, setupHours, quantity);
-    return !!consumption && noStarvation(supply, consumption);
-  };
-  let left = Math.max(requestedStart, predecessor.start), right = Math.max(left, predecessor.end);
-  if (!safe(left)) {
-    for (let iteration = 0; iteration < 36; iteration += 1) {
-      const middle = (left + right) / 2;
-      if (safe(middle)) right = middle;
-      else left = middle;
-    }
-    left = right;
-  }
-  const earliest = schedule(left + 1e-8);
-  if (earliest.end > targetEnd + 1e-6) return { ...earliest, targetEnd, reason: "Hedef; par\xE7a beslemesi, setup, vardiya/bak\u0131m veya dolu kuyruk nedeniyle sa\u011Flanam\u0131yor. En erken kesintisiz ve g\xFCvenli biti\u015F g\xF6steriliyor." };
-  right = Math.max(left, targetEnd);
-  for (let iteration = 0; iteration < 36; iteration += 1) {
-    const middle = (left + right) / 2;
-    if (schedule(middle).end <= targetEnd + 1e-7) left = middle;
-    else right = middle;
-  }
-  return { ...schedule(left), targetEnd };
-}
-
 // lib/process-route-state.ts
 function describeProcessRoute(seed, job, warnings) {
   const product = processMasterDataForProduct(seed.processMasterData, job.product);
   if (!product) return { routeSteps: [], readinessIssues: [{ code: "missing-product", message: "\xDCr\xFCn rotas\u0131 bulunamad\u0131; miktar korunuyor." }] };
-  const route = productProcessRoute(product);
+  const route = effectiveProductRoute(product, job.turningMachineId);
   const lot = seed.wipLots?.find((l) => l.id === job.wipLotId);
   const chargeId = job.source === "current-turning" ? seed.machines?.find((m) => m.id === job.turningMachineId)?.currentJob.batchId : job.batchId;
   const pause = seed.productionInterruptions?.find((p) => isProductionInterruption(p) && !p.completedAt && p.chargeId === chargeId);
@@ -5480,7 +4537,7 @@ function validateProcessMasterData(master) {
     if (products.has(product.product)) warnings.push({ code: "duplicate-definition", product: product.product, message: `${product.product} \xFCr\xFCn rotas\u0131 birden fazla tan\u0131mlanm\u0131\u015F.` });
     products.add(product.product);
     const expected = product.route ? product.route.filter((process2) => process2 !== "turning") : product.family === "piston" ? ["drilling", "deburring", "gkm"] : ["drilling", "gkm"];
-    if (product.route && (!product.route.length || product.route.join("|") !== PRODUCT_PROCESS_ORDER.filter((process2) => product.route.includes(process2)).join("|"))) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} aktif proses s\u0131ras\u0131 ge\xE7ersiz.` });
+    if (product.route && (!product.route.length || product.route.join("|") !== (product.family === "cubuk-filtre" ? FILTER_PROCESS_ORDER : PRODUCT_PROCESS_ORDER).filter((process2) => product.route.includes(process2)).join("|"))) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} aktif proses s\u0131ras\u0131 ge\xE7ersiz.` });
     const actual = product.processes.slice().sort((left, right) => left.sequence - right.sequence).map((item) => item.process);
     if (actual.join("|") !== expected.join("|")) warnings.push({ code: "invalid-route", product: product.product, message: `${product.product} rotas\u0131 beklenen proses s\u0131ras\u0131yla uyu\u015Fmuyor.` });
     const processKeys = /* @__PURE__ */ new Set();
@@ -5612,7 +4669,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   const queueByResource = /* @__PURE__ */ new Map();
   const usableResources = (source, parameter) => activeProcessResourceIds(parameter).filter((id) => {
     const resource = processResource(master, id);
-    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && parameter.unitsPerShift[id] > 0;
+    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
   });
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
@@ -5637,11 +4694,18 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       warnings.push({ code: "missing-parameter", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in \xF6nceki rota ad\u0131m\u0131 bulunamad\u0131.` });
       return [];
     }
-    const effectiveWaitWorkdays = firstRemaining && source.source === "wip" ? 0 : processWaitWorkdays(seed, predecessorProcess);
-    const rule = flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
-    const legacyReadyAt = firstRemaining && source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays);
+    const effectiveWaitWorkdays = seed.productionArea === "cubuk-filtre" ? firstRemaining && source.source === "wip" ? 0 : parameter.waitWorkdaysBefore : firstRemaining && source.source === "wip" ? 0 : processWaitWorkdays(seed, predecessorProcess);
+    const filterGap = seed.productionArea === "cubuk-filtre" ? parameter.finishGapMinutes : void 0;
+    const rule = typeof filterGap === "number" && Number.isFinite(filterGap) && filterGap >= 0 ? { mode: "dynamic", minutes: filterGap } : flowRule(seed, source.masterProduct.family, predecessorProcess, process2);
+    let legacyReadyAt;
+    try {
+      legacyReadyAt = applyProcessLeadStages(seed, firstRemaining ? source.source === "wip" ? source.releaseAt : addProcessWaitWorkdays(seed, predecessor?.end ?? source.releaseAt, effectiveWaitWorkdays) : addProcessWaitWorkdays(seed, predecessor.end, effectiveWaitWorkdays), firstRemaining && source.source === "wip" ? [] : parameter.leadStages);
+    } catch (error) {
+      warnings.push({ code: "invalid-capacity", product: source.product, batchId: source.id, message: error instanceof Error ? error.message : "Bekleme takvimi hesaplanamad\u0131." });
+      return [];
+    }
     const usesRule = rule && !(firstRemaining && source.source === "wip");
-    const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : predecessor?.start ?? source.releaseAt : legacyReadyAt;
+    const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : parameter.leadStages?.length ? legacyReadyAt : predecessor?.start ?? source.releaseAt : legacyReadyAt;
     const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
@@ -5698,8 +4762,9 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const resource = processResource(master, resourceId);
       const unitsPerShift = parameter.unitsPerShift[resourceId];
       if (!resource || resource.process !== process2 || !resource.active || resource.defaultShifts <= 0 || !resourceSupportsProcessProduct(resource, source.masterProduct) || !Number.isFinite(unitsPerShift) || unitsPerShift <= 0) return [];
+      if (!currentJob && seed.productionArea === "cubuk-filtre" && !Number.isFinite(parameter.setupMinutesByResource?.[resourceId])) return [];
       const queue = queueByResource.get(resourceId);
-      const setup = calculateDownstreamSetup(process2, queue, nextSetup, seed.flowSettings);
+      const setup = parameter.setupMinutesByResource ? { hours: ((queue?.product === source.product ? 0 : parameter.setupMinutesByResource[resourceId]) + (parameter.handlingMinutes ?? 0)) / 60, label: "Operasyon rotas\u0131 haz\u0131rl\u0131\u011F\u0131" } : calculateDownstreamSetup(process2, queue, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
       if (!Number.isFinite(setup.hours)) return [];
       const runHours = currentJob ? Math.max(0, (currentJob.end - currentJob.start) * 24 - currentJob.setupHours) : source.quantity / unitsPerShift * getSetupSettings(seed).shiftHours;
       const requestedStart = Math.max(readyAt, queue?.tail ?? readyAt, override?.requestedStart ?? readyAt, currentJob ? readyAt : resource.availableStart ?? readyAt);
@@ -5811,7 +4876,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   return scheduled;
 }
 function processLabelForError(process2) {
-  return process2 === "turning" ? "torna" : process2 === "drilling" ? "delme" : process2 === "deburring" ? "\xE7apak alma" : "GKM";
+  return process2 === "gkm" ? "GKM" : processLabel(process2).toLocaleLowerCase("tr-TR");
 }
 function processGapDiagnostics(seed, master, operations) {
   const gaps = [];
@@ -5929,12 +4994,19 @@ function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidat
     }
     sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
   }
+  for (const source of sources) {
+    if (source.masterProduct.family !== "cubuk-filtre") continue;
+    const turningId = source.machine?.id ?? source.batch?.machineId ?? source.lot?.completedSteps.find((s) => s.process === "turning")?.resourceId;
+    const route = effectiveProductRoute(source.masterProduct, turningId);
+    source.masterProduct = { ...source.masterProduct, route, processes: source.masterProduct.processes.filter((p) => route.includes(p.process)) };
+    if (source.source !== "wip" && source.nextProcess) source.nextProcess = route.find((p) => p !== "turning");
+  }
   const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
   sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
   const operationsByKey = /* @__PURE__ */ new Map();
   const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
   for (const operation of baseOperations) operationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
-  const downstream = ["drilling", "deburring", "gkm"].flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates, continuationControl));
+  const downstream = productionProcessOrder(seed).filter((process2) => process2 !== "turning").flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates, continuationControl));
   const operations = [...baseOperations, ...downstream].sort((left, right) => left.start - right.start || left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.id.localeCompare(right.id));
   const jobs = sources.map((source) => {
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
@@ -5977,6 +5049,1012 @@ function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidat
   const deliveryCompletion = Math.max(0, ...jobs.map((job) => job.deliveryReadyAt));
   const gaps = processGapDiagnostics(seed, master, downstream);
   return { state: operations.length ? "planned" : "empty", operations, jobs, warnings, gaps, completion, deliveryCompletion, queueEntries };
+}
+
+// data/product-setup-families.json
+var product_setup_families_default = {
+  "center-pin": [
+    "R902747824",
+    "R902970729",
+    "R902719738",
+    "R902719052",
+    "R902719743",
+    "R902719740",
+    "R902719739",
+    "R902970277",
+    "R902725682",
+    "R902970039",
+    "R902375400",
+    "R902748350",
+    "R902719742",
+    "R902729941",
+    "R902970964",
+    "R902719741",
+    "R902719765",
+    "R902719764",
+    "R902744004",
+    "R902719763",
+    "R902719766",
+    "R902719767",
+    "R902729695"
+  ],
+  piston: [
+    "R902745143",
+    "R902745138",
+    "R902747620",
+    "R902745121",
+    "R902745149",
+    "R902745145",
+    "R902747621",
+    "R902970515",
+    "R902970275",
+    "R902745163",
+    "R902745169",
+    "R902745119",
+    "R902745133",
+    "R902719812",
+    "R902745116",
+    "R902745129",
+    "R902745135",
+    "R902745117",
+    "R902745123",
+    "R902745127",
+    "R902745161",
+    "R902970516",
+    "R902745147",
+    "R902745131",
+    "R902970513",
+    "R902970276",
+    "R902745165",
+    "R902970862",
+    "R902970233",
+    "R902970514",
+    "R902970517",
+    "R902970863"
+  ]
+};
+
+// lib/setup-families.ts
+var FAMILY_VALUES = /* @__PURE__ */ new Set(["center-pin", "piston", "cubuk-filtre"]);
+var catalog = { ...product_setup_families_default, "cubuk-filtre": [] };
+var familyByProduct = /* @__PURE__ */ new Map();
+for (const family of ["center-pin", "piston"]) {
+  for (const rawProduct of catalog[family]) {
+    const product = rawProduct.trim().toUpperCase();
+    const existing = familyByProduct.get(product);
+    if (existing && existing !== family) throw new Error(`${product} hem ${existing} hem ${family} setup ailesinde tan\u0131ml\u0131.`);
+    familyByProduct.set(product, family);
+  }
+}
+function normalizeProductSetupFamily(value) {
+  return typeof value === "string" && FAMILY_VALUES.has(value) ? value : void 0;
+}
+function catalogProductSetupFamily(productCode) {
+  return familyByProduct.get(productCode.trim().toUpperCase());
+}
+function resolvedProductSetupFamily(productCode, storedFamily) {
+  return normalizeProductSetupFamily(storedFamily) ?? catalogProductSetupFamily(productCode);
+}
+
+// lib/planning.ts
+function excelSerialToDate(serial) {
+  return new Date(Date.UTC(1899, 11, 30) + serial * 864e5);
+}
+function shiftCount(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(3, Math.trunc(value)));
+}
+function machineDayCapacity(seed, machine, serialValue) {
+  const serial = Math.floor(serialValue);
+  const events = (seed.calendarEvents ?? []).filter((event) => event.machineId === machine.id && serial >= Math.floor(event.start) && serial <= Math.floor(event.end));
+  const maintenance = events.find((event) => event.kind === "maintenance");
+  if (maintenance) return { shifts: 0, kind: "maintenance", label: maintenance.name || "Planl\u0131 bak\u0131m" };
+  const shiftOverride = [...events].reverse().find((event) => event.kind === "shift");
+  if (shiftOverride) return { shifts: shiftCount(shiftOverride.shiftCount), kind: "shift", label: shiftOverride.name || "Vardiya de\u011Fi\u015Fikli\u011Fi" };
+  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
+  if (holiday) {
+    const shifts = shiftCount(holiday.workingShifts);
+    return { shifts, kind: "holiday", label: shifts ? `${holiday.name} \xB7 ${shifts} vardiya` : holiday.name };
+  }
+  if (excelSerialToDate(serial).getUTCDay() === 0) return { shifts: 0, kind: "sunday", label: "Pazar \xB7 \xFCretim yok" };
+  return { shifts: shiftCount(machine.shiftFactor), kind: "normal", label: `${shiftCount(machine.shiftFactor)} vardiya` };
+}
+var DEFAULT_SETUP_SETTINGS = {
+  model: "product-family",
+  shiftHours: 8,
+  sameDiameterHours: 1,
+  differentDiameterHours: 3,
+  sameFamilyDifferentDiameterHours: 2,
+  crossFamilyHours: 5
+};
+function getSetupSettings(seed) {
+  const source = seed.setupSettings ?? DEFAULT_SETUP_SETTINGS;
+  const model = source.model === "diameter-only" ? "diameter-only" : "product-family";
+  const nonNegative = (value, fallback) => Number.isFinite(value) ? Math.max(0, Number(value)) : fallback;
+  return {
+    model,
+    shiftHours: Math.max(1, Math.min(24, nonNegative(source.shiftHours, DEFAULT_SETUP_SETTINGS.shiftHours))),
+    sameDiameterHours: nonNegative(source.sameDiameterHours, DEFAULT_SETUP_SETTINGS.sameDiameterHours),
+    differentDiameterHours: nonNegative(source.differentDiameterHours, DEFAULT_SETUP_SETTINGS.differentDiameterHours),
+    sameFamilyDifferentDiameterHours: nonNegative(source.sameFamilyDifferentDiameterHours, DEFAULT_SETUP_SETTINGS.sameFamilyDifferentDiameterHours),
+    crossFamilyHours: nonNegative(source.crossFamilyHours, DEFAULT_SETUP_SETTINGS.crossFamilyHours)
+  };
+}
+function addMachineCapacityHours(seed, machine, startValue, hoursValue) {
+  let cursor = Math.max(0, startValue);
+  let remaining = Math.max(0, hoursValue);
+  let actualStart = 0;
+  let guard = 0;
+  const shiftHours = getSetupSettings(seed).shiftHours;
+  while (remaining > 0 || !actualStart) {
+    const day = Math.floor(cursor);
+    const capacityHours = machineDayCapacity(seed, machine, day).shifts * shiftHours;
+    const windowStart = day;
+    const windowEnd = day + capacityHours / 24;
+    if (capacityHours <= 0 || cursor >= windowEnd - 1e-8) {
+      cursor = day + 1;
+      guard += 1;
+      if (guard > 36600) throw new Error(`${machine.id} i\xE7in \xE7al\u0131\u015F\u0131labilir takvim saati bulunamad\u0131.`);
+      continue;
+    }
+    cursor = Math.max(cursor, windowStart);
+    if (!actualStart) actualStart = cursor;
+    if (remaining <= 0) break;
+    const availableHours = Math.max(0, (windowEnd - cursor) * 24);
+    const consumed = Math.min(remaining, availableHours);
+    cursor += consumed / 24;
+    remaining -= consumed;
+    if (remaining > 1e-8) cursor = day + 1;
+    guard += 1;
+    if (guard > 36600) throw new Error(`${machine.id} i\xE7in \xE7al\u0131\u015F\u0131labilir takvim saati bulunamad\u0131.`);
+  }
+  return { start: actualStart, end: Math.round((cursor + machine.finishOffset) * 1e6) / 1e6 };
+}
+function currentJobRouteIdentity(machine) {
+  const job = machine.currentJob;
+  return JSON.stringify(job.batchId ? [machine.id, job.batchId, job.product] : [machine.id, job.product, job.workOrder, job.start, job.originalQuantity ?? job.quantity]);
+}
+
+// lib/filter-monthly-demand.ts
+var FILTER_315 = "F.00V.P01.315";
+var FILTER_EXPECTED_GOOD_PERCENT = { "F.00V.P01.309": 96, [FILTER_315]: 96 };
+function promoteFilterMonthlyEvidence(seed) {
+  if (seed.productionArea !== "cubuk-filtre") return;
+  const monthly = seed.monthlyCustomerDemand;
+  if (!seed.filterInitialStockSetup && monthly?.stockReconciliation) seed.filterInitialStockSetup = structuredClone({ ...monthly.stockReconciliation, sourceRows: monthly.stockReconciliation.sourceRows ?? monthly.openingStock?.rows });
+  const baseline = monthly?.deliveryBaseline ?? (monthly && seed.orderImport?.shipmentsThrough ? { year: monthly.year, snapshotDate: monthly.snapshotDate, importedAt: monthly.importedAt, shipmentsThrough: seed.orderImport.shipmentsThrough, handovers: monthly.handovers } : seed.filterInitialStockSetup?.deliveryBaseline);
+  if (baseline && !seed.filterMonthlyDeliveryBaselines?.some((item) => item.year === baseline.year)) seed.filterMonthlyDeliveryBaselines = [...seed.filterMonthlyDeliveryBaselines ?? [], structuredClone(baseline)];
+}
+
+// data/product-weights.json
+var product_weights_default = {
+  sourceFile: "Delme ve C\u0327apak alma Parametre bilgileri (2).xlsx",
+  sourceSheet: "\xDCR\xDCN A\u011EIRLIKLARI",
+  sha256: "f62457050fd305059909aa34c0704ee7f9397f493c0a612e7d3861484c8800e9",
+  unit: "Gram",
+  rows: [
+    {
+      product: "R902200287",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 74.45,
+      sourceRow: 619
+    },
+    {
+      product: "R902375400",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 380.63,
+      sourceRow: 640
+    },
+    {
+      product: "R902719052",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 74.45,
+      sourceRow: 580
+    },
+    {
+      product: "R902719076",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 43.15,
+      sourceRow: 575
+    },
+    {
+      product: "R902719738",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170008",
+      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
+      grams: 80.45,
+      sourceRow: 584
+    },
+    {
+      product: "R902719739",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170009",
+      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
+      grams: 228.91,
+      sourceRow: 566
+    },
+    {
+      product: "R902719740",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 402.33,
+      sourceRow: 587
+    },
+    {
+      product: "R902719741",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 504.17,
+      sourceRow: 588
+    },
+    {
+      product: "R902719742",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 697.93,
+      sourceRow: 595
+    },
+    {
+      product: "R902719743",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 75.13,
+      sourceRow: 576
+    },
+    {
+      product: "R902719762",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 71.42,
+      sourceRow: 577
+    },
+    {
+      product: "R902719763",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 70.35,
+      sourceRow: 581
+    },
+    {
+      product: "R902719764",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170008",
+      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
+      grams: 77.95,
+      sourceRow: 585
+    },
+    {
+      product: "R902719765",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170009",
+      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
+      grams: 228.91,
+      sourceRow: 568
+    },
+    {
+      product: "R902719766",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 378.84,
+      sourceRow: 569
+    },
+    {
+      product: "R902719767",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 477.84,
+      sourceRow: 571
+    },
+    {
+      product: "R902719768",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 662.66,
+      sourceRow: 594
+    },
+    {
+      product: "R902719812",
+      productName: "P\u0130STON",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 37.09,
+      sourceRow: 578
+    },
+    {
+      product: "R902725682",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 45.13,
+      sourceRow: 579
+    },
+    {
+      product: "R902729695",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 402.33,
+      sourceRow: 567
+    },
+    {
+      product: "R902729941",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 504.17,
+      sourceRow: 590
+    },
+    {
+      product: "R902744004",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 697.93,
+      sourceRow: 593
+    },
+    {
+      product: "R902745116",
+      productName: "P\u0130STON",
+      materialCode: "Z170008",
+      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
+      grams: 181,
+      sourceRow: 363
+    },
+    {
+      product: "R902745117",
+      productName: "P\u0130STON",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 340,
+      sourceRow: 366
+    },
+    {
+      product: "R902745119",
+      productName: "P\u0130STON",
+      materialCode: "Z170009",
+      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
+      grams: 222,
+      sourceRow: 374
+    },
+    {
+      product: "R902745121",
+      productName: "P\u0130STON",
+      materialCode: "Z170009",
+      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
+      grams: 204,
+      sourceRow: 375
+    },
+    {
+      product: "R902745123",
+      productName: "P\u0130STON",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 380,
+      sourceRow: 376
+    },
+    {
+      product: "R902745127",
+      productName: "P\u0130STON",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 67,
+      sourceRow: 377
+    },
+    {
+      product: "R902745129",
+      productName: "P\u0130STON",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 67,
+      sourceRow: 379
+    },
+    {
+      product: "R902745131",
+      productName: "P\u0130STON",
+      materialCode: "Z170007",
+      materialName: "[31CrMoV9+QT] [\xD814,2mm] [3000mm] [DIN]",
+      grams: 67,
+      sourceRow: 378
+    },
+    {
+      product: "R902745133",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 380
+    },
+    {
+      product: "R902745135",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 381
+    },
+    {
+      product: "R902745138",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 382
+    },
+    {
+      product: "R902745143",
+      productName: "P\u0130STON",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 461.76,
+      sourceRow: 383
+    },
+    {
+      product: "R902745145",
+      productName: "P\u0130STON",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 461.76,
+      sourceRow: 384
+    },
+    {
+      product: "R902745147",
+      productName: "P\u0130STON",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 651,
+      sourceRow: 385
+    },
+    {
+      product: "R902745149",
+      productName: "P\u0130STON",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 651,
+      sourceRow: 386
+    },
+    {
+      product: "R902745161",
+      productName: "P\u0130STON( CLUSTER 2)",
+      materialCode: "Z170016",
+      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
+      grams: 266,
+      sourceRow: 389
+    },
+    {
+      product: "R902745163",
+      productName: "P\u0130STON( CLUSTER 1)",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 360,
+      sourceRow: 390
+    },
+    {
+      product: "R902745165",
+      productName: "P\u0130STON( CLUSTER 1)",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 360,
+      sourceRow: 391
+    },
+    {
+      product: "R902745167",
+      productName: "P\u0130STON( CLUSTER 1)",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 360,
+      sourceRow: 392
+    },
+    {
+      product: "R902745169",
+      productName: "P\u0130STON( CLUSTER 2)",
+      materialCode: "Z170016",
+      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
+      grams: 260,
+      sourceRow: 393
+    },
+    {
+      product: "R902747620",
+      productName: "P\u0130STON( CLUSTER 2)",
+      materialCode: "Z170016",
+      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
+      grams: 266,
+      sourceRow: 387
+    },
+    {
+      product: "R902747621",
+      productName: "P\u0130STON( CLUSTER 2)",
+      materialCode: "Z170016",
+      materialName: "[31CrMoV9+QT] [\xD823mm] [3000mm] [DIN]",
+      grams: 266,
+      sourceRow: 388
+    },
+    {
+      product: "R902747824",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 469,
+      sourceRow: 565
+    },
+    {
+      product: "R902748350",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 380.63,
+      sourceRow: 589
+    },
+    {
+      product: "R902970039",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 468.02,
+      sourceRow: 570
+    },
+    {
+      product: "R902970233",
+      productName: "P\u0130STON( CLUSTER 1)",
+      materialCode: "Z170010",
+      materialName: "[31CrMoV9] [\xD825,5mm] [3000mm] [DIN]",
+      grams: 360,
+      sourceRow: 520
+    },
+    {
+      product: "R902970275",
+      productName: "P\u0130STON( CLUSTER 4)",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 461.76,
+      sourceRow: 397
+    },
+    {
+      product: "R902970276",
+      productName: "P\u0130STON( CLUSTER 4)",
+      materialCode: "Z170011",
+      materialName: "[31CrMoV9+QT] [\xD827mm] [3000mm] [DIN]",
+      grams: 461.76,
+      sourceRow: 398
+    },
+    {
+      product: "R902970277",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 626.57,
+      sourceRow: 591
+    },
+    {
+      product: "R902970513",
+      productName: "P\u0130STON( CLUSTER 3)",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 487
+    },
+    {
+      product: "R902970514",
+      productName: "P\u0130STON( CLUSTER 3)",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 394
+    },
+    {
+      product: "R902970515",
+      productName: "P\u0130STON( CLUSTER 3)",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 121,
+      sourceRow: 395
+    },
+    {
+      product: "R902970516",
+      productName: "P\u0130STON( CLUSTER 3)",
+      materialCode: "Z170008",
+      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
+      grams: 160,
+      sourceRow: 396
+    },
+    {
+      product: "R902970517",
+      productName: "P\u0130STON( CLUSTER 3)",
+      materialCode: "Z170008",
+      materialName: "[31CrMoV9+QT] [\xD819,8mm] [3000mm] [DIN]",
+      grams: 158.91,
+      sourceRow: 460
+    },
+    {
+      product: "R902970729",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170009",
+      materialName: "[31CrMoV9+QT] [\xD820,7mm] [3000mm] [DIN]",
+      grams: 201.63,
+      sourceRow: 586
+    },
+    {
+      product: "R902970862",
+      productName: "P\u0130STON ( CLUSTER 6)",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 595,
+      sourceRow: 547
+    },
+    {
+      product: "R902970863",
+      productName: "P\u0130STON ( CLUSTER 6)",
+      materialCode: "Z170012",
+      materialName: "[31CrMoV9+QT] [\xD830mm] [3000mm] [DIN]",
+      grams: 595,
+      sourceRow: 548
+    },
+    {
+      product: "R902970964",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170018",
+      materialName: "\xD8  33,5    31 CRMOV 9V + SH + E",
+      grams: 885.4,
+      sourceRow: 592
+    },
+    {
+      product: "R902972555",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 65.28,
+      sourceRow: 572
+    },
+    {
+      product: "R902972556",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 65.28,
+      sourceRow: 573
+    },
+    {
+      product: "R902972557",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 65.28,
+      sourceRow: 622
+    },
+    {
+      product: "R902974041",
+      productName: "P\u0130STON",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 111.33,
+      sourceRow: 582
+    },
+    {
+      product: "R902974042",
+      productName: "A2 CENTER PIN",
+      materialCode: "Z170004",
+      materialName: "[31CrMoV9V+SH+E] [\xD817,2mm] [3000mm] [DIN]",
+      grams: 126.89,
+      sourceRow: 583
+    }
+  ]
+};
+
+// lib/product-weights.ts
+function initialProductWeights() {
+  return structuredClone(product_weights_default.rows);
+}
+
+// lib/raw-material-settings.ts
+function initialRawMaterialSettings() {
+  return { scrapPercent: 2, stockDate: "", stocks: [] };
+}
+
+// lib/weekly-demand.ts
+var NET_SHORTAGE_CALCULATION_MODEL = "net-shortage-v1";
+function isoDateToUtc(value) {
+  const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime())) {
+    throw new Error(`Ge\xE7ersiz ISO tarih: ${value}`);
+  }
+  return date;
+}
+function addUtcDays(value, days) {
+  const date = isoDateToUtc(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+function normalizeCustomerDemandDataset(dataset) {
+  const weeks = dataset.weeks.map((week) => ({
+    ...week,
+    weekEnd: addUtcDays(week.weekStart, 5)
+  }));
+  const baselineDueDate = weeks[0] ? addUtcDays(weeks[0].weekStart, -2) : dataset.baselineDueDate;
+  const normalizedWeeks = new Map(weeks.map((week) => [week.id, week]));
+  const products = dataset.products.map((product) => {
+    let cumulativeQuantity = Math.max(0, -Number(product.baselineBalance || 0));
+    const priorDemand = cumulativeQuantity;
+    const weeklyDemands = product.weeklyDemands.map((week) => {
+      const normalizedWeek = normalizedWeeks.get(week.weekId);
+      const requiredQuantity = Math.max(0, -Number(week.balance || 0));
+      const nextCumulativeQuantity = Math.max(cumulativeQuantity, requiredQuantity);
+      const quantity = nextCumulativeQuantity - cumulativeQuantity;
+      cumulativeQuantity = nextCumulativeQuantity;
+      return {
+        ...week,
+        weekStart: normalizedWeek?.weekStart ?? week.weekStart,
+        weekEnd: normalizedWeek?.weekEnd ?? addUtcDays(week.weekStart, 5),
+        quantity,
+        cumulativeQuantity,
+        requiredQuantity
+      };
+    });
+    return {
+      ...product,
+      baselineDueDate,
+      priorDemand,
+      weeklyDemands,
+      totalDemand: cumulativeQuantity
+    };
+  });
+  const weeksWithQuantity = weeks.map((week) => ({
+    ...week,
+    quantity: products.reduce(
+      (sum, product) => sum + (product.weeklyDemands.find((point) => point.weekId === week.id)?.quantity ?? 0),
+      0
+    )
+  }));
+  return {
+    ...dataset,
+    calculationModel: NET_SHORTAGE_CALCULATION_MODEL,
+    baselineDueDate,
+    weeks: weeksWithQuantity,
+    products
+  };
+}
+
+// lib/planning-state.ts
+var CURRENT_PLANNING_SCHEMA_VERSION = 22;
+var CUSTOMER_DEMAND_PLAN_RESET_VERSION = 8;
+var OPERATIONAL_AVAILABILITY_VERSION = 10;
+var PRODUCT_FAMILY_SETUP_VERSION = 12;
+var PROCESS_MASTER_DATA_VERSION = 13;
+var WIP_LEDGER_VERSION = 14;
+var PROCESS_RESOURCE_CONFIGURATION_VERSION = 16;
+var DRILLING_TRANSFER_FLOW_VERSION = 18;
+var FACTORY_ROUTE_CALENDAR_VERSION = 19;
+var DOOSAN_ALTERNATIVE_CONFIGURATION_VERSION = 20;
+var LEGACY_ORDER_PERIOD = "2026-08";
+var periodPattern = /^(\d{4})-(0[1-9]|1[0-2])$/;
+function previousSaturdayIfSunday(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.getUTCDay() !== 0) return value;
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+function inputDateToSerial(value) {
+  return value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
+}
+function isPeriodId(value) {
+  return typeof value === "string" && periodPattern.test(value);
+}
+function periodIndex(periodId) {
+  if (!isPeriodId(periodId)) throw new Error(`Ge\xE7ersiz d\xF6nem: ${String(periodId)}`);
+  const [year, month] = periodId.split("-").map(Number);
+  return year * 12 + month - 1;
+}
+function periodFromIndex(index) {
+  if (!Number.isInteger(index) || index < 0) throw new Error(`Ge\xE7ersiz d\xF6nem indeksi: ${index}`);
+  const year = Math.floor(index / 12);
+  const month = index % 12 + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+function periodRange(scope) {
+  const start = periodIndex(scope.startPeriod);
+  const end = periodIndex(scope.endPeriod);
+  if (start > end) throw new Error("Planlama ba\u015Flang\u0131\xE7 d\xF6nemi biti\u015F d\xF6neminden sonra olamaz.");
+  return Array.from({ length: end - start + 1 }, (_, offset) => periodFromIndex(start + offset));
+}
+function normalizePlanningScope(scope) {
+  periodRange(scope);
+  return { startPeriod: scope.startPeriod, endPeriod: scope.endPeriod };
+}
+function migratePlanningSeed(seed, fallbackPeriod = LEGACY_ORDER_PERIOD) {
+  if (!isPeriodId(fallbackPeriod)) throw new Error(`Ge\xE7ersiz ge\xE7i\u015F d\xF6nemi: ${fallbackPeriod}`);
+  const copy = JSON.parse(JSON.stringify(seed));
+  promoteFilterMonthlyEvidence(copy);
+  if (copy.flowSettings !== void 0) copy.flowSettings = validateFlowSettings(copy.flowSettings);
+  if (copy.productWeights === void 0) copy.productWeights = copy.productionArea === "cubuk-filtre" ? [] : initialProductWeights();
+  if (copy.rawMaterialSettings === void 0) copy.rawMaterialSettings = initialRawMaterialSettings();
+  const previousSchemaVersion = Number(copy.schemaVersion ?? 0);
+  if (previousSchemaVersion < 21 && copy.manualBatches?.length) copy.planNeedsRecalculation = true;
+  if (previousSchemaVersion < 22 && copy.flowSettings?.enabled && copy.processWaitSettings && copy.manualBatches?.length) copy.planNeedsRecalculation = true;
+  copy.schemaVersion = CURRENT_PLANNING_SCHEMA_VERSION;
+  if (copy.productionArea === "cubuk-filtre" && !copy.processMasterData) throw new Error("\xC7ubuk Filtre \xFCretim verileri eksik.");
+  if (copy.productionArea !== "cubuk-filtre" && (previousSchemaVersion < PROCESS_MASTER_DATA_VERSION || !copy.processMasterData)) {
+    copy.processMasterData = cloneFoundationalProcessMasterData();
+  }
+  if (copy.processMasterData) {
+    copy.processMasterData.products = copy.processMasterData.products.map((product) => ({
+      ...product,
+      productGroup: product.productGroup?.trim() || product.family
+    }));
+    copy.processMasterData.planningStrategies = {
+      ...copy.processMasterData.planningStrategies,
+      drilling: copy.processMasterData.planningStrategies?.drilling ?? "campaign",
+      deburring: copy.processMasterData.planningStrategies?.deburring ?? "earliest-ready",
+      gkm: copy.processMasterData.planningStrategies?.gkm ?? "earliest-ready"
+    };
+    copy.processMasterData.transferBatchQuantities = {
+      ...copy.processMasterData.transferBatchQuantities,
+      drilling: copy.processMasterData.transferBatchQuantities?.drilling ?? 100
+    };
+    if (previousSchemaVersion < DRILLING_TRANSFER_FLOW_VERSION) {
+      copy.processMasterData.products = copy.processMasterData.products.map((product) => ({
+        ...product,
+        processes: product.processes.map((parameter) => parameter.process === "drilling" ? { ...parameter, waitWorkdaysBefore: 0 } : parameter)
+      }));
+    }
+    copy.processMasterData.resources = copy.processMasterData.resources.map((resource) => {
+      const defaultGroups = resource.process === "gkm" ? resource.id === "V-01" || resource.id === "V-02" || resource.id === "V-03" ? ["piston", "center-pin"] : [] : ["piston", "center-pin"];
+      const configureGkm = previousSchemaVersion < PROCESS_RESOURCE_CONFIGURATION_VERSION && resource.process === "gkm";
+      return {
+        ...resource,
+        active: configureGkm ? resource.id === "V-01" || resource.id === "V-02" : resource.active,
+        defaultShifts: Math.max(0, Math.min(3, Math.trunc(Number(resource.defaultShifts) || 0))),
+        availableStart: Number.isFinite(resource.availableStart) && resource.availableStart > 0 ? Math.floor(resource.availableStart) : void 0,
+        planEnd: Number.isFinite(resource.planEnd) && resource.planEnd > 0 ? Math.ceil(resource.planEnd) : void 0,
+        eligibleProductGroups: resource.eligibleProductGroups ?? defaultGroups
+      };
+    });
+  }
+  copy.processOperationOverrides = (copy.processOperationOverrides ?? []).filter(
+    (override) => Boolean(override.batchId && override.process && override.resourceId && Number.isFinite(override.requestedStart) && override.requestedStart > 0)
+  );
+  copy.products = copy.products.map((product) => {
+    const setupFamily = resolvedProductSetupFamily(product.product, product.setupFamily);
+    return setupFamily ? { ...product, setupFamily } : product;
+  });
+  if (copy.productionArea !== "cubuk-filtre" && previousSchemaVersion < DOOSAN_ALTERNATIVE_CONFIGURATION_VERSION) {
+    const productCodes = ["R902970277", "R902719742", "R902970964"];
+    const machineIds = ["C-11", "C-12", "C-08"];
+    for (const productCode of productCodes) {
+      const product = copy.products.find((item) => item.product.toUpperCase() === productCode);
+      const fallbackShiftRate = machineIds.map((machineId) => Number(copy.machines.find((machine) => machine.id === machineId)?.rates[productCode]) || 0).find((rate) => rate > 0) ?? (Number(product?.shiftRate) > 0 ? Number(product?.shiftRate) : Number(product?.dailyRate) / 3);
+      const preference = copy.preferences.find((item) => item.key.toUpperCase() === productCode);
+      const repairedPreference = {
+        key: productCode,
+        machines: [...machineIds],
+        ruleType: "operational-alternative",
+        description: "C-11 ve C-12 i\xE7in C-08 Doosan alternatif tezgah\u0131",
+        source: "Operasyon karar\u0131 \xB7 2026-08-27"
+      };
+      if (preference) Object.assign(preference, repairedPreference);
+      else copy.preferences.push(repairedPreference);
+      if (product) {
+        product.eligibleMachines = [...machineIds];
+        product.alternativeMachines = [...machineIds];
+      }
+      if (fallbackShiftRate > 0) {
+        for (const machineId of machineIds) {
+          const machine = copy.machines.find((item) => item.id === machineId);
+          if (machine && !(Number(machine.rates[productCode]) > 0)) machine.rates[productCode] = fallbackShiftRate;
+        }
+      }
+    }
+  }
+  if (previousSchemaVersion < PRODUCT_FAMILY_SETUP_VERSION) {
+    const legacy = copy.setupSettings;
+    copy.setupSettings = {
+      model: "product-family",
+      shiftHours: Number.isFinite(legacy?.shiftHours) ? Number(legacy?.shiftHours) : 8,
+      sameDiameterHours: 1,
+      differentDiameterHours: Number.isFinite(legacy?.differentDiameterHours) ? Number(legacy?.differentDiameterHours) : 3,
+      sameFamilyDifferentDiameterHours: 2,
+      crossFamilyHours: 5
+    };
+  }
+  copy.orders = copy.orders.map((order) => ({
+    ...order,
+    periodId: isPeriodId(order.periodId) ? order.periodId : fallbackPeriod
+  }));
+  if (Array.isArray(copy.demandTargets)) {
+    copy.demandTargets = copy.demandTargets.map((target) => ({
+      ...target,
+      periodId: isPeriodId(target.periodId) ? target.periodId : fallbackPeriod
+    }));
+  }
+  copy.customerOrderOverrides = (copy.customerOrderOverrides ?? []).map((override) => ({
+    product: String(override.product ?? "").trim().toUpperCase(),
+    quantity: Math.max(0, Math.trunc(Number(override.quantity) || 0)),
+    dueDate: String(override.dueDate ?? "").trim(),
+    updatedAt: String(override.updatedAt ?? "")
+  })).filter((override) => Boolean(override.product));
+  copy.productionHistory = (copy.productionHistory ?? []).map((entry) => ({
+    ...entry,
+    process: entry.process ?? "turning",
+    inventoryStatus: entry.inventoryStatus ?? "semi-finished",
+    statusChangedAt: entry.statusChangedAt ?? entry.archivedAt
+  }));
+  copy.wipLots = (copy.wipLots ?? []).map((lot) => {
+    const completedSteps = lot.completedSteps ?? [];
+    const lastStep = completedSteps.at(-1);
+    const legacyRouteReadyAt = previousSchemaVersion < FACTORY_ROUTE_CALENDAR_VERSION && lot.stage === "delivery-ready" && lastStep?.process === "gkm" ? addFactoryWorkdays(copy, lastStep.end, 1) : lot.readyAt;
+    return {
+      ...lot,
+      readyAt: legacyRouteReadyAt,
+      availableQuantity: Math.max(0, Number(lot.availableQuantity) || 0),
+      deliveredQuantity: Math.max(0, Number(lot.deliveredQuantity) || 0),
+      scrappedQuantity: Math.max(0, Number(lot.scrappedQuantity) || 0),
+      nextProcess: lot.nextProcess ?? nextProcessForWipStage(lot.stage),
+      completedSteps
+    };
+  });
+  copy.productionInterruptions = copy.productionInterruptions ?? [];
+  copy.wipMovements = copy.wipMovements ?? [];
+  copy.chargeJourneyNotes = (copy.chargeJourneyNotes ?? []).filter((note) => Boolean(note.chargeKey && note.segmentId && note.note?.trim()));
+  if (previousSchemaVersion < WIP_LEDGER_VERSION || !copy.wipLots.length) hydrateWipFromProductionHistory(copy);
+  const activeScopeStart = copy.activePlanRun?.scope.kind === "customer-weeks" ? inputDateToSerial(copy.activePlanRun.scope.startDate) : 0;
+  copy.machines = copy.machines.map((machine) => {
+    if (Number.isFinite(machine.operationalAvailableStart)) return machine;
+    let operationalAvailableStart = machine.availableStart;
+    if (previousSchemaVersion < OPERATIONAL_AVAILABILITY_VERSION && activeScopeStart > 0) {
+      const currentJobEnd = Number(machine.currentJob?.end) || 0;
+      operationalAvailableStart = currentJobEnd > 0 ? Math.min(machine.availableStart, currentJobEnd) : Math.min(machine.availableStart, activeScopeStart);
+    }
+    return { ...machine, operationalAvailableStart };
+  });
+  if (copy.customerDemand) {
+    const previousDemand = copy.customerDemand;
+    copy.customerDemand = normalizeCustomerDemandDataset(copy.customerDemand);
+    const dateReplacements = new Map([
+      [previousDemand.baselineDueDate, copy.customerDemand.baselineDueDate],
+      ...previousDemand.weeks.map((week, index) => [week.weekEnd, copy.customerDemand.weeks[index]?.weekEnd ?? week.weekEnd])
+    ]);
+    const overriddenProducts = new Set(copy.customerOrderOverrides.map((override) => override.product));
+    const normalizedCustomerDate = (orderId, value) => dateReplacements.get(value) ?? (orderId.startsWith("confirmed-") ? previousSaturdayIfSunday(value) : value);
+    copy.orders = copy.orders.map((order) => overriddenProducts.has(order.product.toUpperCase()) ? order : {
+      ...order,
+      dueDate: normalizedCustomerDate(order.id, order.dueDate),
+      partialDeliveryDate: normalizedCustomerDate(order.id, order.partialDeliveryDate),
+      deliveryMilestones: order.deliveryMilestones?.map((milestone) => ({
+        ...milestone,
+        date: normalizedCustomerDate(order.id, milestone.date)
+      }))
+    });
+    if (previousSchemaVersion < CUSTOMER_DEMAND_PLAN_RESET_VERSION) {
+      copy.manualBatches = [];
+      copy.activePlanRun = void 0;
+      copy.planRunSequence = void 0;
+      copy.lastAutomaticPlan = void 0;
+    }
+  }
+  copy.openingStock = copy.customerDemand ? {} : Object.entries(copy.openingStock ?? {}).reduce((stock, [product, quantity]) => {
+    const code = product.trim().toUpperCase();
+    const normalizedQuantity = Math.max(0, Number(quantity) || 0);
+    if (code && normalizedQuantity > 0) stock[code] = normalizedQuantity;
+    return stock;
+  }, {});
+  const existingScope = copy.activePlanningScope;
+  copy.activePlanningScope = existingScope && isPeriodId(existingScope.startPeriod) && isPeriodId(existingScope.endPeriod) ? normalizePlanningScope(existingScope) : { startPeriod: fallbackPeriod, endPeriod: fallbackPeriod };
+  return copy;
 }
 
 // scripts/scenario-plan-runtime.ts

@@ -443,6 +443,7 @@ def test_primary_drilling_gap_knowledge_keeps_business_safety_and_user_sources()
     assert topic['userSources']
     assert 'implementationNotes' not in topic and 'sources' not in topic
 
+
 def test_archive_actual_shipment_and_scrap_deletion_guidance():
     for topic_id in ("archive-deliveries", "processes-wip", "delivery-readiness"):
         topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": topic_id}))

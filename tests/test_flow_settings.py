@@ -58,3 +58,14 @@ def test_flow_roundtrip_admin_protection_legacy_client_and_atomic_failure():
     # Leave the shared test database in legacy mode for unrelated API fixtures.
     with connection() as db:
         db.execute("DELETE FROM planning_state")
+
+
+def test_piston_flow_cannot_be_enabled_in_cubuk_filtre():
+    from app.production_area import production_area
+    token = production_area.set("cubuk-filtre")
+    try:
+        init_database()
+        with pytest.raises(ValueError, match="yalnız Piston"):
+            save_planning_state({"productionArea": "cubuk-filtre", "flowSettings": settings()}, can_manage_settings=True, flow_settings_version=1)
+    finally:
+        production_area.reset(token)

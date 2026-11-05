@@ -26,7 +26,7 @@ class Source(Arguments):
 
 
 class Inspect(Arguments):
-    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "production_interruptions", "overrides"]
+    collection: Literal["summary", "orders", "products", "product_weights", "raw_material_stocks", "process_stock", "daily_demand", "monthly_demand", "machines", "customer_demand", "wip", "production", "batches", "calendar", "process_resources", "process_products", "process_current_jobs", "production_interruptions", "overrides"]
     query: str = Field(default="", max_length=100)
     offset: int = Field(default=0, ge=0, le=100000)
     week_offset: int = Field(default=0, ge=0, le=1000)
@@ -72,15 +72,21 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
     if snapshot is None:
         return {"source": "persisted-server", "available": False, "reason": "Henüz kaydedilmiş ortak plan yok; tarayıcı bağlamını kullan."}
     seed = snapshot["seed"]
-    meta = {"source": "persisted-server", "updatedAt": snapshot["updatedAt"], "available": True}
+    meta = {"source": "persisted-server", "updatedAt": snapshot["updatedAt"], "available": True, "productionArea": seed.get("productionArea", "torna")}
     if args.collection == "summary":
         demand = seed.get("customerDemand") or {}
         return {**meta, "orderCount": len(seed.get("orders", [])), "machineCount": len(seed.get("machines", [])),
                 "orderQuantity": sum(max(0, item.get("quantity", 0)) for item in seed.get("orders", [])),
                 "orderSource": bounded({key: demand.get(key) for key in ("sourceFile", "snapshotDate", "importedAt", "activeScope", "calculationModel", "baselineDueDate")}),
                 "orderImport": bounded(seed.get("orderImport")), "activePlanRun": bounded(seed.get("activePlanRun")),
-                "processWaitSettings": bounded(seed.get("processWaitSettings")), "setupSettings": bounded(seed.get("setupSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
+                "monthlyOrderSource": bounded({key: (seed.get("monthlyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "sourceKind", "year", "startDate", "endDate", "snapshotDate", "importedAt", "deliveryBaseline", "stockReconciliation")}),
+                "initialStockSetup": bounded(seed.get("filterInitialStockSetup") or (seed.get("monthlyCustomerDemand") or {}).get("stockReconciliation")),
+                "filterQualityShifts": seed.get("filterQualityShifts", 1) if seed.get("productionArea") == "cubuk-filtre" else None,
+                "filterWaitShifts": seed.get("filterWaitShifts", 1) if seed.get("productionArea") == "cubuk-filtre" else None, "dailyOrderSource": bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "snapshotDate", "endDate", "importedAt")}), "processWaitSettings": bounded(seed.get("processWaitSettings")), "setupSettings": bounded(seed.get("setupSettings")), "flowSettings": bounded(seed.get("flowSettings")),  "note": "Hesaplanmış frontend sonucu değildir; quantities adet, plan tarihleri Excel serial gün olabilir."}
     collections = {
+        "monthly_demand": (seed.get("monthlyCustomerDemand") or {}).get("rows", []),
+        "daily_demand": (seed.get("dailyCustomerDemand") or {}).get("dailyRows", []),
+        "process_stock": [{"kind": kind, **row} for kind in ("limits", "scrap", "opening") for row in (seed.get("processStockSettings") or {}).get(kind, [])],
         "raw_material_stocks": (seed.get("rawMaterialSettings") or {}).get("stocks", []),
         "product_weights": seed.get("productWeights", []),
         "orders": seed.get("orders", []), "products": seed.get("products", []), "machines": seed.get("machines", []),
@@ -94,7 +100,7 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
     }
     query = knowledge.normalize(args.query.strip())
     rows = [row for row in collections[args.collection] if not query or query in knowledge.normalize(" ".join(
-        str(row.get(key, "")) for key in ("id", "product", "materialCode", "machineId", "resourceId", "workOrder", "sourceBatchId", "name")))]
+        str(row.get(key, "")) for key in ("id", "product", "materialCode", "machineId", "resourceId", "workOrder", "sourceBatchId", "name", "label")))]
     selected = []
     for row in rows[args.offset:args.offset + 12]:
         if args.collection == "production_interruptions":
@@ -127,6 +133,10 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                          demand.get("baselineLabel") or "< CW …": row.get("baselineBalance"),
                          "weeks": [{"column": week.get("label") or week.get("weekId"), "balance": week.get("balance")} for week in window],
                          "nextWeekOffset": args.week_offset + len(window) if args.week_offset + len(window) < len(weeks) else None}
+        elif args.collection == "monthly_demand":
+            data = seed.get("monthlyCustomerDemand") or {}
+            original = next((item for item in data.get("originalRows", []) if item.get("product") == row.get("product")), None)
+            projected = bounded({**row, "originalInputs": original.get("inputs") if original else None})
         else:
             projected = bounded(row)
         if len(json.dumps([*selected, projected], ensure_ascii=False)) > 18000:
@@ -141,6 +151,15 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                               "Date": demand.get("snapshotDate"), "baselineColumn": demand.get("baselineLabel"),
                               "selectedScope": demand.get("activeScope"),
                               "note": "İçe aktarılmış Balance (confirmed) değerleri; dosya canlı açılmadı. Kullanıcı düzeltmeleri ayrıca overrides koleksiyonundadır."}
+    if args.collection == "monthly_demand":
+        data = seed.get("monthlyCustomerDemand") or {}
+        meta["userSource"] = bounded({key: data.get(key) for key in ("fileName", "sheetName", "sourceKind", "year", "snapshotDate", "startDate", "endDate", "deliveryBaseline", "handovers", "exceptions")})
+        meta["calculationNote"] = "Kaydedilmiş aylık kaynak ve formül sonuçlarıdır; canlı Excel erişimi veya yeniden hesaplanan plan değildir. Güncel kaynak adetleri inputs, ilk kaynak değerleri originalInputs içindedir. Manuel girişte Excel hücre adresi yoktur. Tamamlanan devirler handovers içindedir. Fiziksel stok ayrı process_stock / wip koleksiyonundadır."
+    if args.collection == "daily_demand":
+        meta["workbookSource"] = bounded({key: (seed.get("dailyCustomerDemand") or {}).get(key) for key in ("fileName", "sheetName", "snapshotDate", "endDate", "importedAt")})
+    if args.collection == "process_stock":
+        meta["openingDate"] = (seed.get("processStockSettings") or {}).get("openingDate")
+        meta["calculationNote"] = "Kaydedilmiş grup limitleri, ıskarta yüzdeleri ve şarjlar dışındaki ek stok. Haftalık tahmin veya canlı sayım değildir."
     return {**meta, "collection": args.collection, "total": len(rows), "rows": selected,
             "nextOffset": next_offset if next_offset < len(rows) else None,
             "note": "İç listeler en fazla 40 kayıt; truncated işaretlerini kontrol et." if any(isinstance(value, dict) and value.get("truncated") for row in selected for value in row.values()) else ("CPM’den elle girilmiş gün başı stokları kg cinsindedir; boş bilinmiyor, sıfır stok yok demektir. Canlı CPM bağlantısı veya sunucuda tüketim tahmini yoktur." if args.collection == "raw_material_stocks" else "Hammadde ağırlıkları gram cinsindedir; boş değer bilinmiyor demektir." if args.collection == "product_weights" else "Miktarlar adet; sayısal tarihler Excel serial günleridir.")}

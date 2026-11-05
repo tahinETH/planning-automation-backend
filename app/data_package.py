@@ -55,7 +55,7 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     _append_rows(parameter_sheet, ["Ürün", "Ürün Ailesi", "Şarj Büyüklüğü", "Günlük Üretim", "Vardiya Üretimi", "Parametre Üretimi", "Çap", "Kaynak"], [
         [
             item.get("product", ""),
-            {"piston": "Piston", "center-pin": "Center pim"}.get(item.get("setupFamily"), "Tanımsız"),
+            {"piston": "Piston", "center-pin": "Center pim", "cubuk-filtre": "Çubuk Filtre"}.get(item.get("setupFamily"), "Tanımsız"),
             item.get("batchSize", 0),
             item.get("dailyRate", 0),
             item.get("shiftRate", 0),
@@ -310,6 +310,8 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
     info.append(["Selsa Planlama Excel Veri Paketi"])
     info["A1"].font = Font(size=16, bold=True, color="24443D")
     info.append(["Kapsam", SCOPE_LABELS[scope]])
+    if isinstance(data, dict) and data.get("productionArea") == "cubuk-filtre":
+        info.append(["Üretim alanı", "Çubuk Filtre"])
     info.append(["Format sürümü", FORMAT_VERSION])
     info.append(["Oluşturulma", datetime.now(timezone.utc).isoformat()])
     info.append(["Not", "Bu dosya Selsa Planlama uygulamasına tekrar yüklenebilir. Gizli veri sayfasını silmeyin."])
@@ -329,7 +331,8 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
         _settings_sheets(workbook, data)
     else:
         _scenario_sheets(workbook, data)
-        is_filter = (isinstance(data, list) and any(isinstance(item, dict) and isinstance(item.get("seed"), dict) and item["seed"].get("productionArea") == "cubuk-filtre" for item in data))
+        from .production_area import production_area
+        is_filter = production_area.get() == "cubuk-filtre" or (isinstance(data, list) and any(isinstance(item, dict) and isinstance(item.get("seed"), dict) and item["seed"].get("productionArea") == "cubuk-filtre" for item in data))
     if scope == "scenarios" and not is_filter:
         # Çubuk Filtre export is unchanged (deferred scope): no Piston plan sheets.
         if plans is None:

@@ -12,6 +12,7 @@ import pytest
 
 from app import database
 from app import main
+from app.production_area import production_area
 
 
 def synthetic_seed(legacy_defaults=False):
@@ -84,63 +85,73 @@ def populate(seed):
 def test_real_startup_preserves_rows_and_is_idempotent(tmp_path, monkeypatch, environment, legacy_defaults):
     path = tmp_path / "synthetic.sqlite"
     monkeypatch.setattr(database, "settings", SimpleNamespace(database_path=path, upload_dir=tmp_path / "uploads"))
-    monkeypatch.setattr(main, "settings", SimpleNamespace(app_env=environment))
-    # Establish the current staging-base schema; no production file is read.
-    database.init_database()
-    seed = synthetic_seed(legacy_defaults)
-    populate(seed)
-    before = table_rows(path)
+    from app import production_area as area_module
+    startup_settings = SimpleNamespace(app_env=environment, enable_filter_production=False, database_path=path, upload_dir=tmp_path / "uploads")
+    monkeypatch.setattr(main, "settings", startup_settings)
+    monkeypatch.setattr(area_module, "settings", startup_settings)
+    token = production_area.set("torna")
+    try:
+        # Establish the current staging-base schema; no production file is read.
+        database.init_database()
+        seed = synthetic_seed(legacy_defaults)
+        populate(seed)
+        before = table_rows(path)
 
-    async def start():
-        async with main.lifespan(main.app):
-            pass
+        async def start():
+            async with main.lifespan(main.app):
+                pass
 
-    asyncio.run(start())
-    after = table_rows(path)
-    for table, rows in before.items():
-        if table not in ("planning_state", "production_archive_snapshots"):
-            assert after[table] == rows, table
-    persisted = json.loads(after["planning_state"][0]["seed_json"])
-    for key, value in seed.items():
-        assert persisted[key] == value, key
-    assert after["planning_state"][0]["state_key"] == "default"
-    assert after["planning_state"][0]["updated_by_id"] == "operator"
-    if not legacy_defaults:
-        assert after["planning_state"] == before["planning_state"]
-    else:
-        assert set(persisted) - set(seed) == {"rawMaterialSettings", "productWeights"}
-    assert len(after["production_archive_snapshots"]) == 2
-    assert before["production_archive_snapshots"][0] in after["production_archive_snapshots"]
-    new_archive = next(row for row in after["production_archive_snapshots"] if row["id"] != "archive-existing")
-    assert json.loads(new_archive["archive_json"]) == seed["productionHistory"]
-    assert not path.with_name("synthetic-cubuk-filtre.sqlite").exists()
+        asyncio.run(start())
+        after = table_rows(path)
+        for table, rows in before.items():
+            if table not in ("planning_state", "production_archive_snapshots"):
+                assert after[table] == rows, table
+        persisted = json.loads(after["planning_state"][0]["seed_json"])
+        for key, value in seed.items():
+            assert persisted[key] == value, key
+        assert after["planning_state"][0]["state_key"] == "default"
+        assert after["planning_state"][0]["updated_by_id"] == "operator"
+        if not legacy_defaults:
+            assert after["planning_state"] == before["planning_state"]
+        else:
+            assert set(persisted) - set(seed) == {"rawMaterialSettings", "productWeights"}
+        assert len(after["production_archive_snapshots"]) == 2
+        assert before["production_archive_snapshots"][0] in after["production_archive_snapshots"]
+        new_archive = next(row for row in after["production_archive_snapshots"] if row["id"] != "archive-existing")
+        assert json.loads(new_archive["archive_json"]) == seed["productionHistory"]
+        assert path.with_name("synthetic-cubuk-filtre.sqlite").exists() is (environment == "staging")
 
-    asyncio.run(start())
-    assert table_rows(path) == after
-
+        asyncio.run(start())
+        assert table_rows(path) == after
+    finally:
+        production_area.reset(token)
 
 
 def test_failed_legacy_default_initialization_rolls_back_and_can_retry(tmp_path, monkeypatch):
     path = tmp_path / "synthetic-failed-startup.sqlite"
     monkeypatch.setattr(database, "settings", SimpleNamespace(database_path=path, upload_dir=tmp_path / "uploads"))
-    database.init_database()
-    seed = synthetic_seed(legacy_defaults=True)
-    populate(seed)
-    before = table_rows(path)
-    original = database.initial_product_weights
-
-    def unavailable_weights():
-        raise RuntimeError("Synthetic startup failure after raw material initialization")
-
-    monkeypatch.setattr(database, "initial_product_weights", unavailable_weights)
-    with pytest.raises(RuntimeError, match="Synthetic startup failure"):
+    token = production_area.set("torna")
+    try:
         database.init_database()
-    assert table_rows(path) == before
-    monkeypatch.setattr(database, "initial_product_weights", original)
-    database.init_database()
-    persisted = database.planning_state()["seed"]
-    for key, value in seed.items():
-        assert persisted[key] == value, key
-    after = table_rows(path)
-    database.init_database()
-    assert table_rows(path) == after
+        seed = synthetic_seed(legacy_defaults=True)
+        populate(seed)
+        before = table_rows(path)
+        original = database.initial_product_weights
+
+        def unavailable_weights():
+            raise RuntimeError("Synthetic startup failure after raw material initialization")
+
+        monkeypatch.setattr(database, "initial_product_weights", unavailable_weights)
+        with pytest.raises(RuntimeError, match="Synthetic startup failure"):
+            database.init_database()
+        assert table_rows(path) == before
+        monkeypatch.setattr(database, "initial_product_weights", original)
+        database.init_database()
+        persisted = database.planning_state()["seed"]
+        for key, value in seed.items():
+            assert persisted[key] == value, key
+        after = table_rows(path)
+        database.init_database()
+        assert table_rows(path) == after
+    finally:
+        production_area.reset(token)

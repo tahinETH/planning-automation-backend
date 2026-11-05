@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .stock_planning import uses_stock_planning, validate_stock_planning
 from .flow_settings import validate_flow_settings
 
 from .production_merge import merge_production_refresh
@@ -22,6 +23,7 @@ from typing import Any, Iterator
 
 from .config import settings
 from .planning_delta import apply_delta, build_delta, state_hash
+from .production_area import area_database_path, production_area, validate_seed_area
 
 
 def now_iso() -> str:
@@ -29,9 +31,10 @@ def now_iso() -> str:
 
 
 @contextmanager
-def connection() -> Iterator[sqlite3.Connection]:
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(settings.database_path)
+def connection(*, shared: bool = False) -> Iterator[sqlite3.Connection]:
+    path = settings.database_path if shared else area_database_path(settings.database_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     db.execute("PRAGMA busy_timeout = 5000")
@@ -254,13 +257,15 @@ def init_database() -> None:
         current_state = db.execute(
             "SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'"
         ).fetchone()
+        handover_table = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_handover'").fetchone()
+        imported_opening = bool(handover_table and db.execute("SELECT 1 FROM production_handover WHERE id='default'").fetchone())
         if current_state is not None:
             initial_seed = _loads(current_state["seed_json"])
-            if "rawMaterialSettings" not in initial_seed:
+            if "rawMaterialSettings" not in initial_seed and not imported_opening:
                 initial_seed["rawMaterialSettings"] = initial_raw_material_settings()
                 db.execute("UPDATE planning_state SET seed_json=?, updated_at=? WHERE state_key='default'",
                            (json.dumps(initial_seed, ensure_ascii=False), now_iso()))
-            if "productWeights" not in initial_seed:
+            if "productWeights" not in initial_seed and not imported_opening:
                 initial_seed["productWeights"] = initial_product_weights()
                 db.execute("UPDATE planning_state SET seed_json=?, updated_at=? WHERE state_key='default'",
                            (json.dumps(initial_seed, ensure_ascii=False), now_iso()))
@@ -275,6 +280,8 @@ def init_database() -> None:
     from .collaboration import init_collaboration
     with connection() as db:
         init_collaboration(db)
+        from .handover import init_handover
+        init_handover(db)
 
 
 def _loads(value: str) -> Any:
@@ -327,7 +334,9 @@ def planning_state() -> dict[str, Any] | None:
         row = db.execute("SELECT seed_json, updated_at, updated_by_id, updated_by_name FROM planning_state WHERE state_key='default'").fetchone()
     if row is None:
         return None
+    from .handover import generation
     return {
+        "generation": generation(),
         "seed": _loads(row["seed_json"]),
         "updatedAt": row["updated_at"],
         "updatedBy": {"id": row["updated_by_id"], "name": row["updated_by_name"]},
@@ -443,7 +452,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings")
+PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts", "filterQualityShifts")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
@@ -579,6 +588,8 @@ def save_planning_state(
     route_placement_version: int = 0,
     production_split_version: int = 0,
     process_wait_settings_version: int = 0,
+    stock_planning_version: int = 0,
+    monthly_planning_version: int = 0,
     identity_resolution: dict[str, Any] | None = None,
     request_id: str = "",
     session_id: str = "",
@@ -607,7 +618,8 @@ def save_planning_state(
             request_hash = state_hash({"delta": delta, "baseHash": base_hash,
                 "expectedUpdatedAt": expected_updated_at, "mode": mode, "force": force,
                 "flowSettingsVersion": flow_settings_version, "routePlacementVersion": route_placement_version,
-                "productionSplitVersion": production_split_version, "processWaitSettingsVersion": process_wait_settings_version})
+                "productionSplitVersion": production_split_version, "processWaitSettingsVersion": process_wait_settings_version,
+                **({"stockPlanningVersion": stock_planning_version, "monthlyPlanningVersion": monthly_planning_version} if uses_stock_planning(seed) or uses_stock_planning(current["seed"] if current else {}) else {})})
             receipt = db.execute("SELECT * FROM planning_write_receipts WHERE actor_id=? AND transaction_id=?",
                                  (actor_id, transaction_id)).fetchone()
             if receipt:
@@ -625,6 +637,8 @@ def save_planning_state(
                 raise PlanningStateConflict(current or {"seed": None, "updatedAt": "", "stateHash": "", "patchVersion": 1})
             seed = apply_delta(current["seed"] if current else {}, delta)
             audit["changes"] = _audit_changes(current["seed"] if current else None, seed)
+        if identity_resolution is None:
+            validate_seed_area(seed)
         if shared_inputs_only:
             if current and expected_updated_at != current["updatedAt"]:
                 raise PlanningStateConflict(current)
@@ -658,13 +672,43 @@ def save_planning_state(
         if current and "flowSettings" in current["seed"] and "flowSettings" not in seed:
             seed = {**seed, "flowSettings": current["seed"]["flowSettings"]}
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
+
         current_updated_at = current["updatedAt"] if current else ""
         if mode != "planning" and current and expected_updated_at is None:
             raise ValueError("Operasyon kaydı için güncel ortak sürüm gereklidir. Ortak veriyi yükleyin.")
         if (not force or mode != "planning") and expected_updated_at is not None and current_updated_at != expected_updated_at:
             raise PlanningStateConflict(current or {"seed": None, "updatedAt": ""})
+        if stock_planning_version < 1 and any(uses_stock_planning(state) for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Günlük sipariş, stok ve bekleme takvimini korumak için uygulamayı yenileyin.")
+        if monthly_planning_version < 1 and any((state.get("monthlyCustomerDemand") is not None or "filterQualityShifts" in state or "filterInitialStockSetup" in state or "filterMonthlyDeliveryBaselines" in state) for state in [seed, current["seed"] if current else {}]):
+            raise ValueError("Aylık müşteri planını korumak için uygulamayı yenileyin.")
+        # Initial count is a one-time physical baseline. Order/scenario saves cannot erase or replace it.
+        previous_setup = (current['seed'].get('filterInitialStockSetup') or (current['seed'].get('monthlyCustomerDemand') or {}).get('stockReconciliation')) if current else None
+        if previous_setup:
+            if 'sourceRows' not in previous_setup:
+                previous_setup = {**previous_setup, 'sourceRows': (current['seed'].get('monthlyCustomerDemand') or {}).get('openingStock',{}).get('rows',[])}
+            incoming_setup = seed.get('filterInitialStockSetup')
+            if incoming_setup is not None and incoming_setup != previous_setup:
+                raise ValueError('Başlangıç sayımı bir kez uygulanır. Normal stok işlemlerini kullanın.')
+            seed = {**seed, 'filterInitialStockSetup': previous_setup}
+        if current and current['seed'].get('filterMonthlyDeliveryBaselines'):
+            prior_baselines=current['seed']['filterMonthlyDeliveryBaselines']
+            incoming_baselines=seed.get('filterMonthlyDeliveryBaselines',prior_baselines)
+            seed={**seed,'filterMonthlyDeliveryBaselines':incoming_baselines}
+            for prior in prior_baselines:
+                incoming=next((item for item in incoming_baselines if item.get('year')==prior['year']),None) if isinstance(incoming_baselines,list) else None
+                if incoming is None or {k:v for k,v in incoming.items() if k!='handovers'}!={k:v for k,v in prior.items() if k!='handovers'}:
+                    raise ValueError('Kayıtlı teslimat kesimi korunmalıdır.')
+        previous_monthly=(current['seed'].get('monthlyCustomerDemand') or {}) if current else {}
+        next_monthly=seed.get('monthlyCustomerDemand') or {}
+        if previous_monthly.get('year')==next_monthly.get('year') and previous_monthly.get('deliveryBaseline'):
+            if {k:v for k,v in (next_monthly.get('deliveryBaseline') or {}).items() if k!='handovers'}!={k:v for k,v in previous_monthly['deliveryBaseline'].items() if k!='handovers'}:
+                raise ValueError('Kayıtlı teslimat kesimi korunmalıdır. Aylık ihtiyacı güncel kayıttan düzenleyin.')
+        validate_stock_planning(seed)
         if "flowSettings" in seed:
             validate_flow_settings(seed["flowSettings"])
+            if production_area.get() == "cubuk-filtre" and seed["flowSettings"]["enabled"]:
+                raise ValueError("Saat bazlı akış ayarları yalnız Piston / Center Pin alanında kullanılabilir.")
         if flow_settings_version < 1 and any((state.get("flowSettings") or {}).get("enabled") for state in [seed, current["seed"] if current else {}]):
             raise ValueError("Saat bazlı akış ayarlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if production_split_version < 1 and any(
@@ -731,6 +775,22 @@ def save_planning_state(
             "transactionId": transaction_id or None, "appliedRevision": timestamp, "replayed": False,
             "correction": correction,
             "historyEntry": history_entry, "archiveSnapshot": archive_snapshot}
+
+
+class RefreshPreviewStale(Exception):
+    """The reviewed preview no longer matches the stored or source state."""
+
+
+PRODUCTION_SYNC_BACKUP_LIMIT = 30
+
+
+def production_refresh_inputs() -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
+    """Local staging seed, its revision and the last production baseline (read-only)."""
+    with connection() as db:
+        local_row = db.execute("SELECT seed_json, updated_at FROM planning_state WHERE state_key='default'").fetchone()
+        base_row = db.execute("SELECT seed_json FROM production_sync_baseline WHERE state_key='production'").fetchone()
+    return (_loads(local_row["seed_json"]) if local_row else None, local_row["updated_at"] if local_row else "",
+            _loads(base_row["seed_json"]) if base_row else None)
 
 
 class RefreshPreviewStale(Exception):
@@ -949,7 +1009,7 @@ def app_user_role(email: str) -> str | None:
     normalized = email.strip().lower()
     if not normalized:
         return None
-    with connection() as db:
+    with connection(shared=True) as db:
         row = db.execute("SELECT role FROM app_user_roles WHERE email=?", (normalized,)).fetchone()
     return str(row["role"]) if row else None
 

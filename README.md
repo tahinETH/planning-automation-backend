@@ -119,3 +119,23 @@ sudo systemctl restart planning-automation-backend-staging
 ## Ravi
 
 Ravi setup, tools, source-map maintenance and validation: [workspace guide](../docs/ravi.md).
+
+## Production areas (local/staging)
+
+Requests default to the existing Torna database. `X-Production-Area: cubuk-filtre`
+selects a sibling database (`staging-cubuk-filtre.sqlite` when the configured
+file is `staging.sqlite`). The middleware validates the area and echoes it;
+user-role lookup remains on the original shared database. Startup initializes
+both schemas in local/staging. Back up both files after filter planning begins.
+Uploads retain their existing directory and UUID names; metadata ownership is
+scoped by the selected database. Do not change the original Torna database path.
+
+Old seeds/packages without an area are Torna. Wrong-area saves/revisions/scenarios
+are rejected. The filter area is unavailable with `APP_ENV=production`, and
+production-sync/snapshot endpoints do not accept it. This is a local/staging
+expansion; a production rollout needs a separate reviewed release.
+
+`tests/test_production_area.py` covers concurrent persistence isolation, shared
+roles, scoped Ravi reads, cross-area rejection and each new process Excel export.
+The source map and delivery runtime must be generated in the combined workspace
+with the corresponding frontend. See `frontend/docs/cubuk-filtre-expansion.md`.

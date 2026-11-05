@@ -423,6 +423,7 @@ def test_t17_runtime_date_outside_excel_range_is_rejected_before_workbook_render
 
 
 def test_t17_deferred_cf_export_keeps_its_existing_summary_and_backup_shape(monkeypatch):
+    from app.production_area import production_area
     import app.scenario_plans as plans
     scenario = scenario_fixture("cf-scenario", "CF saved scenario")
     scenario["seed"]["productionArea"] = "cubuk-filtre"
@@ -433,9 +434,11 @@ def test_t17_deferred_cf_export_keeps_its_existing_summary_and_backup_shape(monk
         raise AssertionError("Piston readable export must not run on deferred CF")
 
     monkeypatch.setattr(plans, "_run", forbidden_runtime)
-    # Production has no CF area module. Legacy CF-tagged backup data still
-    # retains its old summary shape and must not invoke Piston calculation.
-    content = build_data_package("scenarios", [scenario])
+    token = production_area.set("cubuk-filtre")
+    try:
+        content = build_data_package("scenarios", [scenario])
+    finally:
+        production_area.reset(token)
     workbook = load_workbook(BytesIO(content))
     assert set(workbook.sheetnames) == {"Bilgi", "Senaryolar", "__SelsaVeri"}
     assert parse_data_package(content, "scenarios") == [scenario]

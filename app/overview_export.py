@@ -290,7 +290,7 @@ def _resource_shop_floor_sheet(workbook: Workbook, plan: dict[str, Any], generat
     sheet.column_dimensions[get_column_letter(columns + 1)].width = 3
     _shop_floor_header(sheet, label, plan, generated_at, print_range, last_column)
     if process == "turning":
-        note = f"İhtiyaç (kg) = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000 · %{plan.get('scrapPercent', 2):g} ıskarta dahil · Kaynak: Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları"
+        note = f"İhtiyaç (kg) = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000 · {_scrap_label(plan)} dahil · Kaynak: Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları"
         if plan.get("dirty"):
             note += " · Plan güncel değil"
         _merge_value(sheet, f"A5:{last_column}5", note, font=Font(name="Aptos", size=8, color=MUTED), alignment=Alignment(vertical="center"))
@@ -408,12 +408,19 @@ def _operation_plan_sheet(workbook: Workbook, plan: dict[str, Any], generated_at
     sheet.print_area = f"A1:{last_column}{last_row}"
 
 
+def _scrap_label(plan: dict[str, Any]) -> str:
+    if any(row.get("scrapPercent") is not None for resource in plan.get("resources", []) for row in resource.get("rows", [])):
+        return "Ürün bazında ayar + genel ıskarta"
+    return f"%{plan.get('scrapPercent', 2):g} ıskarta"
+
+
 def _material_amounts(item: dict[str, Any], scrap_percent: float = 2) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     grams = item.get("unitWeightGrams")
     if not isinstance(grams, (int, float)) or isinstance(grams, bool) or not math.isfinite(grams) or grams <= 0:
         return None, None, None
     net = Decimal(max(0, int(item.get("quantity", 0)))) * Decimal(str(grams)) / 1000
-    scrap = net * Decimal(str(scrap_percent)) / 100
+    effective_scrap = item.get("scrapPercent") if item.get("scrapPercent") is not None else scrap_percent
+    scrap = net * Decimal(str(effective_scrap)) / 100
     return net, scrap, net + scrap
 
 
@@ -445,13 +452,13 @@ def _material_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str,
                      alignment=Alignment(vertical="center"))
         scope = "Saha planındaki sıradaki en fazla 10 iş / tezgâh · en fazla 16 tezgâh" if print_range and print_range.get("mode") == "next-jobs" else (
             f"{print_range.get('startDate', '')} – {print_range.get('endDate', '')} · {print_range.get('dayCount', 0)} gün" if print_range else "Dışa aktarılan proses işlerinin tamamı")
-        for row, text in [(3, scope), (4, f"İhtiyaç (kg) = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000 · %{plan.get('scrapPercent', 2):g} ıskarta dahil"),
+        for row, text in [(3, scope), (4, f"İhtiyaç (kg) = Adet × Birim ağırlık (g) × (1 + Iskarta Oranı / 100) / 1000 · {_scrap_label(plan)} dahil"),
                           (5, "Kaynak: Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları · Prosesler arası toplam yapılmaz; stok düşülmez.")]:
             _merge_value(sheet, f"A{row}:J{row}", text, font=Font(name="Aptos", size=10, color=MUTED), alignment=Alignment(vertical="center"))
         records = [(resource, item) for resource in group for item in resource.get("rows", [])]
         total = Decimal(0)
         missing = 0
-        headers = ["İstasyon", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Hammadde kodu", "Birim ağırlık (g)", "Iskartasız (kg)", f"%{plan.get('scrapPercent', 2):g} ıskarta (kg)", "İhtiyaç (kg)"]
+        headers = ["İstasyon", "Sıra", "Ürün", "Şarj / iş emri", "Adet", "Hammadde kodu", "Birim ağırlık (g)", "Iskartasız (kg)", f"{_scrap_label(plan)} (kg)", "İhtiyaç (kg)"]
         widths = [14, 7, 20, 19, 12, 19, 18, 17, 17, 18]
         for column, (heading, width) in enumerate(zip(headers, widths, strict=True), 1):
             cell = sheet.cell(7, column, heading)
@@ -489,7 +496,7 @@ def _material_sheet(workbook: Workbook, plan: dict[str, Any], generated_at: str,
         _merge_value(sheet, "A6:J6", note, fill=AMBER_LIGHT if missing or dirty else GREEN_LIGHT,
                      font=Font(name="Aptos", size=10, color=AMBER if missing or dirty else GREEN, bold=True), alignment=Alignment(vertical="center"))
         total_row = len(records) + 8
-        _merge_value(sheet, f"A{total_row}:I{total_row}", "Bilinen ihtiyaç ara toplamı (kg) — eksik ağırlıklar hariç" if missing else f"Toplam hammadde ihtiyacı (kg) · %{plan.get('scrapPercent', 2):g} ıskarta dahil",
+        _merge_value(sheet, f"A{total_row}:I{total_row}", "Bilinen ihtiyaç ara toplamı (kg) — eksik ağırlıklar hariç" if missing else f"Toplam hammadde ihtiyacı (kg) · {_scrap_label(plan)} dahil",
                      fill=NAVY_LIGHT, font=Font(name="Aptos", size=10, color=NAVY, bold=True), alignment=Alignment(vertical="center"))
         cell = sheet.cell(total_row, 10, float(total) if not missing or len(records) > missing else "Hesaplanamadı")
         cell.number_format = "#,##0.000"
@@ -516,7 +523,7 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
         if selected_plan is not None:
             _operation_plan_sheet(workbook, {**selected_plan, "dirty": bool(payload.get("dirty"))}, generated, payload.get("printRange"))
         else:
-            fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM"}
+            fallback_labels = {"turning": "Torna", "drilling": "Delme", "deburring": "Çapak Alma", "gkm": "GKM", "gtm": "GTM", "diameter-grinding": "Çap Taşlama", "form-grinding": "Form Taşlama", "measuring": "Ölçme", "milling": "Freze", "final-inspection": "Final Kontrol", "filter-visual": "Göz Kontrol"}
             _operation_plan_sheet(workbook, {"process": selected_process, "label": fallback_labels.get(selected_process, "Operasyon"), "totalQuantity": 0, "totalJobCount": 0, "resources": []}, generated, payload.get("printRange"))
         if selected_plan is not None:
             _material_sheet(workbook, selected_plan, generated, payload.get("printRange"), bool(payload.get("dirty")))

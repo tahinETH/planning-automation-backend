@@ -12,11 +12,13 @@ from typing import Any
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 
+from .production_area import ProductionAreaMiddleware, production_area, validate_seed_area, area_available
 from .auth import CurrentUser, create_test_session, current_user, require_admin
 from .config import settings
 from .database import PlanningStateConflict, ProtectedSettingsChange, all_app_updates, all_feedback, app_update_record, connection, demand_import_history, feedback_record, init_database, now_iso, order_details, planning_state, planning_state_history, production_archive_history, revisions, save_demand_import_history, save_orders, save_planning_state, scenario_record, scenario_summaries, scenarios
+from .database import planning_history_summaries, planning_history_detail, revision_summaries, revision_detail
 from .data_package import DataPackageError, MAX_DATA_PACKAGE_BYTES, SCOPE_LABELS, build_data_package, parse_data_package
 from .delivery_plan import DeliveryPlanError, build_delivery_plan
 from .delivery_reports import DeliveryReportError, report_snapshot
@@ -35,14 +37,20 @@ from .ravi.routes import router as ravi_router
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
+    if area_available("cubuk-filtre"):
+        token = production_area.set("cubuk-filtre")
+        try:
+            init_database()
+        finally:
+            production_area.reset(token)
     yield
 
 
 app = FastAPI(title="Selsa Planlama API", version="1.0.0", lifespan=lifespan)
 app.include_router(ravi_router)
-# Compress large JSON snapshots; Starlette excludes text/event-stream (Ravi).
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=3)
-app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(ProductionAreaMiddleware)
+app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Production-Area", "X-Planning-Generation"])
 
 
 def require_feedback(db, feedback_id: str) -> dict[str, Any]:
@@ -65,7 +73,7 @@ if settings.app_env == "test" and settings.auth_test_mode:
 
 @app.get("/api/me")
 def me(user: CurrentUser = Depends(current_user)):
-    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role}
+    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role, "availableAreas": [area for area in ("torna", "cubuk-filtre") if area_available(area)]}
 
 
 @app.get("/api/app-updates")
@@ -137,15 +145,29 @@ def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_u
 
 
 @app.post("/api/order-imports/preview")
-async def preview_order_import(file: UploadFile = File(...), _: CurrentUser = Depends(current_user)):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+async def preview_order_import(file: UploadFile = File(...), monthly: bool = False, _: CurrentUser = Depends(current_user)):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
+        raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_XLSX_BYTES + 1)
     try:
-        preview = parse_order_xlsx(content)
+        if monthly and production_area.get() != "cubuk-filtre":
+            raise OrderImportError("Aylık Çubuk Filtre dosyası yalnız kendi alanına uygulanabilir.")
+        preview = parse_order_xlsx(content, allow_filter_daily=production_area.get() == "cubuk-filtre", allow_filter_monthly=monthly)
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
+
+
+@app.get("/api/order-imports/monthly-template")
+def get_filter_monthly_template(year: int = Query(...), _: CurrentUser = Depends(current_user)):
+    from .filter_monthly_import import build_filter_monthly_template
+    if production_area.get() != "cubuk-filtre":
+        raise HTTPException(status_code=422, detail="Aylık şablon yalnız Çubuk Filtre alanındadır.")
+    try:
+        content = build_filter_monthly_template(year)
+    except OrderImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="siparis-sablonu-{year}.xlsx"'})
 
 
 @app.get("/api/order-imports/history")
@@ -229,7 +251,7 @@ def export_cnc_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUse
 @app.post("/api/general-overview/export")
 def export_general_overview(payload: OverviewExportPayload, _: CurrentUser = Depends(current_user)):
     content = build_overview_workbook(payload.model_dump())
-    process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM"}.get(payload.selectedProcess or "")
+    process_name = {"turning": "Torna", "drilling": "Delme", "deburring": "Capak_Alma", "gkm": "GKM", "gtm": "GTM", "diameter-grinding": "Cap_Taslama", "form-grinding": "Form_Taslama", "measuring": "Olcme", "milling": "Freze", "final-inspection": "Final_Kontrol", "filter-visual": "Goz_Kontrol"}.get(payload.selectedProcess or "")
     if process_name and payload.printRange:
         filename = f"{process_name}_Saha_Plani_Siradaki_10_Is.xlsx" if payload.printRange.mode == "next-jobs" else f"{process_name}_Saha_Plani_{payload.printRange.startDate}_{payload.printRange.endDate}.xlsx"
     else:
@@ -269,10 +291,11 @@ def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends
         raise HTTPException(status_code=403, detail="Ayarlar paketlerine yalnızca yöneticiler erişebilir")
     plans = None
     if payload.scope == "scenarios":
-        from .scenario_plans import scenario_plans
         requested = payload.data if isinstance(payload.data, list) else payload.data.get("scenarios", [])
         records = {item["id"]: collaboration.get_scenario(item["id"], user) for item in requested}
-        plans = scenario_plans(requested, records.get)
+        if production_area.get() == "torna":
+            from .scenario_plans import scenario_plans
+            plans = scenario_plans(requested, records.get)
     content = build_data_package(payload.scope, payload.data, plans=plans)
     filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
@@ -288,8 +311,8 @@ async def import_data_package(scope: str, file: UploadFile = File(...), user: Cu
         raise HTTPException(status_code=404, detail="Veri paketi kapsamı bulunamadı.")
     if scope in ("settings", "complete") and not user.is_admin:
         raise HTTPException(status_code=403, detail="Ayarlar paketlerini yalnızca yöneticiler içe aktarabilir")
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="Yalnızca .xlsx dosyası yükleyebilirsiniz.")
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
+        raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_DATA_PACKAGE_BYTES + 1)
     try:
         data = parse_data_package(content, scope)
@@ -372,7 +395,8 @@ def patch_planning_state(payload: PlanningDeltaPayload, user: CurrentUser = Depe
             request_id=payload.transactionId, session_id=x_planning_session_id or "",
             delta=payload.delta, base_hash=payload.baseHash, transaction_id=payload.transactionId,
             flow_settings_version=payload.flowSettingsVersion, route_placement_version=payload.routePlacementVersion,
-            production_split_version=payload.productionSplitVersion, process_wait_settings_version=payload.processWaitSettingsVersion)
+            production_split_version=payload.productionSplitVersion, process_wait_settings_version=payload.processWaitSettingsVersion,
+            stock_planning_version=payload.stockPlanningVersion, monthly_planning_version=payload.monthlyPlanningVersion)
         if saved["replayed"]:
             return saved
         # The browser already holds the submitted state. Return only the commit
@@ -406,6 +430,8 @@ def put_planning_state(payload: PlanningStatePayload, user: CurrentUser = Depend
             route_placement_version=payload.routePlacementVersion,
             production_split_version=payload.productionSplitVersion,
             process_wait_settings_version=payload.processWaitSettingsVersion,
+            stock_planning_version=payload.stockPlanningVersion,
+            monthly_planning_version=payload.monthlyPlanningVersion,
         )
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Planlama verisi başka bir oturumda güncellendi.", "current": error.current}) from error
@@ -423,7 +449,7 @@ def resolve_turning_identity(payload: TurningIdentityResolutionPayload, user: Cu
         return save_planning_state({}, payload.expectedUpdatedAt, mode="operational",
             actor_id=user.id, actor_name=user.name, can_manage_settings=user.is_admin,
             request_id=x_planning_request_id or "", session_id=x_planning_session_id or "",
-            route_placement_version=1, production_split_version=1, process_wait_settings_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
+            route_placement_version=1, production_split_version=1, process_wait_settings_version=1, flow_settings_version=1, stock_planning_version=1, monthly_planning_version=1, identity_resolution=payload.model_dump(exclude={"expectedUpdatedAt"}))
     except PlanningStateConflict as error:
         raise HTTPException(status_code=409, detail={"message": "Ortak kayıt değişti. Güncel kayıtları yükleyip incelemeyi tekrarlayın.", "current": error.current}) from error
     except (ValueError, ProtectedSettingsChange) as error:

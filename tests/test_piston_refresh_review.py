@@ -272,7 +272,7 @@ def test_t16_transaction_failure_rolls_back_backup_state_baseline_history_and_sc
 
 
 @pytest.mark.parametrize("action", ["preview", "apply"])
-def test_t16_production_refresh_is_blocked_for_cf_header_and_each_action(refresh_client, monkeypatch, action):
+def test_t16_piston_refresh_does_not_enable_cf_source_copy(refresh_client, monkeypatch, action):
     baseline, local, _ = physical_fixture()
     seed_local(local, baseline)
     before = database_snapshot()
@@ -280,15 +280,10 @@ def test_t16_production_refresh_is_blocked_for_cf_header_and_each_action(refresh
     def forbidden_access(*args, **kwargs):
         pytest.fail("Deferred CF refresh must not access the production source")
 
-    object.__setattr__(settings, "app_env", "production")
     monkeypatch.setattr("app.production_sync.httpx.get", forbidden_access)
-    # The production port has no CF middleware. Its environment guard blocks
-    # every source pull, irrespective of an unsupported area header.
-    expected = {"sourceDigest": "a" * 64, "localDigest": "b" * 64,
-                "localUpdatedAt": "2026-10-18T08:00:00Z", "baselineDigest": "c" * 64}
     response = refresh_client.post("/api/production-sync/pull", headers={**auth(), "X-Production-Area": "cubuk-filtre"},
-                                   json={"action": action, "expected": expected, "choices": {}})
-    assert response.status_code == 403
+                                   json={"action": action, "expected": {}, "choices": {}})
+    assert response.status_code == 409
     assert database_snapshot() == before
 
 
