@@ -182,3 +182,21 @@ def test_cnc_plus_three_export_has_separate_authority_and_preserves_actual_shipm
     assert invalid.json()["report"]["complete"] is False
     bad = invalid.json()
     assert client.post("/api/delivery-plan/cnc-plus-three/export", json={**request, "digest": bad["digest"], "calculationDate": bad["calculationDate"]}).status_code == 422
+
+
+@pytest.mark.parametrize('endpoint', ['preview', 'export'])
+def test_cnc_plus_three_filter_scope_rejects_before_report_computation(saved, client, monkeypatch, endpoint):
+    state, scope = saved
+    before = json.dumps(state, sort_keys=True)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Filter CNC + 3 request reached report computation or workbook generation.')
+    monkeypatch.setattr(main, 'report_snapshot', forbidden)
+    monkeypatch.setattr(main, 'build_delivery_plan', forbidden)
+    request = {'expectedRevision': state['updatedAt'], **scope}
+    if endpoint == 'export':
+        request.update(digest='a' * 64, calculationDate=scope['startDate'])
+    response = client.post(f'/api/delivery-plan/cnc-plus-three/{endpoint}', headers={'X-Production-Area': 'cubuk-filtre'}, json=request)
+    assert response.status_code == 422, response.text
+    assert response.json()['detail'] == 'CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.'
+    assert response.headers['x-production-area'] == 'cubuk-filtre'
+    assert json.dumps(state, sort_keys=True) == before

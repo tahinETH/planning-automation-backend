@@ -7,6 +7,11 @@ authoritative; never loosen a test merely to make changed behavior pass.
 
 ## Definition of done
 
+For decisions about behavior, follow “How to work with Furkan” in the
+[workspace rules](../AGENTS.md) when available. Ask for his prediction, show
+the evidence and its limits, explain your choices, and review one case with him.
+
+
 1. Add or update a meaningful regression example for every behavior, calculation,
    permission, persistence, import, planning, report or delivery change. A defect
    fix must retain a test that fails without the fix.

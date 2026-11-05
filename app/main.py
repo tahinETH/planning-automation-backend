@@ -216,6 +216,8 @@ def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = 
 
 @app.post("/api/delivery-plan/cnc-plus-three/preview")
 def preview_cnc_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = Depends(current_user)):
+    if production_area.get() != "torna":
+        raise HTTPException(status_code=422, detail="CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.")
     try:
         return report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"})
     except DeliveryReportError as error:
@@ -224,6 +226,8 @@ def preview_cnc_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = D
 
 @app.post("/api/delivery-plan/cnc-plus-three/export")
 def export_cnc_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = Depends(current_user)):
+    if production_area.get() != "torna":
+        raise HTTPException(status_code=422, detail="CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.")
     template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     try:
         snapshot = report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"}, payload.calculationDate)
