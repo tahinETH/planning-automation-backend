@@ -93,11 +93,167 @@ function orderImportMetadataForSeed(seed) {
     importedAt: demand.importedAt
   };
 }
+function effectiveDeliveryTimestamp(entry) {
+  if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
+  const deliveryDate = entry.deliveredAt?.slice(0, 10) ?? "";
+  if (deliveryDate && entry.statusChangedAt && factoryDateInput(entry.statusChangedAt) === deliveryDate) {
+    return new Date(entry.statusChangedAt).toISOString();
+  }
+  if (deliveryDate) return (/* @__PURE__ */ new Date(`${deliveryDate}T00:00:00+03:00`)).toISOString();
+  return entry.statusChangedAt && Number.isFinite(Date.parse(entry.statusChangedAt)) ? new Date(entry.statusChangedAt).toISOString() : "";
+}
+function isInsideFilter(timestamp, filter) {
+  const value = Date.parse(timestamp);
+  const start = Date.parse(filter.startAt);
+  const end = Date.parse(filter.endAt);
+  if (![value, start, end].every(Number.isFinite)) return false;
+  return (filter.includeStart ? value >= start : value > start) && value <= end;
+}
+function validateFilter(filter) {
+  const start = Date.parse(filter.startAt);
+  const end = Date.parse(filter.endAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error("Teslimat ba\u015Flang\u0131\xE7 veya plan \xE7al\u0131\u015Fma zaman\u0131 ge\xE7ersiz.");
+  if (start > end) throw new Error("Teslimat ba\u015Flang\u0131\xE7 zaman\u0131 plan\u0131n \xE7al\u0131\u015Fma zaman\u0131ndan sonra olamaz.");
+}
+function deductDeliveries(input) {
+  validateFilter(input.filter);
+  if (input.filter.enabled && input.orderImport.shipmentsThrough && (Date.parse(input.filter.startAt) < Date.parse(input.orderImport.shipmentsThrough) || Date.parse(input.filter.startAt) === Date.parse(input.orderImport.shipmentsThrough) && input.filter.includeStart)) throw new Error("Bu tarihe kadar teslimatlar g\xFCnl\xFCk Excel bakiyesinden d\xFC\u015F\xFCld\xFC. Teslimat ba\u015Flang\u0131c\u0131n\u0131 dosya kesiminden sonra se\xE7in.");
+  const orders = input.orders.map((order) => ({ ...order, deliveryMilestones: order.deliveryMilestones?.map((milestone) => ({ ...milestone })) }));
+  const grossDemand = orders.reduce((sum, order) => sum + Math.max(0, order.quantity), 0);
+  const importedProducts = new Set([...input.importProducts].map((product) => product.trim().toUpperCase()).filter(Boolean));
+  const orderIndexesByProduct = /* @__PURE__ */ new Map();
+  orders.forEach((order, index) => {
+    const code3 = order.product.trim().toUpperCase();
+    orderIndexesByProduct.set(code3, [...orderIndexesByProduct.get(code3) ?? [], index]);
+  });
+  for (const indexes of orderIndexesByProduct.values()) {
+    indexes.sort((left, right) => orders[left].dueDate.localeCompare(orders[right].dueDate) || orders[left].sourceRow - orders[right].sourceRow);
+  }
+  const remainingByOrder = orders.map((order) => Math.max(0, order.quantity));
+  const deductedByOrder = orders.map(() => 0);
+  const seenIds = /* @__PURE__ */ new Set();
+  const candidates = input.filter.enabled ? (input.productionHistory ?? []).filter((entry) => entry.inventoryStatus === "delivered" && entry.completedQuantity > 0 && !seenIds.has(entry.id) && seenIds.add(entry.id)).map((entry) => ({ entry, deliveredAt: effectiveDeliveryTimestamp(entry) })).filter(({ deliveredAt }) => deliveredAt && isInsideFilter(deliveredAt, input.filter)).sort((left, right) => left.deliveredAt.localeCompare(right.deliveredAt) || left.entry.id.localeCompare(right.entry.id)) : [];
+  const items = [];
+  for (const { entry, deliveredAt } of candidates) {
+    const product = entry.product.trim().toUpperCase();
+    const indexes = orderIndexesByProduct.get(product) ?? [];
+    if (!importedProducts.has(product)) {
+      items.push({ entryId: entry.id, sourceEntryId: entry.sourceEntryId, product, workOrder: entry.workOrder, deliveredAt, quantity: entry.completedQuantity, deductedQuantity: 0, excessQuantity: 0, matchedOrderIds: [], status: "unmatched" });
+      continue;
+    }
+    if (!indexes.length) {
+      items.push({ entryId: entry.id, sourceEntryId: entry.sourceEntryId, product, workOrder: entry.workOrder, deliveredAt, quantity: entry.completedQuantity, deductedQuantity: 0, excessQuantity: 0, matchedOrderIds: [], status: "outside-scope" });
+      continue;
+    }
+    let remainingDelivery = entry.completedQuantity;
+    let deductedQuantity2 = 0;
+    const matchedOrderIds = [];
+    for (const index of indexes) {
+      if (remainingDelivery <= 0) break;
+      const deducted = Math.min(remainingDelivery, remainingByOrder[index]);
+      if (deducted <= 0) continue;
+      remainingByOrder[index] -= deducted;
+      deductedByOrder[index] += deducted;
+      remainingDelivery -= deducted;
+      deductedQuantity2 += deducted;
+      matchedOrderIds.push(orders[index].id);
+    }
+    items.push({
+      entryId: entry.id,
+      sourceEntryId: entry.sourceEntryId,
+      product,
+      workOrder: entry.workOrder,
+      deliveredAt,
+      quantity: entry.completedQuantity,
+      deductedQuantity: deductedQuantity2,
+      excessQuantity: remainingDelivery,
+      matchedOrderIds,
+      status: remainingDelivery > 0 ? "excess" : "matched"
+    });
+  }
+  const adjustedOrders = orders.flatMap((order, index) => {
+    const deduction = deductedByOrder[index];
+    const quantity = Math.max(0, order.quantity - deduction);
+    if (quantity <= 0) return [];
+    const milestones = orderDeliveryMilestones(order).map((milestone) => ({ ...milestone, quantity: Math.max(0, milestone.quantity - deduction) })).filter((milestone) => milestone.quantity > 0 && milestone.quantity < quantity);
+    return [{
+      ...order,
+      quantity,
+      allowPartial: milestones.length > 0,
+      partialDeliveryQuantity: milestones[0]?.quantity ?? 0,
+      partialDeliveryDate: milestones[0]?.date ?? "",
+      deliveryMilestones: milestones
+    }];
+  });
+  const deductedQuantity = deductedByOrder.reduce((sum, quantity) => sum + quantity, 0);
+  const excessDeliveryQuantity = items.reduce((sum, item) => sum + item.excessQuantity, 0);
+  const snapshot = {
+    import: { ...input.orderImport },
+    filter: { ...input.filter },
+    grossDemand,
+    deductedQuantity,
+    plannedDemand: Math.max(0, grossDemand - deductedQuantity),
+    excessDeliveryQuantity,
+    items
+  };
+  const products = [...new Set(orders.map((order) => order.product.trim().toUpperCase()))].map((product) => {
+    const indexes = orderIndexesByProduct.get(product) ?? [];
+    const productGross = indexes.reduce((sum, index) => sum + orders[index].quantity, 0);
+    const productDeducted = indexes.reduce((sum, index) => sum + deductedByOrder[index], 0);
+    return {
+      product,
+      orderIds: indexes.map((index) => orders[index].id),
+      grossDemand: productGross,
+      deductedQuantity: productDeducted,
+      plannedDemand: Math.max(0, productGross - productDeducted),
+      excessDeliveryQuantity: items.filter((item) => item.product === product).reduce((sum, item) => sum + item.excessQuantity, 0)
+    };
+  });
+  return {
+    adjustedOrders,
+    snapshot,
+    products,
+    unmatchedItems: items.filter((item) => item.status === "unmatched")
+  };
+}
+function calculateDeliveryDeduction(input) {
+  const importProducts = [...input.importProducts];
+  const selected = deductDeliveries({ ...input, importProducts });
+  const coverageStart = input.orderImport.shipmentsThrough ?? input.orderImport.importedAt;
+  const importedAt = Date.parse(coverageStart);
+  if (!Number.isFinite(importedAt)) throw new Error("Excel y\xFCkleme zaman\u0131 ge\xE7ersiz; teslimat kapsam\u0131 do\u011Frulanamad\u0131.");
+  const earlierStart = input.filter.enabled && Date.parse(input.filter.startAt) < importedAt;
+  const inclusive = deductDeliveries({ ...input, importProducts, filter: {
+    ...input.filter,
+    enabled: true,
+    startAt: earlierStart ? input.filter.startAt : coverageStart,
+    includeStart: earlierStart ? input.filter.includeStart : !input.orderImport.shipmentsThrough
+  } });
+  const selectedIds = new Set(selected.snapshot.items.map((item) => item.entryId));
+  return {
+    ...selected,
+    excludedItems: inclusive.snapshot.items.filter((item) => !selectedIds.has(item.entryId) && item.matchedOrderIds.length > 0),
+    includingExcludedProducts: inclusive.products
+  };
+}
+
+// lib/daily-demand.ts
+function assertFilterMonthlyPlan(plan, known) {
+  const twelve = (values) => Array.isArray(values) && values.length === 12;
+  if (!Number.isInteger(plan.year) || plan.year < 2e3 || plan.year > 2100 || !twelve(plan.workingDays) || plan.workingDays.some((days) => !(days >= 0 && days <= 31) || days * 2 % 1 !== 0)) throw new Error("\xC7al\u0131\u015Fma G\xFCnleri: y\u0131l veya ayl\u0131k i\u015F g\xFCn\xFC ge\xE7ersiz.");
+  if (!Array.isArray(plan.rows) || !plan.rows.length || plan.rows.length > 60) throw new Error("\xC7al\u0131\u015Fma G\xFCnleri: \xFCr\xFCn sat\u0131r\u0131 bulunamad\u0131.");
+  for (const row of plan.rows) {
+    if (!known.has(row.product) || !["internal", "external"].includes(row.kind) || !twelve(row.quantities) || row.quantities.some((n) => !Number.isSafeInteger(n) || n < 0)) throw new Error(`\xC7al\u0131\u015Fma G\xFCnleri: ${row.label || "sat\u0131r"} \xFCr\xFCn\xFC, t\xFCr\xFC veya ayl\u0131k adedi ge\xE7ersiz.`);
+  }
+}
 
 // lib/filter-monthly-demand.ts
 var FILTER_315 = "F.00V.P01.315";
 var FILTER_EXPECTED_GOOD_PERCENT = { "F.00V.P01.309": 96, [FILTER_315]: 96 };
 var integer = (n) => Number.isSafeInteger(n) && n >= 0;
+var dateValid = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+var serial = (s) => (Date.parse(`${s}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5;
+var iso = (n) => new Date(Date.UTC(1899, 11, 30) + n * 864e5).toISOString().slice(0, 10);
 function filterGoodPieces(product, physical) {
   if (!integer(physical)) throw new Error("Fiziksel adet ge\xE7ersiz.");
   const percent = FILTER_EXPECTED_GOOD_PERCENT[product];
@@ -119,6 +275,91 @@ function promoteFilterMonthlyEvidence(seed) {
   if (!seed.filterInitialStockSetup && monthly?.stockReconciliation) seed.filterInitialStockSetup = structuredClone({ ...monthly.stockReconciliation, sourceRows: monthly.stockReconciliation.sourceRows ?? monthly.openingStock?.rows });
   const baseline = monthly?.deliveryBaseline ?? (monthly && seed.orderImport?.shipmentsThrough ? { year: monthly.year, snapshotDate: monthly.snapshotDate, importedAt: monthly.importedAt, shipmentsThrough: seed.orderImport.shipmentsThrough, handovers: monthly.handovers } : seed.filterInitialStockSetup?.deliveryBaseline);
   if (baseline && !seed.filterMonthlyDeliveryBaselines?.some((item) => item.year === baseline.year)) seed.filterMonthlyDeliveryBaselines = [...seed.filterMonthlyDeliveryBaselines ?? [], structuredClone(baseline)];
+}
+function buildFilterMonthlyOrders(seed, data) {
+  if (seed.productionArea !== "cubuk-filtre" || data.format !== "filter-monthly") throw new Error("Ayl\u0131k dosya yaln\u0131z \xC7ubuk Filtre alan\u0131na uygulanabilir.");
+  assertFilterMonthlyPlan(data, new Set(seed.products.map((p) => p.product)));
+  if (![data.startDate, data.endDate, data.snapshotDate].every(dateValid) || data.startDate > data.endDate || data.startDate.slice(0, 4) !== String(data.year) || data.endDate.slice(0, 4) !== String(data.year)) throw new Error("Ayl\u0131k sipari\u015F tarihlerini ve y\u0131l\u0131 kontrol edin.");
+  if (!Array.isArray(data.handovers) || data.handovers.length > 720 || !Array.isArray(data.exceptions) || data.exceptions.length > 1e3) throw new Error("Teslimat veya tarihli ihtiya\xE7 listesi ge\xE7ersiz.");
+  const products = new Set(data.rows.map((r) => r.product));
+  if (products.size !== data.rows.length) throw new Error("Ayl\u0131k \xFCr\xFCn tekrarl\u0131.");
+  const handovers = /* @__PURE__ */ new Map();
+  for (const h of data.handovers) {
+    const key = `${h.product}:${h.month}`;
+    if (!products.has(h.product) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(h.month) || h.month.slice(0, 4) !== String(data.year) || !integer(h.quantity) || handovers.has(key) || h.quantity > 0 && h.month > data.snapshotDate.slice(0, 7)) throw new Error("Teslim edilen adet, ay veya \xFCr\xFCn ge\xE7ersiz / tekrarl\u0131.");
+    handovers.set(key, h.quantity);
+  }
+  if (data.openingStock) {
+    if (!dateValid(data.openingStock.cutoffDate) || !Array.isArray(data.openingStock.rows) || data.openingStock.rows.length > 100) throw new Error("Stok kayna\u011F\u0131 ge\xE7ersiz.");
+    const seen = /* @__PURE__ */ new Set();
+    for (const row of data.openingStock.rows) {
+      if (seen.has(row.product) || !seed.products.some((p) => p.product === row.product) || [row.delivered, row.visual, row.heat, row.milling, row.grinding].some((n) => n !== null && !integer(n))) throw new Error("Stok kayna\u011F\u0131 \xFCr\xFCn / adet ge\xE7ersiz.");
+      seen.add(row.product);
+    }
+  }
+  const exceptionKeys = /* @__PURE__ */ new Set();
+  for (const e of data.exceptions) {
+    const key = `${e.product}:${e.date}`;
+    if (!products.has(e.product) || !dateValid(e.date) || e.date < data.startDate || e.date > data.endDate || !integer(e.quantity) || exceptionKeys.has(key)) throw new Error("Tarihli ihtiya\xE7 ge\xE7ersiz / tekrarl\u0131.");
+    exceptionKeys.add(key);
+  }
+  const rows = [];
+  const dailyRows = [];
+  for (const row of data.rows) for (let m = 0; m < 12; m++) {
+    const month = `${data.year}-${String(m + 1).padStart(2, "0")}`;
+    if (month < data.startDate.slice(0, 7) || month > data.endDate.slice(0, 7)) continue;
+    const ordered = row.quantities[m], key = `${row.product}:${month}`;
+    if (ordered > 0 && month <= data.snapshotDate.slice(0, 7) && !handovers.has(key)) throw new Error(`${row.label} ${month}: tamamlanan teslimat\u0131 girin; yoksa 0 ile do\u011Frulay\u0131n.`);
+    const delivered = handovers.get(key) ?? 0;
+    const remaining = Math.max(0, ordered - delivered);
+    rows.push({ product: row.product, month, ordered, delivered, remaining });
+    const exceptions = data.exceptions.filter((e) => e.product === row.product && e.date.startsWith(month));
+    const assigned = exceptions.reduce((s, e) => s + e.quantity, 0);
+    if (!integer(assigned) || assigned > remaining) throw new Error(`${row.label} ${month}: tarihli adet ayl\u0131k kalan ihtiyac\u0131 a\u015F\u0131yor.`);
+    dailyRows.push(...exceptions.filter((e) => e.quantity > 0));
+    const days = [];
+    const end = Math.min(serial(data.endDate), serial(new Date(Date.UTC(data.year, m + 1, 0)).toISOString().slice(0, 10)));
+    for (let day = Math.max(serial(`${month}-01`), serial(data.startDate)); day <= end; day++) {
+      const date = iso(day);
+      if (exceptions.some((e) => e.date === date)) continue;
+      const weight = machineDayCapacity(seed, { id: "CF-DEMAND", shiftFactor: 2 }, day).shifts;
+      if (weight > 0) days.push({ date, weight });
+    }
+    const residual = remaining - assigned, total = days.reduce((s, d) => s + d.weight, 0);
+    if (residual > 0 && total === 0) throw new Error(`${row.label} ${month}: kalan ihtiyac\u0131 da\u011F\u0131tacak \xE7al\u0131\u015Fma g\xFCn\xFC yok.`);
+    let cumulativeWeight = 0, previous = 0;
+    for (const day of days) {
+      cumulativeWeight += day.weight;
+      const cumulative = Number(BigInt(residual) * BigInt(cumulativeWeight) / BigInt(total));
+      const quantity = cumulative - previous;
+      previous = cumulative;
+      if (quantity > 0) dailyRows.push({ product: row.product, date: day.date, quantity });
+    }
+  }
+  dailyRows.sort((a, b) => a.date.localeCompare(b.date) || a.product.localeCompare(b.product));
+  const orders = [];
+  for (const product of products) {
+    const days = dailyRows.filter((r) => r.product === product);
+    if (!days.length) continue;
+    let quantity = 0;
+    const milestones = days.map((d) => ({ id: `monthly-${product}-${d.date}`, date: d.date, quantity: quantity += d.quantity }));
+    if (!integer(quantity)) throw new Error("Y\u0131ll\u0131k ihtiya\xE7 g\xFCvenli adet s\u0131n\u0131r\u0131n\u0131 a\u015F\u0131yor.");
+    orders.push({
+      id: `monthly-${product}`,
+      product,
+      sourceRow: data.rows.find((r) => r.product === product).sourceRow,
+      quantity,
+      savedPlanned: 0,
+      savedDifference: 0,
+      savedMachines: [],
+      dueDate: milestones.at(-1).date,
+      allowPartial: true,
+      partialDeliveryQuantity: 0,
+      partialDeliveryDate: "",
+      deliveryMilestones: milestones
+    });
+  }
+  return { orders, rows, dailyRows };
 }
 function filterSupplyGoodPieces(seed, product, physical, completed = false) {
   return seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && !completed ? filterGoodPieces(product, physical) : physical;
@@ -294,41 +535,41 @@ function addDepartmentWorkMinutes(seed, start, minutes) {
 var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 var DAY_MS = 864e5;
 var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
-function dayOfWeek(serial) {
-  return new Date(EXCEL_EPOCH + Math.floor(serial) * DAY_MS).getUTCDay();
+function dayOfWeek(serial2) {
+  return new Date(EXCEL_EPOCH + Math.floor(serial2) * DAY_MS).getUTCDay();
 }
 function addDeliveryWorkdays(completionSerial, workdays) {
   if (!Number.isFinite(completionSerial) || completionSerial <= 0) return completionSerial;
   const fraction = completionSerial - Math.floor(completionSerial);
-  let serial = Math.floor(completionSerial);
+  let serial2 = Math.floor(completionSerial);
   let remaining = Math.max(0, Math.trunc(workdays));
   while (remaining > 0) {
-    serial += 1;
-    if (dayOfWeek(serial) !== 0) remaining -= 1;
+    serial2 += 1;
+    if (dayOfWeek(serial2) !== 0) remaining -= 1;
   }
-  return serial + fraction;
+  return serial2 + fraction;
 }
 function isFactoryWorkday(seed, serialValue) {
-  const serial = Math.floor(serialValue);
+  const serial2 = Math.floor(serialValue);
   const addedShift = (seed.calendarEvents ?? []).some(
-    (event) => event.kind === "shift" && event.shiftCount > 0 && serial >= Math.floor(event.start) && serial <= Math.floor(event.end)
+    (event) => event.kind === "shift" && event.shiftCount > 0 && serial2 >= Math.floor(event.start) && serial2 <= Math.floor(event.end)
   );
   if (addedShift) return true;
-  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
+  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial2);
   if (holiday) return (holiday.workingShifts ?? 0) > 0;
-  return dayOfWeek(serial) !== 0;
+  return dayOfWeek(serial2) !== 0;
 }
 function addFactoryWorkdays(seed, startValue, workdaysValue) {
   if (!Number.isFinite(startValue) || startValue <= 0) return startValue;
   const workdays = Math.max(0, Math.trunc(workdaysValue));
   if (!workdays) return startValue;
-  let serial = Math.floor(startValue);
+  let serial2 = Math.floor(startValue);
   let remaining = workdays;
   while (remaining > 0) {
-    serial += 1;
-    if (isFactoryWorkday(seed, serial)) remaining -= 1;
+    serial2 += 1;
+    if (isFactoryWorkday(seed, serial2)) remaining -= 1;
   }
-  return serial;
+  return serial2;
 }
 function turningDeliveryReadyAt(completionSerial) {
   return addDeliveryWorkdays(completionSerial, TURNING_DELIVERY_LEAD_WORKDAYS);
@@ -5821,8 +6062,8 @@ function previewProcessQueuePlacement(seed, result, request) {
   );
   return previewProcessOperationReschedule(seed, result, operation.id, request.resourceId, requestedStart);
 }
-function processStartDate(serial) {
-  return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(excelSerialToDate(serial));
+function processStartDate(serial2) {
+  return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(excelSerialToDate(serial2));
 }
 function resetDownstreamProcessPlan(seed, result, process2) {
   if (!productionProcessOrder(seed).filter((p) => p !== "turning").includes(process2)) throw new Error("Yaln\u0131zca Delme, \xC7apak Alma veya GKM ayr\u0131 planlanabilir.");
@@ -6068,7 +6309,7 @@ function processGapDiagnostics(seed, master, operations) {
         const startDay = Math.floor(previous.end);
         const endDay = Math.floor(next.start);
         const days = Array.from({ length: Math.max(1, endDay - startDay + 1) }, (_, offset) => startDay + offset);
-        const closed = days.map((serial) => ({ serial, capacity: machineDayCapacity(calendarSeed, { id: resource.id, shiftFactor: resource.defaultShifts }, serial) })).find(({ capacity }) => capacity.shifts === 0);
+        const closed = days.map((serial2) => ({ serial: serial2, capacity: machineDayCapacity(calendarSeed, { id: resource.id, shiftFactor: resource.defaultShifts }, serial2) })).find(({ capacity }) => capacity.shifts === 0);
         if (closed) {
           code3 = closed.capacity.kind === "maintenance" ? "maintenance" : closed.capacity.kind === "shift" ? "zero-shift" : "closed-day";
           message = `${closed.capacity.label} nedeniyle ${resource.id} kapasitesi kapal\u0131yd\u0131; i\u015F ilk \xE7al\u0131\u015F\u0131labilir zamana ta\u015F\u0131nd\u0131.`;
@@ -6235,12 +6476,12 @@ function datedEvents(seed, result, processPlan) {
 function buildDeliveryReadinessEvents(seed, result, plan = buildDownstreamProcessPlan(seed, result)) {
   return datedEvents(seed, result, plan);
 }
-function deliveryReadyQuantityByDate(seed, result, product, serial) {
-  return deliveryReadyQuantityFromEvents(seed, buildDeliveryReadinessEvents(seed, result), product, serial);
+function deliveryReadyQuantityByDate(seed, result, product, serial2) {
+  return deliveryReadyQuantityFromEvents(seed, buildDeliveryReadinessEvents(seed, result), product, serial2);
 }
-function deliveryReadyQuantityFromEvents(seed, events, product, serial) {
+function deliveryReadyQuantityFromEvents(seed, events, product, serial2) {
   const code3 = product.trim().toUpperCase();
-  const dueDay = Math.floor(serial);
+  const dueDay = Math.floor(serial2);
   const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code3] ?? 0);
   return openingStock + events.filter((event) => event.product === code3 && Math.floor(event.readyAt) <= dueDay).reduce((sum, event) => sum + event.quantity, 0);
 }
@@ -6362,13 +6603,13 @@ function diameterNumeric(value) {
   const match = value.replace(",", ".").match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : 0;
 }
-function excelSerialToDate(serial) {
-  return new Date(Date.UTC(1899, 11, 30) + serial * 864e5);
+function excelSerialToDate(serial2) {
+  return new Date(Date.UTC(1899, 11, 30) + serial2 * 864e5);
 }
 var excelDateFormatters = /* @__PURE__ */ new Map();
 var MAX_EXCEL_DATE_FORMATTERS = 32;
-function formatExcelDate(serial, options) {
-  if (!serial || !Number.isFinite(serial)) return "\u2014";
+function formatExcelDate(serial2, options) {
+  if (!serial2 || !Number.isFinite(serial2)) return "\u2014";
   const formatOptions = { ...options ?? { day: "2-digit", month: "short", year: "numeric" }, timeZone: "UTC" };
   const key = JSON.stringify(Object.entries(formatOptions).sort(([left], [right]) => left.localeCompare(right)));
   let formatter = excelDateFormatters.get(key);
@@ -6376,50 +6617,50 @@ function formatExcelDate(serial, options) {
   else excelDateFormatters.delete(key);
   excelDateFormatters.set(key, formatter);
   if (excelDateFormatters.size > MAX_EXCEL_DATE_FORMATTERS) excelDateFormatters.delete(excelDateFormatters.keys().next().value);
-  return formatter.format(excelSerialToDate(serial));
+  return formatter.format(excelSerialToDate(serial2));
 }
 function addWorkdays(startSerial, daysValue, holidays, offset) {
-  let serial = Math.floor(startSerial);
+  let serial2 = Math.floor(startSerial);
   let remaining = Math.max(0, Math.trunc(daysValue));
   while (remaining > 0) {
-    serial += 1;
-    const day = excelSerialToDate(serial).getUTCDay();
-    if (day !== 0 && !holidays.has(serial)) remaining -= 1;
+    serial2 += 1;
+    const day = excelSerialToDate(serial2).getUTCDay();
+    if (day !== 0 && !holidays.has(serial2)) remaining -= 1;
   }
-  return serial + offset;
+  return serial2 + offset;
 }
 function shiftCount(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(3, Math.trunc(value)));
 }
 function machineDayCapacity(seed, machine, serialValue) {
-  const serial = Math.floor(serialValue);
-  const events = (seed.calendarEvents ?? []).filter((event) => event.machineId === machine.id && serial >= Math.floor(event.start) && serial <= Math.floor(event.end));
+  const serial2 = Math.floor(serialValue);
+  const events = (seed.calendarEvents ?? []).filter((event) => event.machineId === machine.id && serial2 >= Math.floor(event.start) && serial2 <= Math.floor(event.end));
   const maintenance = events.find((event) => event.kind === "maintenance");
   if (maintenance) return { shifts: 0, kind: "maintenance", label: maintenance.name || "Planl\u0131 bak\u0131m" };
   const shiftOverride = [...events].reverse().find((event) => event.kind === "shift");
   if (shiftOverride) return { shifts: shiftCount(shiftOverride.shiftCount), kind: "shift", label: shiftOverride.name || "Vardiya de\u011Fi\u015Fikli\u011Fi" };
-  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial);
+  const holiday = seed.holidays.find((item) => Math.floor(item.serial) === serial2);
   if (holiday) {
     const shifts = shiftCount(holiday.workingShifts);
     return { shifts, kind: "holiday", label: shifts ? `${holiday.name} \xB7 ${shifts} vardiya` : holiday.name };
   }
-  if (excelSerialToDate(serial).getUTCDay() === 0) return { shifts: 0, kind: "sunday", label: "Pazar \xB7 \xFCretim yok" };
+  if (excelSerialToDate(serial2).getUTCDay() === 0) return { shifts: 0, kind: "sunday", label: "Pazar \xB7 \xFCretim yok" };
   return { shifts: shiftCount(machine.shiftFactor), kind: "normal", label: `${shiftCount(machine.shiftFactor)} vardiya` };
 }
 function addMachineWorkdays(seed, machine, startSerial, daysValue, offset) {
   const defaultShifts = shiftCount(machine.shiftFactor);
   if (defaultShifts <= 0) return addWorkdays(startSerial, daysValue, new Set(seed.holidays.map((holiday) => Math.floor(holiday.serial))), offset);
-  let serial = Math.floor(startSerial);
+  let serial2 = Math.floor(startSerial);
   let remainingShiftUnits = Math.max(0, Math.trunc(daysValue)) * defaultShifts;
   let guard = 0;
   while (remainingShiftUnits > 0) {
-    serial += 1;
-    remainingShiftUnits -= machineDayCapacity(seed, machine, serial).shifts;
+    serial2 += 1;
+    remainingShiftUnits -= machineDayCapacity(seed, machine, serial2).shifts;
     guard += 1;
     if (guard > 36600) throw new Error(`${machine.id} i\xE7in \xE7al\u0131\u015F\u0131labilir takvim g\xFCn\xFC bulunamad\u0131.`);
   }
-  return serial + offset;
+  return serial2 + offset;
 }
 function normalizedDiameter(value) {
   return value.toUpperCase().replace("\xD8", "").replace(/MM/g, "").replace(/\s/g, "").replace(".", ",");
@@ -7124,19 +7365,19 @@ function validateDeliveryMilestones(milestones, quantity, dueDate) {
     previousDate = milestone.date;
   }
 }
-function productionQuantityByDate(seed, batches, product, serial, readinessEvents) {
-  if (seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand) return readinessEvents ? deliveryReadyQuantityFromEvents(seed, readinessEvents, product, serial) : deliveryReadyQuantityByDate(seed, { batches }, product, serial);
+function productionQuantityByDate(seed, batches, product, serial2, readinessEvents) {
+  if (seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand) return readinessEvents ? deliveryReadyQuantityFromEvents(seed, readinessEvents, product, serial2) : deliveryReadyQuantityByDate(seed, { batches }, product, serial2);
   const code3 = product.toUpperCase();
-  const dueDay = Math.floor(serial);
+  const dueDay = Math.floor(serial2);
   const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code3] ?? 0);
   const completed = semiFinishedProduction(seed).filter((entry) => entry.product.toUpperCase() === code3 && Math.floor(turningDeliveryReadyAt(entry.completedAt)) <= dueDay).reduce((sum, entry) => sum + entry.completedQuantity, 0);
   const current = seed.machines.filter((machine) => machine.currentJob.product.toUpperCase() === code3 && Math.floor(turningDeliveryReadyAt(machine.currentJob.end)) <= dueDay).reduce((sum, machine) => sum + machine.currentJob.quantity, 0);
   const planned = batches.filter((batch) => batch.status === "planned" && batch.product.toUpperCase() === code3 && Math.floor(turningDeliveryReadyAt(batch.end)) <= dueDay).reduce((sum, batch) => sum + batch.quantity, 0);
   return openingStock + completed + current + planned;
 }
-function productionQuantityByTurningDate(seed, batches, product, serial) {
+function productionQuantityByTurningDate(seed, batches, product, serial2) {
   const code3 = product.toUpperCase();
-  const dueDay = Math.floor(serial);
+  const dueDay = Math.floor(serial2);
   const openingStock = seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code3] ?? 0);
   const completed = semiFinishedProduction(seed).filter((entry) => entry.product.toUpperCase() === code3 && Math.floor(entry.completedAt) <= dueDay).reduce((sum, entry) => sum + entry.completedQuantity, 0);
   const current = seed.machines.filter((machine) => machine.currentJob.product.toUpperCase() === code3 && Math.floor(machine.currentJob.end) <= dueDay).reduce((sum, machine) => sum + machine.currentJob.quantity, 0);
@@ -8628,6 +8869,54 @@ function applyCustomerOrderOverrides(baseOrders, overrides = [], catalog2, exist
 
 // lib/weekly-demand.ts
 var NET_SHORTAGE_CALCULATION_MODEL = "net-shortage-v1";
+function planningWeekLabel(week) {
+  return `W${String(week.isoWeek).padStart(2, "0")}.${week.isoYear}`;
+}
+function resolvePlanningWeekRanges(weeks, ranges) {
+  if (!ranges.length) throw new Error("En az bir planlama hafta aral\u0131\u011F\u0131 ekleyin.");
+  let previousEndIndex = -1;
+  return ranges.map((range, index) => {
+    const startIndex = weeks.findIndex((week) => week.id === range.startWeekId);
+    const endIndex = weeks.findIndex((week) => week.id === range.endWeekId);
+    if (startIndex < 0 || endIndex < 0) throw new Error(`${index + 1}. aral\u0131ktaki ba\u015Flang\u0131\xE7 ve biti\u015F haftas\u0131n\u0131 se\xE7in.`);
+    if (startIndex > endIndex) throw new Error(`${index + 1}. aral\u0131\u011F\u0131n ba\u015Flang\u0131\xE7 haftas\u0131 biti\u015F haftas\u0131ndan sonra olamaz.`);
+    if (index > 0 && startIndex <= previousEndIndex) throw new Error(`${index + 1}. aral\u0131k \xF6nceki aral\u0131kla \xE7ak\u0131\u015F\u0131yor veya geriye gidiyor.`);
+    if (index > 0 && startIndex !== previousEndIndex + 1) throw new Error(`${index + 1}. aral\u0131k \xF6nceki aral\u0131\u011F\u0131n hemen arkas\u0131ndan ba\u015Flamal\u0131d\u0131r.`);
+    previousEndIndex = endIndex;
+    const firstWeek = weeks[startIndex];
+    const lastWeek = weeks[endIndex];
+    return {
+      ...range,
+      startIndex,
+      endIndex,
+      label: `${planningWeekLabel(firstWeek)}\u2013${planningWeekLabel(lastWeek)}`,
+      startDate: firstWeek.weekStart,
+      endDate: lastWeek.weekEnd
+    };
+  });
+}
+function validMonthId(value) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+function weekScopeForPlanningMonthRange(weeks, range) {
+  if (!validMonthId(range.startMonth) || !validMonthId(range.endMonth)) {
+    throw new Error("Planlama ba\u015Flang\u0131\xE7 ve biti\u015F ay\u0131 zorunludur.");
+  }
+  if (range.startMonth > range.endMonth) {
+    throw new Error("Planlama ba\u015Flang\u0131\xE7 ay\u0131 biti\u015F ay\u0131ndan sonra olamaz.");
+  }
+  const selected = weeks.filter((week) => {
+    const deliveryMonth = week.weekEnd.slice(0, 7);
+    return deliveryMonth >= range.startMonth && deliveryMonth <= range.endMonth;
+  });
+  if (!selected.length) {
+    throw new Error("Se\xE7ilen ay aral\u0131\u011F\u0131nda Cumartesi termini bulunan m\xFC\u015Fteri haftas\u0131 yok.");
+  }
+  return {
+    startWeekId: selected[0].id,
+    endWeekId: selected.at(-1).id
+  };
+}
 function isoDateToUtc(value) {
   const date = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime())) {
@@ -9130,6 +9419,58 @@ function cloneSeed(seed) {
 // lib/production-command.ts
 var productionCommandNames = ["saveMachineAvailability", "setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
 function productionCommandBasis(seed, command) {
+  if (command.kind === "completeCurrentJob" || command.kind === "deliverJourneyWip") {
+    const machineId = command.kind === "completeCurrentJob" ? String(command.args[0]) : void 0;
+    const lotId2 = command.kind === "deliverJourneyWip" ? command.args[0]?.lotId : void 0;
+    const machine = seed.machines.find((row) => row.id === machineId);
+    const lot = seed.wipLots?.find((row) => row.id === lotId2);
+    const queue = (seed.manualBatches ?? []).filter((row) => row.machineId === machineId);
+    const products = new Set([machine?.currentJob.product, ...seed.productionArea === "cubuk-filtre" ? [lot?.product] : [], ...queue.map((row) => row.product)].filter(Boolean).map((value) => value.trim().toUpperCase()));
+    const identities = new Set([lotId2, machine?.currentJob.batchId, ...queue.map((row) => row.id)].filter((value) => Boolean(value)));
+    const fields = ["productionHistory", "wipLots", "wipMovements", "productionInterruptions", "processCurrentJobs", "processOperationOverrides"];
+    const links = (row) => [
+      row.id,
+      row.sourceEntryId,
+      row.sourceBatchId,
+      row.sourceHistoryEntryId,
+      row.parentLotId,
+      row.lotId,
+      row.batchId,
+      row.chargeId,
+      row.wipLotId,
+      row.interruptionId,
+      ...row.interruptionIds ?? [],
+      ...(row.wipAllocations ?? []).map((item) => item.lotId)
+    ].filter((value) => typeof value === "string" && Boolean(value));
+    const related = (row) => products.has(String(row.product ?? "").trim().toUpperCase()) || links(row).some((id) => identities.has(id));
+    let size = -1;
+    while (size !== identities.size) {
+      size = identities.size;
+      for (const field of fields) for (const row of seed[field] ?? []) {
+        const record = row;
+        if (related(record)) for (const id of links(record)) identities.add(id);
+      }
+    }
+    const basis = {
+      ...seed,
+      commandBasisVersion: 2,
+      commandKind: command.kind,
+      chargeJourneyNotes: [],
+      planningEvents: [],
+      planNeedsRecalculation: false,
+      lastAutomaticPlan: null,
+      planRunSequence: null,
+      // Delivery uses the recorded route and lot, never a machine's current job
+      // or a queued proposal. Completion still checks all machine facts.
+      machines: machineId ? seed.machines : seed.machines.map(({ currentJob: _current, availableStart: _available, operationalAvailableStart: _operational, ...configuration }) => configuration),
+      manualBatches: machineId ? queue : []
+    };
+    for (const field of fields) basis[field] = (seed[field] ?? []).filter((row) => related(row));
+    return basis;
+  }
+  return legacyProductionCommandBasis(seed, command);
+}
+function legacyProductionCommandBasis(seed, command) {
   if (command.kind === "saveJourneyNote") {
     const input = command.args[0];
     return (seed.chargeJourneyNotes ?? []).filter((note) => note.chargeKey === input.chargeKey && note.segmentId === input.segmentId);
@@ -9433,8 +9774,8 @@ function correctArchiveRecord(seed, result, entryId, quantity, completedAt, deli
 // lib/process-completion-time.ts
 var SERIAL_EPOCH = Date.UTC(1899, 11, 30);
 var DAY_MS2 = 864e5;
-function processCompletionTimeInput(serial) {
-  return new Date(SERIAL_EPOCH + Math.round(serial * DAY_MS2)).toISOString().slice(0, 16);
+function processCompletionTimeInput(serial2) {
+  return new Date(SERIAL_EPOCH + Math.round(serial2 * DAY_MS2)).toISOString().slice(0, 16);
 }
 
 // lib/wip-manual-actions.ts
@@ -10081,11 +10422,260 @@ function reviewProductionCancellation(seed, id, decision, note = "", now = /* @_
   return next;
 }
 
+// lib/plan-run.ts
+var PLAN_ENGINE_VERSION = 6;
+function clone3(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function inputDateToSerial3(value) {
+  if (!value) return 0;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== value) return Number.NaN;
+  return (timestamp - Date.UTC(1899, 11, 30)) / 864e5;
+}
+function formatDate(value) {
+  if (!value) return "\u2014";
+  return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(/* @__PURE__ */ new Date(`${value}T00:00:00Z`));
+}
+function metadataForCompletedRanges(optimizationGoal, ranges, policy, planId, version, createdAt, deliveryDeduction) {
+  const first = ranges[0];
+  const last = ranges.at(-1);
+  if (!first || !last) throw new Error("Planlama i\xE7in tamamlanm\u0131\u015F hafta aral\u0131\u011F\u0131 bulunamad\u0131.");
+  return {
+    planId,
+    version,
+    engineVersion: PLAN_ENGINE_VERSION,
+    optimizationGoal,
+    includePriorBacklog: policy.includePriorBacklog,
+    allowProductionBeforeScope: policy.allowProductionBeforeScope,
+    shortageExtraCharge: { ...policy.shortageExtraCharge },
+    deliveryDeduction,
+    scope: {
+      kind: "customer-weeks",
+      startDate: first.startDate,
+      endDate: last.endDate,
+      label: ranges.map((range, index) => `${index + 1}. ${range.label}`).join(" \xB7 "),
+      startWeekId: first.startWeekId,
+      endWeekId: last.endWeekId,
+      ranges: ranges.map((range) => ({ ...range }))
+    },
+    createdAt
+  };
+}
+function customerStageSeed(seed, allRanges, completedRangeCount, optimizationGoal, policy, sequenceCreatedAt, updatedAt) {
+  if (!seed.customerDemand) throw new Error("A\u015Famal\u0131 planlama i\xE7in m\xFC\u015Fteri hafta verisi bulunamad\u0131.");
+  if (completedRangeCount < 1 || completedRangeCount > allRanges.length) throw new Error("Planlama aral\u0131\u011F\u0131 s\u0131ras\u0131 ge\xE7ersiz.");
+  const completedRanges = allRanges.slice(0, completedRangeCount);
+  const first = completedRanges[0];
+  const last = completedRanges.at(-1);
+  const stageSeed = clone3(seed);
+  const state = buildWeeklyPlanningState(
+    previewFromDataset(seed.customerDemand),
+    seed.orders,
+    { startWeekId: first.startWeekId, endWeekId: last.endWeekId },
+    seed.customerOrderOverrides,
+    { includePriorBacklog: policy.includePriorBacklog }
+  );
+  state.dataset.importedAt = seed.customerDemand.importedAt;
+  const orderImport = orderImportMetadataForSeed(stageSeed);
+  const deduction = policy.deliveryDeductionFilter && orderImport ? calculateDeliveryDeduction({
+    orders: state.orders,
+    productionHistory: stageSeed.productionHistory,
+    orderImport,
+    importProducts: seed.customerDemand.products.map((product) => product.product),
+    filter: policy.deliveryDeductionFilter
+  }) : null;
+  if (deduction) state.orders = deduction.adjustedOrders;
+  if (optimizationGoal === "coarse") {
+    state.orders = state.orders.map((order) => ({
+      ...order,
+      dueDate: last.endDate,
+      allowPartial: false,
+      partialDeliveryQuantity: 0,
+      partialDeliveryDate: "",
+      deliveryMilestones: []
+    }));
+  }
+  const metadata = metadataForCompletedRanges(optimizationGoal, completedRanges, policy, sequenceCreatedAt, completedRangeCount, updatedAt, deduction?.snapshot);
+  const sequence = allRanges.length > 1 ? {
+    planId: sequenceCreatedAt,
+    engineVersion: PLAN_ENGINE_VERSION,
+    optimizationGoal,
+    includePriorBacklog: policy.includePriorBacklog,
+    allowProductionBeforeScope: policy.allowProductionBeforeScope,
+    shortageExtraCharge: { ...policy.shortageExtraCharge },
+    deliveryDeductionFilter: policy.deliveryDeductionFilter,
+    ranges: allRanges.map((range) => ({ ...range })),
+    completedRangeCount,
+    createdAt: sequenceCreatedAt,
+    updatedAt
+  } : void 0;
+  const planEnd = inputDateToSerial3(optimizationGoal === "coarse" ? last.endDate : state.planEndDate);
+  stageSeed.orders = state.orders;
+  stageSeed.customerDemand = state.dataset;
+  stageSeed.openingStock = {};
+  stageSeed.orderCatalog = state.orderCatalog;
+  stageSeed.demandTargets = void 0;
+  stageSeed.activePlanRun = metadata;
+  stageSeed.planNeedsRecalculation = false;
+  stageSeed.planRunSequence = sequence;
+  const productionStart = inputDateToSerial3(first.startDate);
+  for (const machine of stageSeed.machines) {
+    const operationalStart = machine.operationalAvailableStart ?? machine.availableStart;
+    machine.operationalAvailableStart = operationalStart;
+    machine.availableStart = optimizationGoal === "coarse" || !policy.allowProductionBeforeScope ? Math.max(operationalStart, productionStart) : operationalStart;
+    machine.planEnd = planEnd;
+  }
+  return { seed: stageSeed, metadata, sequence, deliveryPreview: deduction ?? void 0 };
+}
+function defaultPlanRunShortagePolicy(seed) {
+  return seed.productionArea === "cubuk-filtre" ? { enabled: true, thresholdPercent: 0 } : { enabled: false, thresholdPercent: 50 };
+}
+function planRunDeliveryHistory(seed) {
+  const year = seed.monthlyCustomerDemand?.year;
+  return year === void 0 ? seed.productionHistory : seed.productionHistory?.filter((entry) => {
+    const instant = effectiveDeliveryTimestamp(entry);
+    return instant && factoryDateInput(instant).startsWith(`${year}-`);
+  });
+}
+function preparePlanRun(seed, request, createdAt = (/* @__PURE__ */ new Date()).toISOString()) {
+  if (seed.customerDemand) {
+    const weeks = seed.customerDemand.weeks;
+    const requestedRanges = request.weekRanges?.length ? request.weekRanges : request.monthRange ? [weekScopeForPlanningMonthRange(weeks, request.monthRange)] : [];
+    const completedRanges = request.appendToExistingPlan ? completedCustomerPlanRanges(seed) : [];
+    const existingGoal = seed.planRunSequence?.optimizationGoal ?? seed.activePlanRun?.optimizationGoal;
+    if (request.appendToExistingPlan && existingGoal && request.optimizationGoal !== existingGoal) {
+      throw new Error("Plan\u0131n devam\u0131, mevcut planla ayn\u0131 optimizasyon hedefini kullanmal\u0131d\u0131r.");
+    }
+    const resolvedRanges = resolvePlanningWeekRanges(weeks, [...completedRanges, ...requestedRanges]);
+    const allRanges = resolvedRanges.map((range) => ({
+      startWeekId: range.startWeekId,
+      endWeekId: range.endWeekId,
+      startDate: range.startDate,
+      endDate: range.endDate,
+      label: range.label
+    }));
+    const completedRangeCount = completedRanges.length;
+    const sequenceCreatedAt = request.appendToExistingPlan ? seed.planRunSequence?.planId ?? seed.planRunSequence?.createdAt ?? seed.activePlanRun?.planId ?? seed.activePlanRun?.createdAt ?? createdAt : createdAt;
+    const orderImport = orderImportMetadataForSeed(seed);
+    const requestedDeliveryFilter = orderImport ? { enabled: request.deliveryDeduction?.enabled ?? true, startAt: request.deliveryDeduction?.startAt ?? orderImport.shipmentsThrough ?? orderImport.importedAt, includeStart: request.deliveryDeduction?.includeStart ?? !orderImport.shipmentsThrough, endAt: createdAt } : void 0;
+    const requestedShortageExtraCharge = normalizeShortageExtraChargePolicy(request.shortageExtraCharge ?? defaultPlanRunShortagePolicy(seed));
+    const policy = request.appendToExistingPlan ? {
+      includePriorBacklog: seed.planRunSequence?.includePriorBacklog ?? seed.activePlanRun?.includePriorBacklog ?? true,
+      allowProductionBeforeScope: seed.planRunSequence?.allowProductionBeforeScope ?? seed.activePlanRun?.allowProductionBeforeScope ?? true,
+      shortageExtraCharge: normalizeShortageExtraChargePolicy(seed.planRunSequence?.shortageExtraCharge ?? seed.activePlanRun?.shortageExtraCharge),
+      deliveryDeductionFilter: seed.planRunSequence?.deliveryDeductionFilter ?? seed.activePlanRun?.deliveryDeduction?.filter ?? requestedDeliveryFilter
+    } : {
+      includePriorBacklog: request.includePriorBacklog ?? false,
+      allowProductionBeforeScope: request.allowProductionBeforeScope ?? false,
+      shortageExtraCharge: requestedShortageExtraCharge,
+      deliveryDeductionFilter: requestedDeliveryFilter
+    };
+    if (request.optimizationGoal === "coarse") policy.allowProductionBeforeScope = false;
+    const preparedStages = allRanges.slice(completedRangeCount).map((_, index) => customerStageSeed(seed, allRanges, completedRangeCount + index + 1, request.optimizationGoal, policy, sequenceCreatedAt, createdAt));
+    const first = preparedStages[0];
+    if (!first) throw new Error("Planlama i\xE7in \xE7al\u0131\u015Ft\u0131r\u0131lacak hafta aral\u0131\u011F\u0131 bulunamad\u0131.");
+    return {
+      seed: first.seed,
+      stages: preparedStages.map((stage) => stage.seed),
+      metadata: first.metadata,
+      scopeLabel: allRanges[completedRangeCount].label,
+      sequence: first.sequence,
+      deliveryPreview: first.deliveryPreview
+    };
+  } else {
+    const planningSeed = clone3(seed);
+    let startDate = request.productionStartDate ?? "";
+    const endDate = request.productionEndDate ?? "";
+    const previousRun = seed.activePlanRun;
+    const monthlyContinuation = Boolean(request.appendToExistingPlan && seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand);
+    if (request.appendToExistingPlan && !monthlyContinuation) throw new Error("Devam plan\u0131 i\xE7in ayl\u0131k \xC7ubuk Filtre verisi gerekir.");
+    if (monthlyContinuation) {
+      if (!previousRun || previousRun.scope.kind !== "production-dates") throw new Error("Devam ettirilecek kay\u0131tl\u0131 tarih plan\u0131 bulunamad\u0131.");
+      if (request.optimizationGoal !== previousRun.optimizationGoal) throw new Error("Plan\u0131n devam\u0131, mevcut planla ayn\u0131 optimizasyon hedefini kullanmal\u0131d\u0131r.");
+      if (inputDateToSerial3(endDate) <= inputDateToSerial3(previousRun.scope.endDate)) throw new Error("Kademeli plan\u0131n biti\u015Fi mevcut kapsamdan sonra olmal\u0131d\u0131r.");
+      if (!inputDateToSerial3(startDate) || inputDateToSerial3(startDate) > inputDateToSerial3(previousRun.scope.endDate) + 1) throw new Error("Yeni kapsam mevcut plan\u0131n hemen arkas\u0131ndan ba\u015Flamal\u0131d\u0131r.");
+      startDate = previousRun.scope.startDate;
+    }
+    const start = inputDateToSerial3(startDate);
+    const end = inputDateToSerial3(endDate);
+    if (!start || !end || start > end) throw new Error("Planlama ba\u015Flang\u0131\xE7 ve biti\u015F tarihini kontrol edin.");
+    for (const machine of planningSeed.machines) {
+      const operationalStart = machine.operationalAvailableStart ?? machine.availableStart;
+      machine.operationalAvailableStart = operationalStart;
+      machine.availableStart = Math.max(operationalStart, start);
+      machine.planEnd = end;
+    }
+    if (planningSeed.monthlyCustomerDemand) {
+      const source = planningSeed.monthlyCustomerDemand.openingStock;
+      if (source && !(planningSeed.filterInitialStockSetup ?? planningSeed.monthlyCustomerDemand.stockReconciliation)) throw new Error("Ba\u015Flang\u0131\xE7 stoklar\u0131n\u0131 Sipari\u015Fler ekran\u0131nda uzla\u015Ft\u0131r\u0131n. Kaynak say\u0131m\u0131 hen\xFCz plana uygulanmad\u0131.");
+      const data = { ...planningSeed.monthlyCustomerDemand, startDate, endDate };
+      const monthly = buildFilterMonthlyOrders(planningSeed, data);
+      planningSeed.monthlyCustomerDemand = data;
+      planningSeed.orders = monthly.orders;
+      planningSeed.orderImportGrossOrders = clone3(monthly.orders);
+    }
+    const orderImport = orderImportMetadataForSeed(planningSeed);
+    const deliveryFilter = orderImport ? { enabled: planningSeed.monthlyCustomerDemand ? true : request.deliveryDeduction?.enabled ?? true, startAt: planningSeed.monthlyCustomerDemand ? orderImport.shipmentsThrough ?? orderImport.importedAt : request.deliveryDeduction?.startAt ?? orderImport.shipmentsThrough ?? orderImport.importedAt, includeStart: planningSeed.monthlyCustomerDemand ? false : request.deliveryDeduction?.includeStart ?? !orderImport.shipmentsThrough, endAt: createdAt } : void 0;
+    const deduction = orderImport && deliveryFilter ? calculateDeliveryDeduction({
+      orders: planningSeed.orderImportGrossOrders ?? planningSeed.orders,
+      productionHistory: planRunDeliveryHistory(planningSeed),
+      orderImport,
+      importProducts: planningSeed.orderCatalog ?? planningSeed.orders.map((order) => order.product),
+      filter: deliveryFilter
+    }) : null;
+    if (deduction) planningSeed.orders = deduction.adjustedOrders;
+    const metadata = {
+      planId: monthlyContinuation ? previousRun.planId ?? previousRun.createdAt : createdAt,
+      version: monthlyContinuation ? (previousRun.version ?? 1) + 1 : 1,
+      engineVersion: PLAN_ENGINE_VERSION,
+      optimizationGoal: request.optimizationGoal,
+      shortageExtraCharge: normalizeShortageExtraChargePolicy(request.shortageExtraCharge ?? defaultPlanRunShortagePolicy(seed)),
+      deliveryDeduction: deduction?.snapshot,
+      scope: {
+        kind: "production-dates",
+        startDate,
+        endDate,
+        label: `${formatDate(startDate)}\u2013${formatDate(endDate)}`
+      },
+      createdAt
+    };
+    planningSeed.activePlanRun = metadata;
+    planningSeed.planNeedsRecalculation = false;
+    planningSeed.planRunSequence = void 0;
+    return { seed: planningSeed, stages: [planningSeed], metadata, scopeLabel: metadata.scope.label, deliveryPreview: deduction ?? void 0 };
+  }
+}
+function completedCustomerPlanRanges(seed) {
+  if (!seed.customerDemand || seed.activePlanRun?.scope.kind !== "customer-weeks") {
+    throw new Error("Devam\u0131na aral\u0131k eklenecek tamamlanm\u0131\u015F bir m\xFC\u015Fteri plan\u0131 bulunamad\u0131.");
+  }
+  const sequence = seed.planRunSequence;
+  if (sequence && sequence.completedRangeCount < sequence.ranges.length) {
+    throw new Error("\xD6nce bekleyen s\u0131radaki planlama aral\u0131\u011F\u0131n\u0131 tamamlay\u0131n.");
+  }
+  const metadataRanges = seed.activePlanRun.scope.ranges;
+  const ranges = metadataRanges?.length ? metadataRanges.map((range) => ({ startWeekId: range.startWeekId, endWeekId: range.endWeekId })) : [{
+    startWeekId: seed.activePlanRun.scope.startWeekId ?? seed.customerDemand.activeScope.startWeekId,
+    endWeekId: seed.activePlanRun.scope.endWeekId ?? seed.customerDemand.activeScope.endWeekId
+  }];
+  if (!ranges[0]?.startWeekId || !ranges.at(-1)?.endWeekId) {
+    throw new Error("Mevcut plan\u0131n ISO hafta kapsam\u0131 bulunamad\u0131.");
+  }
+  return ranges;
+}
+
 // lib/scenario-safety.ts
-var officialInputFields = ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock", "productionArea", "processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "filterWaitShifts", "filterQualityShifts", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines"];
+var officialInputFields = ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock", "productionArea", "processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "filterWaitShifts", "filterQualityShifts", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines", "orderImport", "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName"];
+var personalProposalFields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan"];
 function officialInputValue(seed, field) {
   if (field !== "machines") return seed[field] ?? null;
   return seed.machines.map(({ availableStart: _available, operationalAvailableStart: _operational, currentJob: _current, ...machine }) => machine);
+}
+function changesOfficialInputs(next, current) {
+  const stable2 = (value) => JSON.stringify(value ?? null, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
+  const canonicalNext = migratePlanningSeed(next), canonicalCurrent = migratePlanningSeed(current);
+  return officialInputFields.some((field) => stable2(officialInputValue(canonicalNext, field)) !== stable2(officialInputValue(canonicalCurrent, field)));
 }
 function copy(value) {
   return JSON.parse(JSON.stringify(value));
@@ -10214,6 +10804,60 @@ function mergePublishedOverrides(draft, live) {
     ...(draft.processOperationOverrides ?? []).filter((item) => !isPhysical(item.batchId))
   ];
 }
+function projectPlanningRunInputs(world, run) {
+  if (!run) return world;
+  const request = {
+    optimizationGoal: run.optimizationGoal,
+    includePriorBacklog: run.includePriorBacklog,
+    allowProductionBeforeScope: run.allowProductionBeforeScope,
+    shortageExtraCharge: run.shortageExtraCharge,
+    deliveryDeduction: run.deliveryDeduction?.filter
+  };
+  if (run.scope.kind === "production-dates") {
+    request.productionStartDate = run.scope.startDate;
+    request.productionEndDate = run.scope.endDate;
+  } else {
+    request.weekRanges = [{
+      startWeekId: run.scope.startWeekId ?? run.scope.ranges?.[0]?.startWeekId ?? "",
+      endWeekId: run.scope.endWeekId ?? run.scope.ranges?.at(-1)?.endWeekId ?? ""
+    }];
+  }
+  const prepared = preparePlanRun(world, request, run.createdAt).seed;
+  const projected = copy(world);
+  for (const field of ["orders", "customerDemand", "openingStock", "orderImportGrossOrders", "monthlyCustomerDemand", "orderCatalog"]) {
+    if (Object.hasOwn(prepared, field)) projected[field] = structuredClone(prepared[field]);
+    else delete projected[field];
+  }
+  projected.machines = projected.machines.map((machine) => {
+    const planned = prepared.machines.find((row) => row.id === machine.id);
+    return { ...machine, availableStart: planned.availableStart, planEnd: planned.planEnd };
+  });
+  return projected;
+}
+function mergePersonalDraftWithWorld(draft, world, worldChanged = false) {
+  assertProductionArea(draft, world.productionArea ?? "torna");
+  let expectedInputs = world;
+  let invalidRunScope = false;
+  try {
+    expectedInputs = projectPlanningRunInputs(world, draft.activePlanRun);
+  } catch {
+    invalidRunScope = true;
+  }
+  const next = copy(expectedInputs);
+  for (const field of personalProposalFields) {
+    if (Object.hasOwn(draft, field)) next[field] = structuredClone(draft[field]);
+    else delete next[field];
+  }
+  if (Object.hasOwn(draft, "scenarioProvenance")) Object.defineProperty(next, "scenarioProvenance", {
+    value: structuredClone(draft.scenarioProvenance),
+    enumerable: true,
+    writable: true,
+    configurable: true
+  });
+  next.processOperationOverrides = mergePublishedOverrides(draft, world);
+  next.planNeedsRecalculation = Boolean(draft.planNeedsRecalculation || worldChanged || invalidRunScope || changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(expectedInputs)) && changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(world)));
+  return mergeScenarioWithLiveOperations(next, world);
+}
 function rebaseScenarioPlan(seed, savedResult) {
   const result = recalculateManualScenario(seed, mergeRemainderLocks(seed, reconcileTurningQueue(seed, savedResult.batches)), { allowPlanEndOverflow: true });
   const machines = new Map(seed.machines.map((machine) => [machine.id, machine]));
@@ -10253,41 +10897,42 @@ try {
   let response;
   if (request.action === "draft") {
     const clean = scenarioPlanningSeed(seed);
-    const display = request.world ? mergeScenarioWithLiveOperations(clean, request.world) : clean;
-    response = { seed: clean, result: scenarioResultFromBatches(display, display.manualBatches ?? []) };
+    const display = request.world ? mergePersonalDraftWithWorld(clean, request.world, Boolean(request.worldChanged)) : clean;
+    response = { seed: scenarioPlanningSeed(display), result: scenarioResultFromBatches(display, display.manualBatches ?? []) };
   } else if (request.action === "compose") {
-    const composed = mergeScenarioWithLiveOperations(request.draft, seed);
+    const composed = mergePersonalDraftWithWorld(request.draft, seed, Boolean(request.worldChanged));
     response = { seed: composed, result: scenarioResultFromBatches(composed, composed.manualBatches ?? []) };
   } else if (request.action === "publish") {
-    const fields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan", "planNeedsRecalculation"];
     const draft = request.draft;
     if (draft.productionArea && draft.productionArea !== (seed.productionArea ?? "torna")) throw Error("Plan ba\u015Fka bir \xFCretim alan\u0131na ait.");
     if (draft.planNeedsRecalculation) throw Error("Taslak g\xFCncel de\u011Fil. Ortak \xFCretimle plan\u0131 yeniden inceleyip \xE7al\u0131\u015Ft\u0131r\u0131n.");
-    const official = scenarioPlanningSeed(cloneSeed(seed));
+    const next = mergePersonalDraftWithWorld(draft, seed);
+    const official = scenarioPlanningSeed(cloneSeed(next));
     const candidate = scenarioPlanningSeed(cloneSeed(draft));
     for (const field of officialInputFields) {
       if (hash(officialInputValue(candidate, field)) !== hash(officialInputValue(official, field))) throw Error("Taslak sipari\u015F veya parametreleri ortak kay\u0131tla farkl\u0131. \xD6nce ortak girdilerle plan\u0131 yeniden inceleyin.");
     }
-    const next = structuredClone(seed);
-    for (const field of fields) {
-      if (Object.hasOwn(draft, field)) next[field] = structuredClone(draft[field]);
-      else delete next[field];
-    }
+    if (next.planNeedsRecalculation) throw Error("Taslak kapsam\u0131 g\xFCncel de\u011Fil. Ortak verilerle plan\u0131 yeniden inceleyin.");
     for (const batch of seed.manualBatches ?? []) {
       if ((batch.locked || batch.routeCommitted) && hash(lockedIdentity(next.manualBatches?.find((row) => row.id === batch.id))) !== hash(lockedIdentity(batch))) throw Error("Yay\u0131nlama kilitli i\u015Fi de\u011Fi\u015Ftiremez. Y\xFCr\xFCrl\xFCkteki plan\u0131 inceleyin.");
     }
     next.processOperationOverrides = mergePublishedOverrides(draft, seed);
-    const merged = mergeScenarioWithLiveOperations(next, seed);
+    const merged = next;
     const rebased = rebaseScenarioPlan(merged, scenarioResultFromBatches(merged, merged.manualBatches ?? []));
     if (rebased.overflows.length) throw Error("Plan penceresini a\u015Fan i\u015Fler var. Yay\u0131nlamadan \xF6nce plan\u0131 inceleyin.");
     merged.manualBatches = rebased.result.batches;
-    assertTurningIdentityTransition(seed, merged);
-    merged.planNeedsRecalculation = false;
-    response = { seed: merged, result: rebased.result };
+    const published = structuredClone(seed);
+    for (const field of personalProposalFields) {
+      if (Object.hasOwn(merged, field)) published[field] = structuredClone(merged[field]);
+      else delete published[field];
+    }
+    published.planNeedsRecalculation = false;
+    assertTurningIdentityTransition(seed, published);
+    response = { seed: published, result: rebased.result };
   } else if (request.action === "command") {
     const command = request.command;
     if (!productionCommandNames.includes(command.kind) || !Array.isArray(command.args) || command.args.length > 8) throw Error("\xDCretim komutu ge\xE7ersiz.");
-    if (hash(productionCommandBasis(seed, command)) !== request.expectedBasis) {
+    if (hash(productionCommandBasis(seed, command)) !== request.expectedBasis && hash(legacyProductionCommandBasis(seed, command)) !== request.expectedBasis) {
       process.stdout.write(JSON.stringify({ error: "\u0130lgili \xFCretim kayd\u0131 de\u011Fi\u015Fti. G\xFCncel kay\u0131tla i\u015Flemi yeniden inceleyin.", conflict: true }));
       process.exit(0);
     }

@@ -284,39 +284,53 @@ def patch_scenario(scenario_id, value, user):
         if receipt:
             if receipt["request_hash"] != request_hash or receipt["scenario_id"] != scenario_id:
                 raise HTTPException(409, "İstek kimliği başka bir işlem için kullanıldı.")
-            return {"requestId": value["requestId"], "scenario": current, "appliedRevision": receipt["revision"], "replayed": True}
+            reply = {"requestId": value["requestId"], "scenario": current, "appliedRevision": receipt["revision"], "replayed": True}
+            world = _world(db)
+            if value.get("worldRevision") != world["updatedAt"]:
+                reply["currentWorld"] = world
+            return reply
         return None
 
-    def check_revision(current, world_revision):
+    def check_revision(current):
         if value["revision"] != current["revision"]:
             raise HTTPException(409, "Taslak başka bir oturumda değişti. Yerel kopyayı koruyun.")
-        if value.get("worldRevision") != world_revision:
-            raise HTTPException(409, "Ortak üretim değişti. Taslağı güncel üretimle yeniden inceleyin.")
 
-    # Capture a consistent read snapshot, then release it before CPU work.
-    with connection() as db:
-        db.execute("BEGIN")
-        current = _record(db, scenario_id, user, write=True)
-        repeated = replay(db, current)
-        if repeated:
-            return repeated
-        world = _world(db)
-        check_revision(current, world["updatedAt"])
-    seed = apply_delta(current["seed"], value["delta"])
-    normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"]})
-    with connection() as db:
-        db.execute("BEGIN IMMEDIATE")
-        latest = _record(db, scenario_id, user, write=True)
-        repeated = replay(db, latest)
-        if repeated:
-            return repeated
-        row = db.execute("SELECT updated_at FROM planning_state WHERE state_key='default'").fetchone()
-        if not row:
-            raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
-        check_revision(latest, row["updated_at"])
-        saved = _save(db, {**latest, **normalized, "worldRevision": row["updated_at"]}, user, latest)
-        db.execute("INSERT INTO scenario_requests VALUES(?,?,?,?,?)", (user.id, value["requestId"], request_hash, scenario_id, saved["revision"]))
+    # CPU work stays outside the write transaction. A concurrent world advance
+    # retries only this private save; a same-draft advance still fails its CAS.
+    for attempt in range(3):
+        with connection() as db:
+            db.execute("BEGIN")
+            current = _record(db, scenario_id, user, write=True)
+            repeated = replay(db, current)
+            if repeated:
+                return repeated
+            world = _world(db)
+            check_revision(current)
+            world_changed = not _only_plan_neutral_since(db, value.get("worldRevision"), world["updatedAt"])
+        seed = apply_delta(current["seed"], value["delta"])
+        normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"],
+            "worldChanged": world_changed})
+        with connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            latest = _record(db, scenario_id, user, write=True)
+            repeated = replay(db, latest)
+            if repeated:
+                return repeated
+            check_revision(latest)
+            row = db.execute("SELECT updated_at FROM planning_state WHERE state_key='default'").fetchone()
+            if not row:
+                raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
+            if row["updated_at"] != world["updatedAt"]:
+                continue
+            saved = _save(db, {**latest, **normalized, "worldRevision": world["updatedAt"]}, user, latest)
+            db.execute("INSERT INTO scenario_requests VALUES(?,?,?,?,?)", (user.id, value["requestId"], request_hash, scenario_id, saved["revision"]))
+        break
+    else:
+        # The client retains its durable request on 425 and can retry it unchanged.
+        raise HTTPException(425, "Ortak üretim güncelleniyor. Taslak isteğiniz korundu; yeniden deneyin.")
     response = {"requestId": value["requestId"], "scenario": saved, "appliedRevision": saved["revision"], "replayed": False}
+    if value.get("worldRevision") != world["updatedAt"]:
+        response["currentWorld"] = world
     if value.get("responseMode") == "compact-v1":
         response["scenario"] = {k: v for k, v in saved.items() if k not in ("seed", "result")}
         response["scenarioSeedCorrection"] = {"baseHash": state_hash(seed), "stateHash": state_hash(saved["seed"]),
@@ -455,7 +469,7 @@ def publish_scenario(scenario_id, value, user):
         return {"publicationId": publication_id, "current": _world_reply(saved, value.get("responseMode")), "replayed": False, "activePublication": _active_publication(db, scope)}
 
 
-def collaboration_status():
+def collaboration_status(base_world_revision=None):
     with connection() as db:
         db.execute("BEGIN")
         row = db.execute("SELECT updated_at,COALESCE(json_extract(seed_json,'$.productionArea'),'torna') AS scope FROM planning_state WHERE state_key='default'").fetchone()
@@ -465,6 +479,7 @@ def collaboration_status():
         from .handover import generation
         from .production_area import area_available
         return {"availableAreas": [area for area in ("torna", "cubuk-filtre") if area_available(area)], "generation": generation(db), "worldRevision": row["updated_at"], "publicationId": active["id"] if active else None, "activePublication": active,
+                "planChanged": not _only_plan_neutral_since(db, base_world_revision, row["updated_at"]) if base_world_revision is not None else None,
                 "lastCommand": db.execute("SELECT COALESCE(MAX(sequence),0) FROM production_commands").fetchone()[0]}
 
 
@@ -496,7 +511,7 @@ def request_status(request_id, kind, user):
         db.execute("BEGIN")
         if kind == "draft":
             row = db.execute("SELECT * FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, request_id)).fetchone()
-            return {"committed": False} if not row else {"committed": True, "requestId": request_id, "appliedRevision": row["revision"], "scenario": _record(db, row["scenario_id"], user)}
+            return {"committed": False} if not row else {"committed": True, "requestId": request_id, "appliedRevision": row["revision"], "scenario": _record(db, row["scenario_id"], user), "currentWorld": _world(db)}
         if kind == "publication":
             row = db.execute("SELECT * FROM published_plans WHERE actor_id=? AND id=?", (user.id, request_id)).fetchone()
             return {"committed": False} if not row else {"committed": True, "publicationId": request_id, "current": _world(db),

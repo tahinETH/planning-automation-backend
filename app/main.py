@@ -561,8 +561,8 @@ def collaboration_request_status(request_id: str, kind: str, user: CurrentUser =
     return collaboration.request_status(request_id, kind, user)
 
 @app.get("/api/collaboration/status")
-def collaboration_status(_: CurrentUser = Depends(current_user)):
-    return collaboration.collaboration_status()
+def collaboration_status(baseWorldRevision: str | None = None, _: CurrentUser = Depends(current_user)):
+    return collaboration.collaboration_status(baseWorldRevision)
 
 @app.get("/api/revisions")
 def get_revisions(summary: bool = False, _: CurrentUser = Depends(current_user)):

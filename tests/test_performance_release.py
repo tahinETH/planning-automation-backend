@@ -355,9 +355,27 @@ def test_perf_n06_rechecks_state_after_validation(monkeypatch, change):
                 collab.delete_scenario(saved["id"], collab.get_scenario(saved["id"], A)["revision"], A)
             elif change == "draft":
                 collab.save_scenario({**collab.get_scenario(saved["id"], A), "name": "intervening"}, A)
-        return {"seed": value["seed"], "result": {"summary": {"plannedBatchCount": 1}}}
+        return {"seed": {**value["seed"], "planNeedsRecalculation": bool(value.get("worldChanged"))},
+                "result": {"summary": {"plannedBatchCount": 1}}}
 
     monkeypatch.setattr(collab, "run_domain", validate)
+    if change == "world":
+        # A private save can retry on an independent world advance. Ownership
+        # and same-draft revision checks remain strict in the other branches.
+        accepted = collab.patch_scenario(saved["id"], request, A)
+        latest_world = db.planning_state()
+        stored = collab.get_scenario(saved["id"], A)
+        assert accepted["scenario"]["worldRevision"] == latest_world["updatedAt"]
+        assert stored["seed"]["activePlanRun"] == {"id": "candidate"}
+        assert stored["seed"]["planNeedsRecalculation"] is True
+        assert stored["seed"]["wipLots"] == []
+        assert latest_world["seed"]["wipLots"] == [{"id": "new-world"}]
+        assert collab.patch_scenario(saved["id"], request, A)["replayed"] is True
+        assert db.planning_state() == latest_world
+        with db.connection() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM scenario_requests WHERE request_id=?", (request["requestId"],)).fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM scenario_versions WHERE scenario_id=?", (saved["id"],)).fetchone()[0] == 2
+        return
     with pytest.raises(HTTPException) as error:
         collab.patch_scenario(saved["id"], request, A)
     assert error.value.status_code in (403, 404, 409)
