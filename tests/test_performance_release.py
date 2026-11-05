@@ -439,7 +439,12 @@ def test_perf_n05_from_world_creation_is_atomic_and_lost_reply_safe(factory, mon
     assert accepted["appliedRevision"] == accepted["scenario"]["revision"] == 1
     draft = accepted["scenario"]
     assert draft["ownerId"] == A.id and draft["canEdit"] is True
-    assert draft["seed"]["orders"] == before["seed"]["orders"]
+    expected_orders = [dict(row) for row in before["seed"]["orders"]]
+    for row in expected_orders:
+        # This legacy fixture's missing period uses the reviewed migration
+        # default. Existing periods and every other order field stay exact.
+        row.setdefault("periodId", "2026-08")
+    assert draft["seed"]["orders"] == expected_orders
     assert draft["seed"]["orders"][0]["quantity"] == 100
     assert draft["seed"]["wipLots"] == []
     assert draft["seed"]["productionHistory"] == []
