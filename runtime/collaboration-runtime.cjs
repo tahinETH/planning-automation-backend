@@ -10539,6 +10539,7 @@ function planRunDeliveryHistory(seed) {
   });
 }
 function preparePlanRun(seed, request, createdAt = (/* @__PURE__ */ new Date()).toISOString()) {
+  if ((seed.schemaVersion ?? 0) < CURRENT_PLANNING_SCHEMA_VERSION && (seed.productionArea !== "cubuk-filtre" || seed.processMasterData)) seed = migratePlanningSeed(seed);
   if (seed.customerDemand) {
     const weeks = seed.customerDemand.weeks;
     const requestedRanges = request.weekRanges?.length ? request.weekRanges : request.monthRange ? [weekScopeForPlanningMonthRange(weeks, request.monthRange)] : [];
@@ -10836,10 +10837,12 @@ function projectPlanningRunInputs(world, run) {
 }
 function mergePersonalDraftWithWorld(draft, world, worldChanged = false) {
   assertProductionArea(draft, world.productionArea ?? "torna");
-  let expectedInputs = world;
+  const currentInputs = migratePlanningSeed(world);
+  const currentDraft = migratePlanningSeed(draft);
+  let expectedInputs = currentInputs;
   let invalidRunScope = false;
   try {
-    expectedInputs = projectPlanningRunInputs(world, draft.activePlanRun);
+    expectedInputs = projectPlanningRunInputs(currentInputs, draft.activePlanRun);
   } catch {
     invalidRunScope = true;
   }
@@ -10855,7 +10858,7 @@ function mergePersonalDraftWithWorld(draft, world, worldChanged = false) {
     configurable: true
   });
   next.processOperationOverrides = mergePublishedOverrides(draft, world);
-  next.planNeedsRecalculation = Boolean(draft.planNeedsRecalculation || worldChanged || invalidRunScope || changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(expectedInputs)) && changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(world)));
+  next.planNeedsRecalculation = Boolean(currentDraft.planNeedsRecalculation || worldChanged || invalidRunScope || changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(expectedInputs)) && changesOfficialInputs(scenarioPlanningSeed(draft), scenarioPlanningSeed(world)));
   return mergeScenarioWithLiveOperations(next, world);
 }
 function rebaseScenarioPlan(seed, savedResult) {
