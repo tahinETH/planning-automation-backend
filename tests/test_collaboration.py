@@ -109,8 +109,15 @@ def test_col07_publication_requires_admin_and_reviewed_world(factory):
     saved = collab.save_scenario(scenario(factory['seed']), A)
     status = collab.collaboration_status()
     request = dict(revision=saved['revision'], worldRevision=status['worldRevision'], previousId=None)
+    original = db.planning_state()
+    with pytest.raises(HTTPException) as e: collab.publication_preview(saved['id'], request, B)
+    assert e.value.status_code == 403
     with pytest.raises(HTTPException) as e: collab.publish_scenario(saved['id'], request, B)
     assert e.value.status_code == 403
+    assert db.planning_state() == original
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM publication_previews').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
     collab.production_command(factory['commands'][0], A)
     with pytest.raises(HTTPException) as e: collab.publish_scenario(saved['id'], request, A)
     assert e.value.status_code == 409
