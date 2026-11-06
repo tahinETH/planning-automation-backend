@@ -589,10 +589,36 @@ function sourceDueSerial(seed, source) {
 }
 function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false, continuationControl = { enabled: false, used: false }) {
   const queueByResource = /* @__PURE__ */ new Map();
-  const usableResources = (source, parameter) => activeProcessResourceIds(parameter).filter((id) => {
-    const resource = processResource(master, id);
-    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
-  });
+  const eligibleResources = /* @__PURE__ */ new Map();
+  const usableResources = (source, parameter) => {
+    let ids = eligibleResources.get(source.masterProduct);
+    if (!ids) {
+      ids = activeProcessResourceIds(parameter).filter((id) => {
+        const resource = processResource(master, id);
+        return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
+      });
+      eligibleResources.set(source.masterProduct, ids);
+    }
+    return ids;
+  };
+  const overrideCache = /* @__PURE__ */ new Map();
+  const placementOverride = (batchId, product, allowInheritance = true) => {
+    const key = JSON.stringify([batchId, product, allowInheritance]);
+    if (!overrideCache.has(key)) overrideCache.set(key, processPlacementOverride(seed, batchId, product, process2, allowInheritance));
+    return overrideCache.get(key);
+  };
+  const machineFreeTimes = /* @__PURE__ */ new Map();
+  const machineFree = (item) => {
+    let free = machineFreeTimes.get(item.source);
+    if (free === void 0) {
+      free = process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(
+        processResource(master, id)?.availableStart ?? 0,
+        ...seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end)
+      )), Number.POSITIVE_INFINITY) : 0;
+      machineFreeTimes.set(item.source, free);
+    }
+    return free;
+  };
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
@@ -628,7 +654,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     }
     const usesRule = rule && !(firstRemaining && source.source === "wip");
     const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : parameter.leadStages?.length ? legacyReadyAt : predecessor?.start ?? source.releaseAt : legacyReadyAt;
-    const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
+    const storedOverride = placementOverride(source.id, source.product, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
     const hours = (minutes) => String(Math.round(minutes / 60 * 100) / 100).replace(".", ",");
@@ -641,8 +667,6 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const difference = usableResources(left.source, left.parameter).length - usableResources(right.source, right.parameter).length;
       if (difference) return difference;
     }
-    const currentEnds = (id, item) => seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end);
-    const machineFree = (item) => process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(processResource(master, id)?.availableStart ?? 0, ...currentEnds(id, item))), Number.POSITIVE_INFINITY) : 0;
     const leftScheduleAt = Math.max(left.readyAt, left.override?.requestedStart ?? left.readyAt, Number.isFinite(machineFree(left)) ? machineFree(left) : 0);
     const rightScheduleAt = Math.max(right.readyAt, right.override?.requestedStart ?? right.readyAt, Number.isFinite(machineFree(right)) ? machineFree(right) : 0);
     const leftOrder = left.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
@@ -708,7 +732,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         }));
         const calendarSeed = processCalendarSeed(seed, resource.id);
         for (const [gapIndex, gap] of gaps.entries()) {
-          const nextOverride = processPlacementOverride(seed, gap.nextReservation.batchId, gap.nextReservation.product, process2);
+          const nextOverride = placementOverride(gap.nextReservation.batchId, gap.nextReservation.product);
           if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
           const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
           const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);

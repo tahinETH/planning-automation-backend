@@ -5720,10 +5720,36 @@ function sourceDueSerial(seed, source) {
 }
 function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false, continuationControl = { enabled: false, used: false }) {
   const queueByResource = /* @__PURE__ */ new Map();
-  const usableResources = (source, parameter) => activeProcessResourceIds(parameter).filter((id) => {
-    const resource = processResource(master, id);
-    return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
-  });
+  const eligibleResources = /* @__PURE__ */ new Map();
+  const usableResources = (source, parameter) => {
+    let ids = eligibleResources.get(source.masterProduct);
+    if (!ids) {
+      ids = activeProcessResourceIds(parameter).filter((id) => {
+        const resource = processResource(master, id);
+        return resource?.active && resource.process === process2 && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, source.masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
+      });
+      eligibleResources.set(source.masterProduct, ids);
+    }
+    return ids;
+  };
+  const overrideCache = /* @__PURE__ */ new Map();
+  const placementOverride = (batchId, product, allowInheritance = true) => {
+    const key = JSON.stringify([batchId, product, allowInheritance]);
+    if (!overrideCache.has(key)) overrideCache.set(key, processPlacementOverride(seed, batchId, product, process2, allowInheritance));
+    return overrideCache.get(key);
+  };
+  const machineFreeTimes = /* @__PURE__ */ new Map();
+  const machineFree = (item) => {
+    let free = machineFreeTimes.get(item.source);
+    if (free === void 0) {
+      free = process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(
+        processResource(master, id)?.availableStart ?? 0,
+        ...seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end)
+      )), Number.POSITIVE_INFINITY) : 0;
+      machineFreeTimes.set(item.source, free);
+    }
+    return free;
+  };
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
@@ -5759,7 +5785,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     }
     const usesRule = rule && !(firstRemaining && source.source === "wip");
     const readyAt = usesRule ? rule.mode === "static" ? addDepartmentWorkMinutes(seed, predecessor?.end ?? source.releaseAt, rule.minutes) : parameter.leadStages?.length ? legacyReadyAt : predecessor?.start ?? source.releaseAt : legacyReadyAt;
-    const storedOverride = processPlacementOverride(seed, source.id, source.product, process2, !interrupted);
+    const storedOverride = placementOverride(source.id, source.product, !interrupted);
     const override = storedOverride?.routeMode === "automatic" ? void 0 : storedOverride?.routeMode === "priority" ? { ...storedOverride, requestedStart: readyAt } : storedOverride;
     const currentJob = seed.processCurrentJobs?.find((item) => item.batchId === source.id && item.process === process2);
     const hours = (minutes) => String(Math.round(minutes / 60 * 100) / 100).replace(".", ",");
@@ -5772,8 +5798,6 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       const difference = usableResources(left.source, left.parameter).length - usableResources(right.source, right.parameter).length;
       if (difference) return difference;
     }
-    const currentEnds = (id, item) => seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end);
-    const machineFree = (item) => process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(processResource(master, id)?.availableStart ?? 0, ...currentEnds(id, item))), Number.POSITIVE_INFINITY) : 0;
     const leftScheduleAt = Math.max(left.readyAt, left.override?.requestedStart ?? left.readyAt, Number.isFinite(machineFree(left)) ? machineFree(left) : 0);
     const rightScheduleAt = Math.max(right.readyAt, right.override?.requestedStart ?? right.readyAt, Number.isFinite(machineFree(right)) ? machineFree(right) : 0);
     const leftOrder = left.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
@@ -5839,7 +5863,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         }));
         const calendarSeed = processCalendarSeed(seed, resource.id);
         for (const [gapIndex, gap] of gaps.entries()) {
-          const nextOverride = processPlacementOverride(seed, gap.nextReservation.batchId, gap.nextReservation.product, process2);
+          const nextOverride = placementOverride(gap.nextReservation.batchId, gap.nextReservation.product);
           if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
           const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
           const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
@@ -5944,17 +5968,20 @@ function processPlacementSignature(preview) {
   return JSON.stringify([preview.requestedStart, preview.operation.id, preview.plan.operations, preview.plan.jobs.map((job) => [job.batchId, job.deliveryReadyAt]), preview.affectedOperations]);
 }
 function processPlacementBaseline(seed, result, operationId) {
-  const baseline = buildDownstreamProcessPlan(seed, result);
+  return placementBaselineWithCandidate(seed, result, operationId, buildDownstreamProcessPlan(seed, result));
+}
+function placementBaselineWithCandidate(seed, result, operationId, baseline) {
   if (baseline.operations.some((item) => item.id === operationId)) return baseline;
   const candidate = buildDownstreamProcessPlan(seed, result, true).operations.find((item) => item.id === operationId && item.manualCandidate);
   if (candidate) {
-    baseline.operations.push(candidate);
-    baseline.jobs = baseline.jobs.map((job) => job.batchId === candidate.batchId ? { ...job, operations: [...job.operations, candidate] } : job);
+    return { ...baseline, operations: [...baseline.operations, candidate], jobs: baseline.jobs.map((job) => job.batchId === candidate.batchId ? { ...job, operations: [...job.operations, candidate] } : job) };
   }
   return baseline;
 }
 function previewProcessOperationReschedule(seed, result, operationId, resourceId, requestedStart) {
-  const baseline = processPlacementBaseline(seed, result, operationId);
+  return previewProcessOperationRescheduleWithBaseline(seed, result, operationId, resourceId, requestedStart, processPlacementBaseline(seed, result, operationId));
+}
+function previewProcessOperationRescheduleWithBaseline(seed, result, operationId, resourceId, requestedStart, baseline) {
   const operation = baseline.operations.find((item) => item.id === operationId);
   if (!operation || operation.actual || operation.current || operation.process === "turning") throw new Error("Yaln\u0131zca kuyruktaki downstream operasyonlar\u0131 ta\u015F\u0131nabilir; \xE7al\u0131\u015Fan ve tamamlanan i\u015Fler sabittir.");
   if (!Number.isFinite(requestedStart) || requestedStart <= 0) throw new Error("Ge\xE7erli bir yeni ba\u015Flang\u0131\xE7 zaman\u0131 se\xE7in.");
@@ -6065,7 +6092,7 @@ function previewProcessQueuePlacement(seed, result, request) {
     resource.availableStart ?? 0,
     ...baseline.operations.filter((item) => item.resourceId === request.resourceId && (item.current || item.actual)).map((item) => item.end)
   );
-  return previewProcessOperationReschedule(seed, result, operation.id, request.resourceId, requestedStart);
+  return previewProcessOperationRescheduleWithBaseline(seed, result, operation.id, request.resourceId, requestedStart, baseline);
 }
 function processStartDate(serial2) {
   return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(excelSerialToDate(serial2));
