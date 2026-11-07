@@ -7,6 +7,7 @@ from datetime import date
 
 
 class FeedbackCreate(BaseModel):
+    requestId: str | None = Field(default=None, min_length=1, max_length=128)
     body: str = Field(min_length=1, max_length=20_000)
     page_path: str = Field(default="", max_length=200)
     priority: Literal[1, 2, 3] = 2
@@ -44,6 +45,22 @@ class ScenarioPayload(BaseModel):
     notes: str = ""
     seed: dict[str, Any]
     result: dict[str, Any]
+
+
+    @field_validator("result")
+    @classmethod
+    def validate_result_summary(cls, value):
+        if value.get("planRun") is not None and not isinstance(value["planRun"], dict):
+            raise ValueError("Senaryo hesaplama kaydı geçersiz.")
+        summary = value.get("summary")
+        if summary is not None:
+            if not isinstance(summary, dict):
+                raise ValueError("Senaryo özeti geçersiz.")
+            for field in ("plannedBatchCount", "unplannedBatchCount"):
+                count = summary.get(field)
+                if count is not None and (type(count) is not int or count < 0):
+                    raise ValueError("Senaryo şarj sayısı negatif olmayan tam sayı olmalıdır.")
+        return value
 
 
 class DataPackagePayload(BaseModel):

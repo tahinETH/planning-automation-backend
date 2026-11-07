@@ -116,6 +116,11 @@ def init_database() -> None:
     with connection() as db:
         db.executescript(
             """
+            CREATE TABLE IF NOT EXISTS operation_requests (
+              actor_id TEXT NOT NULL, kind TEXT NOT NULL, request_id TEXT NOT NULL,
+              request_hash TEXT NOT NULL, result_json TEXT NOT NULL,
+              PRIMARY KEY(actor_id,kind,request_id)
+            );
             CREATE TABLE IF NOT EXISTS planning_write_audit (
               id TEXT PRIMARY KEY, created_at TEXT NOT NULL, metadata_json TEXT NOT NULL
             );
@@ -615,15 +620,16 @@ def save_planning_state(
             if (identity_resolution is not None or not planning_correlation_id(transaction_id)
                     or expected_updated_at is None):
                 raise ValueError("Kayıt farkı için istek kimliği ve ortak sürüm gereklidir.")
-            request_hash = state_hash({"delta": delta, "baseHash": base_hash,
+            identity = {"delta": delta, "baseHash": base_hash,
                 "expectedUpdatedAt": expected_updated_at, "mode": mode, "force": force,
                 "flowSettingsVersion": flow_settings_version, "routePlacementVersion": route_placement_version,
-                "productionSplitVersion": production_split_version, "processWaitSettingsVersion": process_wait_settings_version,
-                **({"stockPlanningVersion": stock_planning_version, "monthlyPlanningVersion": monthly_planning_version} if uses_stock_planning(seed) or uses_stock_planning(current["seed"] if current else {}) else {})})
+                "productionSplitVersion": production_split_version, "processWaitSettingsVersion": process_wait_settings_version}
+            full_identity = {**identity, "stockPlanningVersion": stock_planning_version, "monthlyPlanningVersion": monthly_planning_version}
+            request_hash = "v2:" + state_hash(full_identity)
             receipt = db.execute("SELECT * FROM planning_write_receipts WHERE actor_id=? AND transaction_id=?",
                                  (actor_id, transaction_id)).fetchone()
             if receipt:
-                if receipt["request_hash"] != request_hash:
+                if receipt["request_hash"] not in (request_hash, state_hash(identity), state_hash(full_identity)):
                     raise ValueError("Aynı istek kimliği farklı bir değişiklik için kullanılamaz. Yerel kopyayı koruyun.")
                 if current is None:
                     raise ValueError("Onaylı kaydın güncel ortak sürümü bulunamadı. Sistem yöneticisine bildirin.")
@@ -764,6 +770,15 @@ def save_planning_state(
             if not isinstance(orders, list) or any(not isinstance(order, dict) or not isinstance(order.get("id"), str) or not order["id"] for order in orders):
                 raise ValueError("Sipariş kayıtları ve kimlikleri geçerli olmalıdır")
             _save_orders(db, orders, timestamp)
+        previous_demand = current["seed"].get("customerDemand") if current else None
+        accepted_demand = saved_seed.get("customerDemand")
+        if accepted_demand != previous_demand:
+            if not can_manage_settings:
+                raise ProtectedSettingsChange("Resmi sipariş Excel’ini yalnız yönetici yükleyebilir.")
+            if previous_demand:
+                _insert_demand_import_history(db, previous_demand)
+            if accepted_demand:
+                _insert_demand_import_history(db, accepted_demand)
         history_entry = _insert_planning_history(db, saved_seed, serialized_seed, timestamp, actor_id=actor_id, actor_name=actor_name)
         archive_snapshot = _insert_production_archive_snapshot(db, saved_seed, timestamp, mode)
         audit.update(outcome="saved", resultRevision=timestamp, changes=_audit_changes(current["seed"] if current else None, saved_seed))
@@ -916,27 +931,47 @@ def demand_import_history() -> list[dict[str, Any]]:
     } for row in rows]
 
 
+def _demand_import_record(dataset):
+    import re
+    def part(value):
+        return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value)).strip("-")[:70]
+    weeks = dataset.get("weeks", [])
+    products = dataset.get("products", [])
+    return {
+        "id": "demand-" + "-".join(part(dataset.get(key, "")) for key in ("snapshotDate", "importedAt", "sourceFile")),
+        "importedAt": dataset.get("importedAt", ""),
+        "sourceFile": dataset.get("sourceFile", ""),
+        "snapshotDate": dataset.get("snapshotDate", ""),
+        "dataset": dataset,
+        "summary": {"productCount": len(products), "weekCount": len(weeks),
+                    "firstWeek": weeks[0]["id"] if weeks else "", "lastWeek": weeks[-1]["id"] if weeks else "",
+                    "totalDemand": sum(product.get("totalDemand", 0) for product in products)},
+    }
+
+
+def _insert_demand_import_history(db, dataset):
+    record = _demand_import_record(dataset)
+    # One immutable snapshot per accepted workbook. Later scope edits do not
+    # rewrite the snapshot from which the planner can roll back.
+    db.execute("""INSERT INTO demand_import_history(id,imported_at,source_file,snapshot_date,dataset_json,summary_json,created_at)
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING""",
+        (record["id"], record["importedAt"], record["sourceFile"], record["snapshotDate"],
+         json.dumps(record["dataset"], ensure_ascii=False), json.dumps(record["summary"], ensure_ascii=False), now_iso()))
+    db.execute("DELETE FROM demand_import_history WHERE id IN (SELECT id FROM demand_import_history ORDER BY imported_at DESC LIMIT -1 OFFSET 20)")
+
+
 def save_demand_import_history(record: dict[str, Any]) -> dict[str, Any]:
-    timestamp = now_iso()
+    """Compatibility acknowledgement for old clients. The shared save owns history."""
+    from fastapi import HTTPException
     with connection() as db:
-        db.execute(
-            """INSERT INTO demand_import_history(id,imported_at,source_file,snapshot_date,dataset_json,summary_json,created_at)
-            VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET imported_at=excluded.imported_at,
-            source_file=excluded.source_file,snapshot_date=excluded.snapshot_date,
-            dataset_json=excluded.dataset_json,summary_json=excluded.summary_json""",
-            (
-                record["id"], record["importedAt"], record["sourceFile"], record["snapshotDate"],
-                json.dumps(record["dataset"], ensure_ascii=False),
-                json.dumps(record["summary"], ensure_ascii=False),
-                timestamp,
-            ),
-        )
-        stale = db.execute(
-            "SELECT id FROM demand_import_history ORDER BY imported_at DESC LIMIT -1 OFFSET 20"
-        ).fetchall()
-        if stale:
-            db.executemany("DELETE FROM demand_import_history WHERE id=?", [(row["id"],) for row in stale])
-    return record
+        row = db.execute("SELECT * FROM demand_import_history WHERE id=?", (record["id"],)).fetchone()
+        if row is None:
+            raise HTTPException(409, "Önce resmi sipariş kaydının onaylanması gerekir.")
+        stored = {"id": row["id"], "importedAt": row["imported_at"], "sourceFile": row["source_file"],
+                  "snapshotDate": row["snapshot_date"], "dataset": _loads(row["dataset_json"]), "summary": _loads(row["summary_json"])}
+        if stored != record:
+            raise HTTPException(409, "Onaylanmış sipariş geçmişi değiştirilemez.")
+        return stored
 
 
 def scenarios() -> list[dict[str, Any]]:

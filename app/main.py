@@ -176,7 +176,9 @@ def get_order_import_history(_: CurrentUser = Depends(current_user)):
 
 
 @app.post("/api/order-imports/history", status_code=201)
-def post_order_import_history(payload: DemandImportHistoryPayload, _: CurrentUser = Depends(current_user)):
+def post_order_import_history(payload: DemandImportHistoryPayload, user: CurrentUser = Depends(current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Resmi sipariş geçmişini yalnız yönetici onaylayabilir.")
     return save_demand_import_history(payload.model_dump())
 
 
@@ -476,15 +478,15 @@ def get_scenario(scenario_id: str, user: CurrentUser = Depends(current_user)):
 
 @app.post("/api/scenarios", status_code=201)
 def post_scenario(payload: ScenarioPayload, user: CurrentUser = Depends(current_user)):
-    return collaboration.save_scenario(payload.model_dump(), user)
+    return collaboration.save_scenario(payload.model_dump(), user, imported=True)
 
 @app.delete("/api/scenarios/{scenario_id}")
 def remove_scenario(scenario_id: str, revision: int = Query(ge=0), user: CurrentUser = Depends(current_user)):
     return collaboration.delete_scenario(scenario_id, revision, user)
 
 @app.post("/api/scenarios/{scenario_id}/fork", status_code=201)
-def fork_scenario(scenario_id: str, user: CurrentUser = Depends(current_user)):
-    return collaboration.fork_scenario(scenario_id, user)
+def fork_scenario(scenario_id: str, requestId: str | None = Query(default=None, min_length=1, max_length=128), user: CurrentUser = Depends(current_user)):
+    return collaboration.fork_scenario(scenario_id, user, requestId)
 
 @app.post("/api/scenarios/{scenario_id}/share")
 def share_scenario(scenario_id: str, revision: int, shared: bool, user: CurrentUser = Depends(current_user)):
@@ -591,23 +593,31 @@ def get_feedbacks(_: CurrentUser = Depends(current_user)):
 
 @app.post("/api/feedbacks", status_code=201)
 def create_feedback(payload: FeedbackCreate, user: CurrentUser = Depends(current_user)):
+    from . import request_receipts
     feedback_id, timestamp = str(uuid.uuid4()), now_iso()
+    identity = payload.model_dump(exclude={"requestId"})
     with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        receipt = request_receipts.replay(db, user.id, "feedback", payload.requestId, identity)
+        if receipt:
+            return require_feedback(db, receipt["id"])
         db.execute("INSERT INTO feedbacks(id,author_id,author_name,page_path,body,status,priority,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?,?)",
                    (feedback_id, user.id, user.name, payload.page_path, payload.body.strip(), payload.priority, timestamp, timestamp))
+        request_receipts.record(db, user.id, "feedback", payload.requestId, identity, {"id": feedback_id})
         return feedback_record(db, feedback_id)
 
 
 @app.patch("/api/feedbacks/{feedback_id}")
 def update_feedback(feedback_id: str, payload: FeedbackUpdate, _: CurrentUser = Depends(current_user)):
     with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
         current = require_feedback(db, feedback_id)
         body = payload.body.strip() if payload.body is not None else current["body"]
         status = payload.status or current["status"]
         priority = payload.priority if payload.priority is not None else current["priority"]
         timestamp = now_iso()
-        resolved_at = timestamp if status == "resolved" else None
-        canceled_at = timestamp if status == "canceled" else None
+        resolved_at = (current.get("resolved_at") or timestamp) if status == "resolved" else None
+        canceled_at = (current.get("canceled_at") or timestamp) if status == "canceled" else None
         db.execute("UPDATE feedbacks SET body=?,status=?,priority=?,updated_at=?,resolved_at=?,canceled_at=? WHERE id=?", (body, status, priority, timestamp, resolved_at, canceled_at, feedback_id))
         return feedback_record(db, feedback_id)
 
@@ -636,9 +646,10 @@ def update_comment(comment_id: str, payload: CommentUpdate, _: CurrentUser = Dep
 
 
 @app.post("/api/feedbacks/{feedback_id}/attachments", status_code=201)
-async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(...), user: CurrentUser = Depends(current_user)):
+async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(...), requestId: str | None = Query(default=None, min_length=1, max_length=128), user: CurrentUser = Depends(current_user)):
     with connection() as db:
         require_feedback(db, feedback_id)
+    prepared = []
     for upload in files:
         content_type = (upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "application/octet-stream").lower()
         suffix = Path(upload.filename or "").suffix.lower()
@@ -665,15 +676,36 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
         if not content or len(content) > limit:
             raise HTTPException(status_code=413, detail="Dosya boyutu sınırı aşıldı")
         suffix = suffix[:10]
-        attachment_id, storage_key = str(uuid.uuid4()), f"{uuid.uuid4().hex}{suffix}"
-        (settings.upload_dir / storage_key).write_bytes(content)
-        timestamp = now_iso()
+        prepared.append((kind, upload.filename or f"{kind}{suffix}", content_type, suffix, content))
+    import hashlib
+    from . import request_receipts
+    identity = {"feedbackId": feedback_id, "files": [
+        {"kind": kind, "name": name, "type": content_type, "hash": hashlib.sha256(content).hexdigest()}
+        for kind, name, content_type, suffix, content in prepared]}
+    written = []
+    try:
         with connection() as db:
-            db.execute("INSERT INTO feedback_attachments(id,feedback_id,author_id,kind,original_name,content_type,size,storage_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                       (attachment_id, feedback_id, user.id, kind, upload.filename or f"{kind}{suffix}", content_type, len(content), storage_key, timestamp))
-            db.execute("UPDATE feedbacks SET updated_at=? WHERE id=?", (timestamp, feedback_id))
-    with connection() as db:
-        return feedback_record(db, feedback_id)
+            db.execute("BEGIN IMMEDIATE")
+            require_feedback(db, feedback_id)
+            receipt = request_receipts.replay(db, user.id, "attachments", requestId, identity)
+            if receipt:
+                return feedback_record(db, feedback_id)
+            for kind, name, content_type, suffix, content in prepared:
+                attachment_id, storage_key = str(uuid.uuid4()), f"{uuid.uuid4().hex}{suffix}"
+                path = settings.upload_dir / storage_key
+                written.append(path)
+                path.write_bytes(content)
+                timestamp = now_iso()
+                db.execute("INSERT INTO feedback_attachments(id,feedback_id,author_id,kind,original_name,content_type,size,storage_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                           (attachment_id, feedback_id, user.id, kind, name, content_type, len(content), storage_key, timestamp))
+                db.execute("UPDATE feedbacks SET updated_at=? WHERE id=?", (timestamp, feedback_id))
+            request_receipts.record(db, user.id, "attachments", requestId, identity, {"id": feedback_id})
+            result = feedback_record(db, feedback_id)
+        return result
+    except BaseException:
+        for path in written:
+            path.unlink(missing_ok=True)
+        raise
 
 
 @app.get("/api/attachments/{attachment_id}/content")

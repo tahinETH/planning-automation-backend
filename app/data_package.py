@@ -290,7 +290,7 @@ def _scenario_plan_sheets(workbook: Workbook, plans: dict[str, Any]) -> None:
     readable_layout(warnings, [18, 28, 26, 18, 32, 110], "C2")
 
 
-def _literal_text_cells(workbook: Workbook) -> None:
+def literal_text_cells(workbook: Workbook) -> None:
     """Formula-injection safety: every cell text stays literal text, never a formula.
 
     Data packages contain no intended formulas. A string starting with "=" is
@@ -394,7 +394,7 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
         storage.append([index // CHUNK_SIZE + 1, payload[index:index + CHUNK_SIZE]])
     storage.sheet_state = "veryHidden"
 
-    _literal_text_cells(workbook)
+    literal_text_cells(workbook)
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

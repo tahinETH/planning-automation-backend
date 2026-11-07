@@ -5297,11 +5297,23 @@ function completeWipOperation(seed, input) {
   });
   return { completed, remainder };
 }
+function correctableWipStages(seed, lot) {
+  const common = ["unclassified", "delivery-ready", "on-hold"];
+  if (seed.productionArea === "cubuk-filtre") {
+    return lot?.nextProcess ? ["process-queue", "process-buffer", ...common] : common;
+  }
+  const positions = ["quality-hold", "drilling-queue", "deburring-queue", "washing-buffer", "gkm-buffer", "gkm-queue"];
+  const product = lot && processMasterDataForProduct(seed.processMasterData, lot.product);
+  const route = product?.route && effectiveProductRoute(product, lot?.completedSteps.find((step) => step.process === "turning")?.resourceId);
+  return [...positions.filter((stage) => !route || route.includes(nextProcessForWipStage(stage))), ...common];
+}
 function correctWipStage(seed, lotIdValue, stage, occurredAt, note = "Manuel konum do\u011Frulamas\u0131", recordedAtValue) {
   const lot = (seed.wipLots ?? []).find((item) => item.id === lotIdValue);
   if (!lot) throw new Error("Yar\u0131 mam\xFCl \u015Farj\u0131 bulunamad\u0131.");
   if (terminalStages.has(lot.stage)) throw new Error("Teslim edilmi\u015F veya \u0131skartaya ayr\u0131lm\u0131\u015F \u015Farj\u0131n konumu de\u011Fi\u015Ftirilemez.");
   if (!Number.isFinite(occurredAt)) throw new Error("Konum tarihi ge\xE7ersiz.");
+  if (lot.stage === "on-hold") throw new Error("Konumu de\u011Fi\u015Ftirmeden \xF6nce Blokeyi kald\u0131r kullan\u0131n.");
+  if (!correctableWipStages(seed, lot).includes(stage)) throw new Error("Bu rota i\xE7in konum ge\xE7ersiz. Teslim ve \u0131skarta i\xE7in ilgili \xFCretim i\u015Flemini kullan\u0131n.");
   const recordedAt = isoNow(recordedAtValue);
   const fromStage = lot.stage;
   if (stage === "on-hold") {
@@ -5311,7 +5323,7 @@ function correctWipStage(seed, lotIdValue, stage, occurredAt, note = "Manuel kon
   } else {
     delete lot.heldFromStage;
     delete lot.heldNextProcess;
-    lot.nextProcess = nextProcessForWipStage(stage);
+    lot.nextProcess = stage === "process-queue" || stage === "process-buffer" ? lot.nextProcess : nextProcessForWipStage(stage);
   }
   lot.stage = stage;
   lot.readyAt = occurredAt;
@@ -5414,6 +5426,8 @@ function applyHistoryAllocationToWip(seed, entry, input, recordedAtValue, delive
   if (remainder > 0 && input.remainderAction === "scrap") consumeLots(seed, lots, remainder, "scrapped", input.completedAt, recordedAt);
 }
 function applyHistoryStatusToWip(seed, entry, nextStatus, occurredAt, recordedAtValue, note = "", actor = "Planlama oturumu") {
+  if (entry.inventoryStatus === "delivered" && !["delivered", "semi-finished"].includes(nextStatus)) throw new Error("\xD6nce teslimat\u0131 geri al\u0131n.");
+  if (entry.inventoryStatus === "scrapped" && nextStatus === "delivered") throw new Error("\xD6nce \u0131skartay\u0131 yar\u0131 mamule geri al\u0131n.");
   const lots = relatedLots(seed, entry);
   if (!lots.length) {
     if (nextStatus === "delivered") throw new Error("Teslimat i\xE7in do\u011Frulanm\u0131\u015F bir WIP rota kayd\u0131 bulunamad\u0131.");
@@ -7883,6 +7897,9 @@ function updateProductionHistoryStatus(seed, result, entryId, inventoryStatus, a
   const entry = (nextSeed.productionHistory ?? []).find((item) => item.id === entryId);
   if (!entry) throw new Error("\xDCretim ar\u015Fivi kayd\u0131 bulunamad\u0131.");
   if (entry.inventoryStatus === "voided") throw new Error("\u0130ptal edilmi\u015F kay\u0131t de\u011Fi\u015Ftirilemez.");
+  if (!["semi-finished", "delivered", "scrapped", "voided"].includes(inventoryStatus)) throw new Error("Ar\u015Fiv durumu ge\xE7ersiz.");
+  if (entry.inventoryStatus === "delivered" && !["delivered", "semi-finished"].includes(inventoryStatus)) throw new Error("\xD6nce teslimat\u0131 geri al\u0131n.");
+  if (entry.inventoryStatus === "scrapped" && inventoryStatus === "delivered") throw new Error("\xD6nce \u0131skartay\u0131 yar\u0131 mamule geri al\u0131n.");
   const hidingScrap = entry.inventoryStatus === "scrapped" && inventoryStatus === "voided";
   const reversingTerminalState = inventoryStatus === "semi-finished" && (entry.inventoryStatus === "delivered" || entry.inventoryStatus === "scrapped");
   if (reversingTerminalState && !changeReason.trim()) throw new Error("Yar\u0131 mamule geri alma nedeni zorunludur.");
@@ -7892,6 +7909,9 @@ function updateProductionHistoryStatus(seed, result, entryId, inventoryStatus, a
   }
   if (inventoryStatus === "delivered" && inputDateSerial2(deliveryDate) < Math.floor(entry.completedAt)) {
     throw new Error("Teslim tarihi \xFCretimin tamamlanma tarihinden \xF6nce olamaz.");
+  }
+  if (inventoryStatus === "delivered" && (deliveryDate > factoryDateInput(changedAt) || actionDate.includes("T") && factoryDateTimeToIso(actionDate) > changedAt)) {
+    throw new Error("Fiili teslim tarihi gelecekte olamaz.");
   }
   entry.inventoryStatus = inventoryStatus;
   entry.statusChangedAt = changedAt;

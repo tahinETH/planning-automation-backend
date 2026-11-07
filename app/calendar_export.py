@@ -59,6 +59,8 @@ def build_calendar_event_workbook(payload: dict[str, Any]) -> bytes:
         ]
         for column, value in enumerate(values, 1):
             cell = sheet.cell(row_index, column, value)
+            if isinstance(value, str):
+                cell.data_type = "s"
             cell.fill = PatternFill("solid", fgColor=WHITE)
             cell.font = Font(name="Aptos", size=9, color=INK, bold=column in {1, 3, 9})
             cell.alignment = Alignment(vertical="top", wrap_text=column in {4, 5})

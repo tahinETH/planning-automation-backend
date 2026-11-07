@@ -122,8 +122,8 @@ def list_scenarios(user, limit=None, offset=0):
             "updatedAt": r["updated_at"] or r["created_at"], "shared": bool(r["shared"]),
             "worldRevision": r["world_revision"] or "", "sourceId": r["source_id"], "sourceRevision": r["source_revision"],
             "canEdit": r["owner_id"] == user.id, "legacy": r["owner_id"] is None,
-            "plannedBatchCount": max(0, int(r["planned_count"] or 0)),
-            "planRun": json.loads(r["plan_run"]) if r["plan_run"] else None} for r in rows]
+            "plannedBatchCount": max(0, r["planned_count"]) if type(r["planned_count"]) is int else 0,
+            "planRun": json.loads(r["plan_run"]) if isinstance(r["plan_run"], str) and r["plan_run"].startswith("{") else None} for r in rows]
     return dict(items=items, total=total, limit=limit, offset=offset, hasMore=offset + len(items) < total)
 
 
@@ -155,9 +155,16 @@ def _save(db, value, user, previous=None, source=None):
     return saved
 
 
-def save_scenario(value, user):
+def save_scenario(value, user, *, imported=False):
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        from . import request_receipts
+        initial_import = imported and value.get("revision") in (None, 0)
+        if initial_import:
+            receipt = request_receipts.replay(db, user.id, "scenario-import", value["id"], value)
+            if receipt:
+                return _record(db, receipt["id"], user, write=True)
+        original_value = value
         exists = db.execute("SELECT id FROM scenarios WHERE id=?", (value["id"],)).fetchone()
         previous = _record(db, value["id"], user, write=True) if exists else None
         if previous and value.get("revision") != previous["revision"]:
@@ -166,7 +173,19 @@ def save_scenario(value, user):
             raise HTTPException(409, "Silinmiş plan kimliği tekrar kullanılamaz. Yeni kopya oluşturun.")
         if not previous and value.get("revision") not in (None, 0):
             raise HTTPException(409, "Yeni plan sürümü geçersiz.")
-        return _save(db, value, user, previous)
+        if imported:
+            same_plan = previous and planning_only(value["seed"]) == previous["seed"] and value["result"] == previous["result"]
+            value = {**value, "worldRevision": previous["worldRevision"] if same_plan else ""}
+        saved = _save(db, value, user, previous)
+        if initial_import:
+            request_receipts.record(db, user.id, "scenario-import", value["id"], original_value, {"id": saved["id"]})
+        return saved
+
+
+def _receipt_scenario(db, scenario_id, user):
+    if not db.execute("SELECT 1 FROM scenarios WHERE id=?", (scenario_id,)).fetchone():
+        return {"scenario": None, "deletedScenarioId": scenario_id, "currentWorld": _world(db)}
+    return {"scenario": _record(db, scenario_id, user, write=True)}
 
 
 def create_scenario_from_world(value, user):
@@ -178,7 +197,7 @@ def create_scenario_from_world(value, user):
             return None
         if receipt["request_hash"] != request_hash or receipt["scenario_id"] != value["id"]:
             raise HTTPException(409, "İstek kimliği başka bir işlem için kullanıldı.")
-        return {"requestId": value["requestId"], "scenario": _record(db, value["id"], user, write=True),
+        return {"requestId": value["requestId"], **_receipt_scenario(db, value["id"], user),
                 "appliedRevision": receipt["revision"], "replayed": True}
     with connection() as db:
         db.execute("BEGIN")
@@ -211,11 +230,18 @@ def _world_reply(saved, response_mode):
     return {k: v for k, v in saved.items() if k not in ("historyEntry", "archiveSnapshot")} if response_mode == "compact-v1" else saved
 
 
-def fork_scenario(scenario_id, user):
+def fork_scenario(scenario_id, user, request_id=None):
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        from . import request_receipts
+        payload = {"sourceId": scenario_id}
+        receipt = request_receipts.replay(db, user.id, "fork", request_id, payload)
+        if receipt:
+            return _record(db, receipt["id"], user, write=True)
         source = _record(db, scenario_id, user)
-        return _save(db, {**source, "id": str(uuid.uuid4()), "name": source["name"] + " — kopya"}, user, source=source)
+        saved = _save(db, {**source, "id": str(uuid.uuid4()), "name": source["name"] + " — kopya"}, user, source=source)
+        request_receipts.record(db, user.id, "fork", request_id, payload, {"id": saved["id"]})
+        return saved
 
 
 def share_scenario(scenario_id, revision, shared, user):
@@ -286,6 +312,8 @@ def patch_scenario(scenario_id, value, user):
                 raise HTTPException(409, "İstek kimliği başka bir işlem için kullanıldı.")
             reply = {"requestId": value["requestId"], "scenario": current, "appliedRevision": receipt["revision"], "replayed": True}
             world = _world(db)
+            if current is None:
+                reply.update(deletedScenarioId=scenario_id, currentWorld=world)
             if value.get("worldRevision") != world["updatedAt"]:
                 reply["currentWorld"] = world
             return reply
@@ -300,7 +328,8 @@ def patch_scenario(scenario_id, value, user):
     for attempt in range(3):
         with connection() as db:
             db.execute("BEGIN")
-            current = _record(db, scenario_id, user, write=True)
+            receipt = db.execute("SELECT 1 FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, value["requestId"])).fetchone()
+            current = _receipt_scenario(db, scenario_id, user)["scenario"] if receipt else _record(db, scenario_id, user, write=True)
             repeated = replay(db, current)
             if repeated:
                 return repeated
@@ -312,7 +341,8 @@ def patch_scenario(scenario_id, value, user):
             "worldChanged": world_changed})
         with connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            latest = _record(db, scenario_id, user, write=True)
+            receipt = db.execute("SELECT 1 FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, value["requestId"])).fetchone()
+            latest = _receipt_scenario(db, scenario_id, user)["scenario"] if receipt else _record(db, scenario_id, user, write=True)
             repeated = replay(db, latest)
             if repeated:
                 return repeated
@@ -511,7 +541,7 @@ def request_status(request_id, kind, user):
         db.execute("BEGIN")
         if kind == "draft":
             row = db.execute("SELECT * FROM scenario_requests WHERE actor_id=? AND request_id=?", (user.id, request_id)).fetchone()
-            return {"committed": False} if not row else {"committed": True, "requestId": request_id, "appliedRevision": row["revision"], "scenario": _record(db, row["scenario_id"], user), "currentWorld": _world(db)}
+            return {"committed": False} if not row else {"committed": True, "requestId": request_id, "appliedRevision": row["revision"], **_receipt_scenario(db, row["scenario_id"], user), "currentWorld": _world(db)}
         if kind == "publication":
             row = db.execute("SELECT * FROM published_plans WHERE actor_id=? AND id=?", (user.id, request_id)).fetchone()
             return {"committed": False} if not row else {"committed": True, "publicationId": request_id, "current": _world(db),

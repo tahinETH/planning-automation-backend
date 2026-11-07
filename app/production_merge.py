@@ -133,7 +133,7 @@ def settings_key_differences(source: dict[str, Any], local: dict[str, Any] | Non
     local = local or {}
     base = baseline or {}
     keys = sorted((source.keys() | local.keys()) - GROUPED_FIELDS)
-    local_changed = [key for key in keys if local.get(key, _MISSING) != base.get(key, _MISSING)]
+    local_changed = [key for key in keys if local.get(key, _MISSING) != (base if baseline is not None else source).get(key, _MISSING)]
     source_changed = [key for key in keys if source.get(key, _MISSING) != base.get(key, _MISSING)]
     return {
         "keptLocal": [key for key in local_changed if local.get(key, _MISSING) != source.get(key, _MISSING)],

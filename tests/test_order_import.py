@@ -226,9 +226,16 @@ def test_order_import_history_persists_dataset_for_rollback():
             "dataset": {"format": "confirmed-overview", "weeks": [], "products": []},
             "summary": {"productCount": 0, "weekCount": 0, "totalDemand": 0},
         }
-        created = client.post("/api/order-imports/history", headers=headers, json=payload)
-        assert created.status_code == 201
+        # History belongs to an accepted official import, so a standalone
+        # history POST must be refused before the shared transaction.
+        assert client.post("/api/order-imports/history", headers=headers, json=payload).status_code == 409
+        from app.database import save_planning_state, _demand_import_record
+        dataset = {**payload["dataset"], "importedAt": payload["importedAt"],
+                   "sourceFile": payload["sourceFile"], "snapshotDate": payload["snapshotDate"]}
+        save_planning_state({"orders": [], "machines": [], "customerDemand": dataset}, can_manage_settings=True)
+        accepted = _demand_import_record(dataset)
+        assert client.post("/api/order-imports/history", headers=headers, json=accepted).status_code == 201
         listed = client.get("/api/order-imports/history", headers=headers)
         assert listed.status_code == 200
-        assert listed.json()[0]["id"] == payload["id"]
+        assert listed.json()[0] == accepted
         assert listed.json()[0]["dataset"]["format"] == "confirmed-overview"

@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
 
+from .data_package import literal_text_cells
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -147,5 +149,6 @@ def build_production_archive_workbook(payload: dict[str, Any]) -> bytes:
         _build_archive_sheet(workbook, section, payload, first=index == 0)
 
     output = BytesIO()
+    literal_text_cells(workbook)
     workbook.save(output)
     return output.getvalue()

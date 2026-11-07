@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
 
+from .data_package import literal_text_cells
+
 from openpyxl import Workbook
 from openpyxl.worksheet.pagebreak import Break
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -529,6 +531,7 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
             _material_sheet(workbook, selected_plan, generated, payload.get("printRange"), bool(payload.get("dirty")))
         workbook.remove(empty_sheet)
         output = BytesIO()
+        literal_text_cells(workbook)
         workbook.save(output)
         return output.getvalue()
 
@@ -590,5 +593,6 @@ def build_overview_workbook(payload: dict[str, Any]) -> bytes:
     _audit_sheet(workbook, payload.get("findings", []))
 
     output = BytesIO()
+    literal_text_cells(workbook)
     workbook.save(output)
     return output.getvalue()
