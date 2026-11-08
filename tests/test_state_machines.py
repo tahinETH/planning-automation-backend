@@ -2,7 +2,6 @@
 from dataclasses import replace
 import copy
 import json
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
@@ -29,18 +28,18 @@ def api(tmp_path, monkeypatch):
         main.app.dependency_overrides.pop(current_user, None)
 
 
+# Protocol fixture values for the stored seed in fixtures/collaboration.json.
+# Generated with productionCommandBasis and planningContentHash in the frontend.
+# Fixed values let backend CI use its shipped runtime without a frontend checkout.
+COMMAND_BASES = {
+    "changeWipStage": "5fe22c1efb03873c88ac183ea71ed83e23a50a33cda001dd9d71aa1c33dd9c5e",
+    "changeProductionHistoryStatus": "66bf3c0f7745bff1adb0829db7f3932002ccfe62983d1a6dba3c062ee9fd06ee",
+}
+
+
 def command(api, kind, args, request):
     value = dict(kind=kind, args=args)
-    script = """const {productionCommandBasis}=require('./lib/production-command');
-const {planningContentHash}=require('./lib/planning-delta');
-(async()=>{
-let input='';for await(const chunk of process.stdin) input+=chunk;
-const {seed,command}=JSON.parse(input);
-console.log(await planningContentHash(productionCommandBasis(seed,command)));})();"""
-    basis = subprocess.check_output(["node", "--import", "tsx", "-e", script],
-        cwd=Path(__file__).resolve().parents[2] / "frontend",
-        input=json.dumps(dict(seed=db.planning_state()["seed"], command=value)), text=True).strip()
-    return api.post("/api/production/commands", json=dict(requestId=request, expectedBasis=basis, command=value))
+    return api.post("/api/production/commands", json=dict(requestId=request, expectedBasis=COMMAND_BASES[kind], command=value))
 
 
 @pytest.mark.parametrize("kind,args", [
