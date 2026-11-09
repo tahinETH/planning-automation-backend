@@ -739,6 +739,8 @@ def save_planning_state(
         if mode != "planning" and current and current["seed"].get("productionInterruptions") and "productionInterruptions" not in seed:
             raise ValueError("Yarım üretim kayıtlarını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         saved_seed = preserve_live_operations(seed, current["seed"] if current else None, reconcile=not unresolved) if mode == "planning" else seed
+        from .product_type_deletion import assert_product_type_deletion_safe
+        assert_product_type_deletion_safe(current["seed"] if current else None, saved_seed)
         from .piston_controls import assert_pasif_transition, validate_production_cancellations
         if identity_resolution is None:
             assert_pasif_transition(current["seed"] if current else None, saved_seed)

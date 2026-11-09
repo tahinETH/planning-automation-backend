@@ -144,7 +144,7 @@ def test_personal_plan_guidance_is_available_for_short_screen_questions():
         assert "Paylaşmak ortak planı değiştirmez" in topics[0]["body"]
         assert "Bana kopyala" in topics[0]["body"]
         assert "planın adını yöneticiye bildirir" in topics[0]["body"]
-        assert "üst çubuktaki Kişisel taslak" in topics[0]["body"]
+        assert "sol paneldeki Kişisel taslak" in topics[0]["body"]
         assert "Senaryolar → Planlarım → Yükle" in topics[0]["body"]
         assert "İncelenen planı yayınla" in topics[0]["body"]
 
@@ -517,3 +517,17 @@ def test_pln_clear_exception_explains_production_evidence_and_reload_with_visibl
         assert any('Planı Temizle' in source for source in topic['userSources'])
         assert 'hasRecordedTurningProduction' not in topic['body']
         assert 'implementationNotes' not in topic
+
+
+def test_piston_type_deletion_and_downstream_excel_guidance_uses_visible_controls():
+    for query in ("Piston tip silinmiyor", "Delme Excel indir parametre yedek"):
+        assert "parameters-settings" in [topic["id"] for topic in knowledge.search_topics(query)[:3]]
+    topic = ToolSession(None, False).execute("read_knowledge", '{"topic_id":"parameters-settings"}')
+    assert "Tipi sil" in topic["body"]
+    assert "tüm proseslerden kaldırır" in topic["body"]
+    assert "Sıfır bakiyeli geçmiş şarj da kullanım kaydıdır" in topic["body"]
+    assert "dosya seçili sekme veya arama sonucuyla sınırlı değildir" in topic["body"]
+    assert "gizli yedek verisini okur" in topic["body"]
+    assert any("Tipi sil" in value for value in topic["userSources"])
+    assert any("Excel indir / Excel yükle" in value for value in topic["userSources"])
+    assert "implementationNotes" not in topic and "sources" not in topic

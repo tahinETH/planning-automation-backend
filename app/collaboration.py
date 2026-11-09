@@ -102,11 +102,18 @@ def get_scenario(scenario_id, user):
         return _record(db, scenario_id, user)
 
 
-def list_scenarios(user, limit=None, offset=0):
+def list_scenarios(user, limit=None, offset=0, ownership="all"):
+    if ownership not in ("all", "mine", "shared"):
+        raise HTTPException(422, "Senaryo listesi filtresi geçersiz.")
     with connection() as db:
         db.execute("BEGIN")
-        where = "o.owner_id=? OR o.shared=1 OR o.owner_id IS NULL"
+        where = "(o.owner_id=? OR o.shared=1 OR o.owner_id IS NULL)"
         args = (user.id,)
+        if ownership == "mine":
+            where += " AND o.owner_id=?"
+            args += (user.id,)
+        elif ownership == "shared":
+            where += " AND (o.shared=1 OR o.owner_id IS NULL)"
         if limit is None:
             rows = db.execute(f"SELECT s.id FROM scenarios s LEFT JOIN scenario_owners o ON o.scenario_id=s.id WHERE {where} ORDER BY s.created_at DESC,s.id DESC", args).fetchall()
             return [_record(db, row["id"], user) for row in rows]

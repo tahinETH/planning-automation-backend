@@ -469,8 +469,8 @@ def get_scenarios(user: CurrentUser = Depends(current_user)):
     return collaboration.list_scenarios(user)
 
 @app.get("/api/scenarios/list")
-def get_scenario_summaries(limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0), user: CurrentUser = Depends(current_user)):
-    return collaboration.list_scenarios(user, limit, offset)
+def get_scenario_summaries(limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0), ownership: Literal["all", "mine", "shared"] = "all", user: CurrentUser = Depends(current_user)):
+    return collaboration.list_scenarios(user, limit, offset, ownership)
 
 @app.get("/api/scenarios/{scenario_id}")
 def get_scenario(scenario_id: str, user: CurrentUser = Depends(current_user)):
