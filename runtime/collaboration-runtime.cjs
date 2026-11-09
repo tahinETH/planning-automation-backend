@@ -10945,6 +10945,11 @@ function stable(value) {
 }
 var lockedIdentity = (batch) => batch ? [batch.id, batch.machineId, batch.product, batch.workOrder ?? "", batch.quantity, batch.planColumn, Boolean(batch.locked), Boolean(batch.routeCommitted), batch.routeTargetDate ?? null, batch.interruptionId ?? null] : null;
 var hash = (value) => (0, import_node_crypto.createHash)("sha256").update(JSON.stringify(stable(value))).digest("hex");
+function publicationProtectionMessage(batch, proposal) {
+  const protection = batch.locked && batch.routeCommitted ? "Ortak kuyruk kilidi ve kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama bu korumalar\u0131 olan \u015Farj\u0131 de\u011Fi\u015Ftiremez." : batch.locked ? "Ortak kuyruk kilidi: Yay\u0131nlama kilitli \u015Farj\u0131 de\u011Fi\u015Ftiremez." : "Kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama ak\u0131\u015F tercihi olan \u015Farj\u0131 de\u011Fi\u015Ftiremez.";
+  const difference = proposal ? "Ki\u015Fisel taslakta bu \u015Farj\u0131n korunan bilgileri de\u011Fi\u015Fmi\u015F." : "Ki\u015Fisel taslakta bu \u015Farj yok.";
+  return `${protection} Tezgah: ${batch.machineId} \xB7 \xDCr\xFCn: ${batch.product} \xB7 \u0130\u015F emri: ${batch.workOrder || "Yok"} \xB7 \u015Earj: ${batch.id}. ${difference} Ortak plan ile ki\u015Fisel tasla\u011F\u0131 kar\u015F\u0131la\u015Ft\u0131r\u0131n.`;
+}
 var planNeutralCommands = ["saveJourneyNote", "setMachineQueueLock"];
 try {
   const request = JSON.parse((0, import_node_fs.readFileSync)(0, "utf8"));
@@ -10969,7 +10974,9 @@ try {
     }
     if (next.planNeedsRecalculation) throw Error("Taslak kapsam\u0131 g\xFCncel de\u011Fil. Ortak verilerle plan\u0131 yeniden inceleyin.");
     for (const batch of seed.manualBatches ?? []) {
-      if ((batch.locked || batch.routeCommitted) && hash(lockedIdentity(next.manualBatches?.find((row) => row.id === batch.id))) !== hash(lockedIdentity(batch))) throw Error("Yay\u0131nlama kilitli i\u015Fi de\u011Fi\u015Ftiremez. Y\xFCr\xFCrl\xFCkteki plan\u0131 inceleyin.");
+      if (!batch.locked && !batch.routeCommitted) continue;
+      const proposal = next.manualBatches?.find((row) => row.id === batch.id);
+      if (hash(lockedIdentity(proposal)) !== hash(lockedIdentity(batch))) throw Error(publicationProtectionMessage(batch, proposal));
     }
     next.processOperationOverrides = mergePublishedOverrides(draft, seed);
     const merged = next;

@@ -480,6 +480,18 @@ def test_draft_workflow_guide_explains_shared_completion_and_physical_remainder(
         assert any("Ortak üretimde tamamla" in source for source in topic["userSources"])
 
 
+def test_publication_protection_guide_separates_route_choices_from_queue_locks():
+    topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": "plan-workspaces"}))
+    for label in ("Ortak kuyruk kilidi", "Kayıtlı akış tercihi", "Öncelikli planla", "Mevcut yerleşimi koru", "Elle yerleştir"):
+        assert label in topic["body"]
+    assert "ilk engel olan şarja" in topic["body"]
+    assert "üretime başlandığını göstermez ve kuyruk kilidi değildir" in topic["body"]
+    assert "Taslaktan kaldırmak Ortak plandaki tercihi kendiliğinden kaldırmaz" in topic["body"]
+    assert any("Kayıtlı akış tercihi" in source for source in topic["userSources"])
+    assert "routeCommitted" not in topic["body"]
+    assert "implementationNotes" not in topic and "sources" not in topic
+
+
 def test_turning_scrap_guide_separates_usable_output_loss_and_unfinished_work():
     from pathlib import Path
     import json

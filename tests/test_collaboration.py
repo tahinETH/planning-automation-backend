@@ -13,6 +13,41 @@ from app.auth import CurrentUser
 A = CurrentUser('operator-a', 'A', 'a@example.test', 'admin')
 B = CurrentUser('operator-b', 'B', 'b@example.test', 'user')
 
+
+@pytest.mark.parametrize('protection,label', [
+    ('queue', 'Ortak kuyruk kilidi:'),
+    ('route', 'Kayıtlı akış tercihi:'),
+    ('both', 'Ortak kuyruk kilidi ve kayıtlı akış tercihi:'),
+])
+@pytest.mark.parametrize('difference', ['missing', 'quantity'])
+def test_draft_pub07_preview_names_protection_and_charge_without_writing(factory, protection, label, difference):
+    seed = copy.deepcopy(factory['seed'])
+    batch = dict(id='pub07-charge', machineId='C-04', product='R902745116', workOrder='PUB-07', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=1,
+        locked=protection != 'route', routeCommitted=protection != 'queue', diameter='10', setupHours=0)
+    seed['manualBatches'] = [batch]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    world = db.planning_state()
+    proposal = copy.deepcopy(world['seed'])
+    proposal['planNeedsRecalculation'] = False
+    proposal['manualBatches'] = [] if difference == 'missing' else [{**batch, 'quantity': 101}]
+    draft = collab.save_scenario({**scenario(proposal), 'worldRevision': world['updatedAt']}, A)
+    with pytest.raises(HTTPException) as rejected:
+        collab.publication_preview(draft['id'], dict(revision=draft['revision'], worldRevision=world['updatedAt'], previousId=None), A)
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail.startswith(label)
+    for value in [batch['id'], batch['machineId'], batch['product'], batch['workOrder']]:
+        assert value in rejected.value.detail
+    assert ('Kişisel taslakta bu şarj yok.' if difference == 'missing' else 'Kişisel taslakta bu şarjın korunan bilgileri değişmiş.') in rejected.value.detail
+    if protection == 'route':
+        assert 'kilit' not in rejected.value.detail.lower()
+    assert db.planning_state() == world
+    assert collab.get_scenario(draft['id'], A) == draft
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM publication_previews').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
+
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(db, 'settings', SimpleNamespace(database_path=tmp_path / 'collaboration.sqlite', upload_dir=tmp_path / 'uploads'))
