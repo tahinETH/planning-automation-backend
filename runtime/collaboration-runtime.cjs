@@ -8300,6 +8300,9 @@ var integerFormatter = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0
 function formatInteger(value) {
   return integerFormatter.format(value);
 }
+function formatDecimal(value, maximumFractionDigits = 2) {
+  return new Intl.NumberFormat("tr-TR", { maximumFractionDigits }).format(value);
+}
 
 // features/planning/shared/format.ts
 function inputDateToSerial(value) {
@@ -8309,6 +8312,9 @@ function inputDateToSerial(value) {
 // features/planning/shared/production.ts
 function clampShiftCount(value) {
   return Math.max(0, Math.min(3, Math.trunc(Number(value) || 0)));
+}
+function queuePosition(column) {
+  return column >= 13 ? column - 12 : 0;
 }
 
 // data/product-weights.json
@@ -11012,7 +11018,8 @@ var hash = (value) => (0, import_node_crypto.createHash)("sha256").update(JSON.s
 function publicationProtectionMessage(batch, proposal) {
   const protection = batch.locked && batch.routeCommitted ? "Ortak kuyruk kilidi ve kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama bu korumalar\u0131 olan \u015Farj\u0131 de\u011Fi\u015Ftiremez." : batch.locked ? "Ortak kuyruk kilidi: Yay\u0131nlama kilitli \u015Farj\u0131 de\u011Fi\u015Ftiremez." : "Kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama ak\u0131\u015F tercihi olan \u015Farj\u0131 de\u011Fi\u015Ftiremez.";
   const difference = proposal ? "Ki\u015Fisel taslakta bu \u015Farj\u0131n korunan bilgileri de\u011Fi\u015Fmi\u015F." : "Ki\u015Fisel taslakta bu \u015Farj yok.";
-  return `${protection} Tezgah: ${batch.machineId} \xB7 \xDCr\xFCn: ${batch.product} \xB7 \u0130\u015F emri: ${batch.workOrder || "Yok"} \xB7 \u015Earj: ${batch.id}. ${difference} Ortak plan ile ki\u015Fisel tasla\u011F\u0131 kar\u015F\u0131la\u015Ft\u0131r\u0131n.`;
+  const position = queuePosition(batch.planColumn);
+  return `${protection} Tezgah: ${batch.machineId} \xB7 \xDCr\xFCn: ${batch.product} \xB7 \u0130\u015F emri: ${batch.workOrder || "Yok"} \xB7 Miktar: ${formatDecimal(batch.quantity)} adet \xB7 Ortak plandaki s\u0131ra: ${position > 0 ? position : "Belirtilmemi\u015F"}. ${difference} Ortak plan ile ki\u015Fisel tasla\u011F\u0131 kar\u015F\u0131la\u015Ft\u0131r\u0131n.`;
 }
 var planNeutralCommands = ["saveJourneyNote", "setMachineQueueLock"];
 try {

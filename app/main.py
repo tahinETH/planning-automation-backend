@@ -497,6 +497,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class ScenarioDeltaRequest(BaseModel):
     responseMode: Literal["compact-v1"] | None = None
+    resetAction: Literal["history-restore"] | None = None
     worldRevision: str
     requestId: str = Field(min_length=1, max_length=128)
     revision: int = Field(ge=1)

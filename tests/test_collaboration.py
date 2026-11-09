@@ -37,7 +37,10 @@ def test_draft_pub07_preview_names_protection_and_charge_without_writing(factory
         collab.publication_preview(draft['id'], dict(revision=draft['revision'], worldRevision=world['updatedAt'], previousId=None), A)
     assert rejected.value.status_code == 422
     assert rejected.value.detail.startswith(label)
-    for value in [batch['id'], batch['machineId'], batch['product'], batch['workOrder']]:
+    assert batch['id'] not in rejected.value.detail
+    assert 'Miktar: 100 adet' in rejected.value.detail
+    assert 'Ortak plandaki sıra: 1.' in rejected.value.detail
+    for value in [batch['machineId'], batch['product'], batch['workOrder']]:
         assert value in rejected.value.detail
     assert ('Kişisel taslakta bu şarj yok.' if difference == 'missing' else 'Kişisel taslakta bu şarjın korunan bilgileri değişmiş.') in rejected.value.detail
     if protection == 'route':
@@ -565,3 +568,68 @@ def test_draft_reset11_saved_reset_publishes_future_choices_only(factory, proces
         assert after['manualBatches'][0][key] == locked[key]
     assert not after['manualBatches'][0].get('routeCommitted')
     assert collab.publish_scenario(saved['id'], preview, A)['publicationId'] == published['publicationId']
+
+
+@pytest.mark.parametrize('change', ['remove', 'null', 'replacement', 'import'])
+def test_draft_reset13_ordinary_save_cannot_erase_recorded_clear(factory, change):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    with db.connection() as conn:
+        versions_before = conn.execute('SELECT COUNT(*) FROM scenario_versions').fetchone()[0]
+        receipts_before = conn.execute('SELECT COUNT(*) FROM scenario_requests').fetchone()[0]
+    # An older client's world merge omits the field; the generic delta then removes it.
+    with pytest.raises(HTTPException) as rejected:
+        if change in ('replacement', 'import'):
+            seed = copy.deepcopy(saved['seed'])
+            del seed['planningResetVersion']
+            collab.save_scenario({**saved, 'seed': seed}, A, imported=change == 'import')
+        else:
+            delta = {'set': {'planningResetVersion': None} if change == 'null' else {},
+                     'remove': ['planningResetVersion'] if change == 'remove' else [], 'arrays': {}}
+            collab.patch_scenario(saved['id'], dict(requestId='lost-reset', revision=saved['revision'],
+                worldRevision=world['updatedAt'], delta=delta), A)
+    assert rejected.value.status_code == 422
+    assert 'Planı Temizle' in rejected.value.detail
+    assert 'yenileyin' in rejected.value.detail
+    assert collab.get_scenario(saved['id'], A) == saved
+    assert db.planning_state() == world
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM scenario_versions').fetchone()[0] == versions_before
+        assert conn.execute('SELECT COUNT(*) FROM scenario_requests').fetchone()[0] == receipts_before
+
+
+def test_draft_reset14_explicit_history_restore_keeps_cas_and_receipt(factory):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    request = dict(requestId='undo-clear', revision=saved['revision'], worldRevision=world['updatedAt'],
+        resetAction='history-restore', delta={'set': {}, 'remove': ['planningResetVersion'], 'arrays': {}})
+    with pytest.raises(HTTPException) as denied:
+        collab.patch_scenario(saved['id'], request, B)
+    assert denied.value.status_code == 404
+    from app.main import ScenarioDeltaRequest
+    request = ScenarioDeltaRequest.model_validate(request).model_dump()
+    accepted = collab.patch_scenario(saved['id'], request, A)
+    assert 'planningResetVersion' not in accepted['scenario']['seed']
+    assert collab.patch_scenario(saved['id'], request, A)['replayed'] is True
+    with pytest.raises(HTTPException) as conflict:
+        collab.patch_scenario(saved['id'], {**request, 'requestId': 'stale-undo'}, A)
+    assert conflict.value.status_code == 409
+    assert db.planning_state() == world
+
+
+def test_draft_reset17_optional_history_field_preserves_old_receipt_identity(factory):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    request = dict(requestId='old-request', revision=saved['revision'], worldRevision=world['updatedAt'],
+        delta={'set': {}, 'remove': [], 'arrays': {}})
+    accepted = collab.patch_scenario(saved['id'], request, A)
+    repeated = collab.patch_scenario(saved['id'], {**request, 'resetAction': None}, A)
+    assert repeated['replayed'] is True
+    assert repeated['appliedRevision'] == accepted['appliedRevision']
+    assert repeated['scenario']['seed']['planningResetVersion'] == 1
+    with pytest.raises(HTTPException) as changed:
+        collab.patch_scenario(saved['id'], {**request, 'resetAction': 'history-restore'}, A)
+    assert changed.value.status_code == 409
