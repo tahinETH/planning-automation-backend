@@ -3892,7 +3892,6 @@
         "Sol panel → Üretim alanı; Çubuk Filtre → Parametreler",
         "Sol panel → Üretim alanı",
         "Plan çalışma alanı → bekleyen işlem / Yedek indir",
-        "Üst çubuk → Prod’dan güncelle → yerel çalışma korunarak güncelleme",
         "Kişisel taslak → Planı yayınla → Ortak kuyruk kilidi / Kayıtlı akış tercihi; Tezgah / Ürün / İş emri / Şarj",
         "Kişisel Taslak → Planı Temizle → Planı Çalıştır → Planı yayınla; Tezgahlar → Delme / Çapak Alma / GKM → Mevcut iş"
       ]
@@ -5867,7 +5866,6 @@
         "Sol panel → Üretim alanı → Piston / Çubuk Filtre",
         "Kişisel taslak → Taslak kaydedildi · Yeniden hesapla",
         "Kişisel taslak → Ortak plan yayını → Bu sırayla yeniden hesapla / Planı yayınla",
-        "Üst çubuk → Ortak plan / Kişisel taslak / Yeni taslak",
         "Kişisel taslak → Planı yayınla → Ortak kuyruk kilidi / Kayıtlı akış tercihi; Tezgah / Ürün / İş emri / Şarj",
         "Üretim akışını düzenle → Öncelikli planla / Mevcut yerleşimi koru / Elle yerleştir / Bu şarjın akış tercihlerini kaldır · Otomatik planlamaya dön",
         "Kişisel Taslak → Planı Temizle → Planı Çalıştır → Planı yayınla; Tezgahlar → Delme / Çapak Alma / GKM → Mevcut iş"
