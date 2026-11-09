@@ -611,6 +611,24 @@ function applyProcessLeadStages(seed, start, stages) {
   return cursor;
 }
 
+// lib/process-placement-identity.ts
+function processPlacementIdentities(seed, batchId, allowInheritance = true) {
+  const identities = [batchId];
+  const sourceBatchIds = /* @__PURE__ */ new Set();
+  let lot = seed.wipLots?.find((item) => item.id === batchId);
+  const visited = /* @__PURE__ */ new Set();
+  while (allowInheritance && lot && !visited.has(lot.id)) {
+    visited.add(lot.id);
+    if (lot.sourceBatchId) sourceBatchIds.add(lot.sourceBatchId);
+    if (lot.parentLotId) identities.push(lot.parentLotId);
+    lot = seed.wipLots?.find((item) => item.id === lot.parentLotId);
+  }
+  identities.push(...sourceBatchIds);
+  const machine = seed.machines?.find((item) => `current:${item.id}` === batchId);
+  if (allowInheritance && machine?.currentJob.batchId) identities.push(machine.currentJob.batchId);
+  return identities;
+}
+
 // lib/process-flow.ts
 function curve(seed, resource, start, end, setupHours, quantity) {
   const windows = [];
@@ -5710,19 +5728,8 @@ function setupSourceForOperation(operation) {
   };
 }
 function processPlacementOverride(seed, batchId, product, process2, allowInheritance = true) {
-  const identities = [batchId];
-  const sourceBatchIds = /* @__PURE__ */ new Set();
-  let lot = seed.wipLots?.find((item) => item.id === batchId);
+  const identities = processPlacementIdentities(seed, batchId, allowInheritance);
   const machine = seed.machines?.find((item) => `current:${item.id}` === batchId);
-  const visited = /* @__PURE__ */ new Set();
-  while (allowInheritance && lot && !visited.has(lot.id)) {
-    visited.add(lot.id);
-    if (lot.sourceBatchId) sourceBatchIds.add(lot.sourceBatchId);
-    if (lot.parentLotId) identities.push(lot.parentLotId);
-    lot = seed.wipLots?.find((item) => item.id === lot.parentLotId);
-  }
-  identities.push(...sourceBatchIds);
-  if (allowInheritance && machine?.currentJob.batchId) identities.push(machine.currentJob.batchId);
   return identities.flatMap((id) => seed.processOperationOverrides?.filter((item) => item.batchId === id && item.process === process2 && (!item.sourceProduct || item.sourceProduct === product) && (!item.sourceCurrentJobKey || machine && currentJobRouteIdentity(machine) === item.sourceCurrentJobKey)) ?? [])[0];
 }
 var inputDateSerial = (value) => value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
@@ -5779,7 +5786,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const predecessor = operationsByKey.get(`${source.id}:${predecessorProcess}`);
     const firstRemaining = process2 === source.nextProcess;
     const interrupted = activeLotInterruptions(seed, source.lot).length > 0;
-    const explicitPlacement = seed.processOperationOverrides?.some((item) => item.batchId === source.id && item.process === process2);
+    const explicitPlacement = seed.processOperationOverrides?.some((item) => item.batchId === source.id && item.process === process2 && item.routeMode !== "automatic");
     const running = seed.processCurrentJobs?.some((item) => item.batchId === source.id && item.process === process2);
     if (seed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === source.id && item.process === source.nextProcess) && !firstRemaining) return [];
     if (interrupted && !running && !explicitPlacement && !(includeInterruptedCandidates && firstRemaining)) return [];
@@ -6538,6 +6545,52 @@ function validateFilterShipment(seed, code3, quantity) {
   const product = seed.products.find((p) => p.product === code3);
   if (!product || product.moq <= 0) throw new Error("Min. Sevkiyat Adedi tan\u0131mlanmal\u0131.");
   if (quantity < product.moq || (product.shipmentMultiple ?? 0) > 0 && quantity % product.shipmentMultiple !== 0) throw new Error("Teslim adedi Min. Sevkiyat Adedi ve Sevkiyat Kat\u0131 kural\u0131na uymuyor.");
+}
+
+// lib/plan-reset.ts
+function withoutRouteChoices(batch) {
+  const { routeCommitted: _commitment, routeTargetDate: _target, ...retained } = batch;
+  return retained;
+}
+function mergeSharedQueueLocks(draft, live, replaceExisting = false) {
+  const locked = reconcileTurningQueue(live, (live.manualBatches ?? []).filter((batch) => batch.locked)).filter((batch) => batch.locked);
+  const byId = new Map(locked.map((batch) => [batch.id, batch]));
+  const proposals = draft.manualBatches ?? [];
+  const ids = new Set(proposals.map((batch) => batch.id));
+  const copy2 = (batch) => draft.planningResetVersion === 1 ? withoutRouteChoices({ ...batch }) : { ...batch };
+  return [
+    ...proposals.map((batch) => replaceExisting && byId.has(batch.id) ? copy2(byId.get(batch.id)) : { ...batch }),
+    ...locked.filter((batch) => !ids.has(batch.id)).map(copy2)
+  ];
+}
+var processOverrideKey = (row) => JSON.stringify([row.batchId, row.process]);
+function resetFutureProcessOverrides(seed) {
+  const currentKeys = new Set((seed.processCurrentJobs ?? []).map(processOverrideKey));
+  const kept = (seed.processOperationOverrides ?? []).filter((row) => currentKeys.has(processOverrideKey(row))).map((row) => ({ ...row }));
+  for (const lot of seed.wipLots ?? []) {
+    const identities = processPlacementIdentities(seed, lot.id).slice(1);
+    for (const inherited of kept.slice()) {
+      const key = processOverrideKey({ batchId: lot.id, process: inherited.process });
+      if (currentKeys.has(key) || kept.some((row) => processOverrideKey(row) === key) || !identities.includes(inherited.batchId) || inherited.sourceCurrentJobKey || inherited.sourceProduct && inherited.sourceProduct !== lot.product) continue;
+      kept.push({
+        batchId: lot.id,
+        process: inherited.process,
+        resourceId: inherited.resourceId,
+        requestedStart: inherited.requestedStart,
+        updatedAt: inherited.updatedAt,
+        sourceProduct: lot.product,
+        routeMode: "automatic"
+      });
+    }
+  }
+  return kept;
+}
+function mergeResetProcessOverrides(draft, live) {
+  const currentKeys = new Set((live.processCurrentJobs ?? []).map(processOverrideKey));
+  const protectedRows = resetFutureProcessOverrides(live);
+  const proposed = (draft.processOperationOverrides ?? []).filter((row) => !currentKeys.has(processOverrideKey(row)));
+  const proposedKeys = new Set(proposed.map(processOverrideKey));
+  return [...protectedRows.filter((row) => currentKeys.has(processOverrideKey(row)) || !proposedKeys.has(processOverrideKey(row))), ...proposed];
 }
 
 // data/product-setup-families.json
@@ -10720,7 +10773,7 @@ function completedCustomerPlanRanges(seed) {
 
 // lib/scenario-safety.ts
 var officialInputFields = ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock", "productionArea", "processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "filterWaitShifts", "filterQualityShifts", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines", "orderImport", "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName"];
-var personalProposalFields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan"];
+var personalProposalFields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan", "planningResetVersion"];
 function officialInputValue(seed, field) {
   if (field !== "machines") return seed[field] ?? null;
   return seed.machines.map(({ availableStart: _available, operationalAvailableStart: _operational, currentJob: _current, ...machine }) => machine);
@@ -10766,13 +10819,20 @@ function scenarioPlanningSeed(seed) {
   scenario.machines = scenario.machines.map((machine) => ({ ...machine, currentJob: emptyCurrentJob(machine) }));
   return scenario;
 }
-function mergeRemainderLocks(liveSeed, proposals) {
+function mergeRemainderLocks(liveSeed, proposals, reset = false) {
   return withInterruptedBatches(liveSeed, proposals.filter((batch) => !hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId))).map((batch) => {
     if (!hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId)) return batch;
     const matches = proposals.filter((proposal2) => proposal2.id === batch.id);
     const proposal = matches.length === 1 ? matches[0] : void 0;
-    if (proposal && proposal.interruptionId === batch.interruptionId && proposal.quantity === batch.quantity && proposal.product === batch.product && proposal.workOrder === batch.workOrder && proposal.machineId === batch.machineId && typeof proposal.locked === "boolean") return { ...batch, locked: proposal.locked };
-    return batch;
+    const matchesIdentity = proposal && proposal.interruptionId === batch.interruptionId && proposal.quantity === batch.quantity && proposal.product === batch.product && proposal.workOrder === batch.workOrder && proposal.machineId === batch.machineId && typeof proposal.locked === "boolean";
+    const retained = matchesIdentity ? { ...batch, locked: proposal.locked } : batch;
+    if (!reset) return retained;
+    const clean = withoutRouteChoices(retained);
+    return matchesIdentity ? {
+      ...clean,
+      ...proposal.routeCommitted === void 0 ? {} : { routeCommitted: proposal.routeCommitted },
+      ...proposal.routeTargetDate === void 0 ? {} : { routeTargetDate: proposal.routeTargetDate }
+    } : clean;
   });
 }
 function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
@@ -10819,7 +10879,10 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   merged.productionInterruptions = copy(liveSeed.productionInterruptions ?? []);
   if (liveSeed.productionCancellations) merged.productionCancellations = copy(liveSeed.productionCancellations);
   else delete merged.productionCancellations;
-  merged.manualBatches = mergeRemainderLocks(liveSeed, merged.manualBatches ?? []);
+  const proposals = mergeSharedQueueLocks(merged, liveSeed);
+  if (proposals.length !== (merged.manualBatches ?? []).length) merged.planNeedsRecalculation = true;
+  merged.manualBatches = mergeRemainderLocks(liveSeed, proposals, merged.planningResetVersion === 1);
+  if (merged.planningResetVersion === 1) merged.processOperationOverrides = mergeResetProcessOverrides(merged, liveSeed);
   merged.productionHistory = copy(liveSeed.productionHistory ?? []);
   merged.wipLots = copy(liveSeed.wipLots ?? []);
   merged.wipMovements = copy(liveSeed.wipMovements ?? []);
@@ -10845,6 +10908,7 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   return reconcileTurningSeed(merged);
 }
 function mergePublishedOverrides(draft, live) {
+  if (draft.planningResetVersion === 1) return mergeResetProcessOverrides(draft, live);
   const physical = /* @__PURE__ */ new Set();
   for (const lot of live.wipLots ?? []) {
     physical.add(lot.id);
@@ -10914,7 +10978,7 @@ function mergePersonalDraftWithWorld(draft, world, worldChanged = false) {
   return mergeScenarioWithLiveOperations(next, world);
 }
 function rebaseScenarioPlan(seed, savedResult) {
-  const result = recalculateManualScenario(seed, mergeRemainderLocks(seed, reconcileTurningQueue(seed, savedResult.batches)), { allowPlanEndOverflow: true });
+  const result = recalculateManualScenario(seed, mergeRemainderLocks(seed, reconcileTurningQueue(seed, savedResult.batches), seed.planningResetVersion === 1), { allowPlanEndOverflow: true });
   const machines = new Map(seed.machines.map((machine) => [machine.id, machine]));
   const overflows = result.batches.filter((batch) => {
     const machine = machines.get(batch.machineId);
@@ -10964,6 +11028,8 @@ try {
     response = { seed: composed, result: scenarioResultFromBatches(composed, composed.manualBatches ?? []) };
   } else if (request.action === "publish") {
     const draft = request.draft;
+    if (draft.planningResetVersion !== void 0 && draft.planningResetVersion !== 1) throw Error("Plan temizleme s\xFCr\xFCm\xFC desteklenmiyor. Uygulamay\u0131 yenileyin.");
+    const reset = draft.planningResetVersion === 1;
     if (draft.productionArea && draft.productionArea !== (seed.productionArea ?? "torna")) throw Error("Plan ba\u015Fka bir \xFCretim alan\u0131na ait.");
     if (draft.planNeedsRecalculation) throw Error("Taslak g\xFCncel de\u011Fil. Ortak \xFCretimle plan\u0131 yeniden inceleyip \xE7al\u0131\u015Ft\u0131r\u0131n.");
     const next = mergePersonalDraftWithWorld(draft, seed);
@@ -10972,12 +11038,13 @@ try {
     for (const field of officialInputFields) {
       if (hash(officialInputValue(candidate, field)) !== hash(officialInputValue(official, field))) throw Error("Taslak sipari\u015F veya parametreleri ortak kay\u0131tla farkl\u0131. \xD6nce ortak girdilerle plan\u0131 yeniden inceleyin.");
     }
-    if (next.planNeedsRecalculation) throw Error("Taslak kapsam\u0131 g\xFCncel de\u011Fil. Ortak verilerle plan\u0131 yeniden inceleyin.");
     for (const batch of seed.manualBatches ?? []) {
-      if (!batch.locked && !batch.routeCommitted) continue;
-      const proposal = next.manualBatches?.find((row) => row.id === batch.id);
-      if (hash(lockedIdentity(proposal)) !== hash(lockedIdentity(batch))) throw Error(publicationProtectionMessage(batch, proposal));
+      if (!batch.locked && (!batch.routeCommitted || reset)) continue;
+      const proposal = draft.manualBatches?.find((row) => row.id === batch.id);
+      const identity = (row) => lockedIdentity(reset && row ? withoutRouteChoices(row) : row);
+      if (hash(identity(proposal)) !== hash(identity(batch))) throw Error(publicationProtectionMessage(reset ? withoutRouteChoices(batch) : batch, proposal));
     }
+    if (next.planNeedsRecalculation) throw Error("Taslak kapsam\u0131 g\xFCncel de\u011Fil. Ortak verilerle plan\u0131 yeniden inceleyin.");
     next.processOperationOverrides = mergePublishedOverrides(draft, seed);
     const merged = next;
     const rebased = rebaseScenarioPlan(merged, scenarioResultFromBatches(merged, merged.manualBatches ?? []));
@@ -10989,6 +11056,7 @@ try {
       else delete published[field];
     }
     published.planNeedsRecalculation = false;
+    delete published.planningResetVersion;
     assertTurningIdentityTransition(seed, published);
     response = { seed: published, result: rebased.result };
   } else if (request.action === "command") {

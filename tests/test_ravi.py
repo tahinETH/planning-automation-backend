@@ -519,10 +519,12 @@ def test_cancellation_dialog_guide_separates_protected_output_from_new_productio
         assert any(source.get('symbol') == 'cancellationDialogInput' for source in topic['sources'])
 
 
-def test_pln_clear_exception_explains_production_evidence_and_reload_with_visible_sources():
+def test_draft_reset_explains_shared_locks_current_work_and_future_choices_with_visible_sources():
     for topic_id in ('planning-engine', 'scenarios-persistence', 'production-interruptions', 'machines', 'processes-wip', 'process-gantt-placement'):
         topic = knowledge.for_model(knowledge.read_topic(topic_id))
-        assert 'kilitli olsalar da kaldırır' in topic['body']
+        assert 'ortak kilitli şarjları korur' in topic['body']
+        for rule in ('Delme çalışıyorsa', 'Çapak Alma çalışıyorsa', 'Çalışan GKM korunur', 'sonraki proses tercihleri kaldırılır', 'Yalnız taslak açmak tercihleri sıfırlamaz'):
+            assert rule in topic['body']
         assert 'Üretim durumu belirsiz kayıtlar da korunur' in topic['body']
         assert 'Üretilen adet sıfırsa' in topic['body']
         assert 'kayıtlı tarihleri değişmez' in topic['body']

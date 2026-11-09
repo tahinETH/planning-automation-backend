@@ -147,6 +147,24 @@ function applyProcessLeadStages(seed, start, stages) {
   return cursor;
 }
 
+// lib/process-placement-identity.ts
+function processPlacementIdentities(seed, batchId, allowInheritance = true) {
+  const identities = [batchId];
+  const sourceBatchIds = /* @__PURE__ */ new Set();
+  let lot = seed.wipLots?.find((item) => item.id === batchId);
+  const visited = /* @__PURE__ */ new Set();
+  while (allowInheritance && lot && !visited.has(lot.id)) {
+    visited.add(lot.id);
+    if (lot.sourceBatchId) sourceBatchIds.add(lot.sourceBatchId);
+    if (lot.parentLotId) identities.push(lot.parentLotId);
+    lot = seed.wipLots?.find((item) => item.id === lot.parentLotId);
+  }
+  identities.push(...sourceBatchIds);
+  const machine = seed.machines?.find((item) => `current:${item.id}` === batchId);
+  if (allowInheritance && machine?.currentJob.batchId) identities.push(machine.currentJob.batchId);
+  return identities;
+}
+
 // lib/process-flow.ts
 function curve(seed, resource, start, end, setupHours, quantity) {
   const windows = [];
@@ -4643,19 +4661,8 @@ function setupSourceForOperation(operation) {
   };
 }
 function processPlacementOverride(seed, batchId, product, process2, allowInheritance = true) {
-  const identities = [batchId];
-  const sourceBatchIds = /* @__PURE__ */ new Set();
-  let lot = seed.wipLots?.find((item) => item.id === batchId);
+  const identities = processPlacementIdentities(seed, batchId, allowInheritance);
   const machine = seed.machines?.find((item) => `current:${item.id}` === batchId);
-  const visited = /* @__PURE__ */ new Set();
-  while (allowInheritance && lot && !visited.has(lot.id)) {
-    visited.add(lot.id);
-    if (lot.sourceBatchId) sourceBatchIds.add(lot.sourceBatchId);
-    if (lot.parentLotId) identities.push(lot.parentLotId);
-    lot = seed.wipLots?.find((item) => item.id === lot.parentLotId);
-  }
-  identities.push(...sourceBatchIds);
-  if (allowInheritance && machine?.currentJob.batchId) identities.push(machine.currentJob.batchId);
   return identities.flatMap((id) => seed.processOperationOverrides?.filter((item) => item.batchId === id && item.process === process2 && (!item.sourceProduct || item.sourceProduct === product) && (!item.sourceCurrentJobKey || machine && currentJobRouteIdentity(machine) === item.sourceCurrentJobKey)) ?? [])[0];
 }
 var inputDateSerial = (value) => value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
@@ -4712,7 +4719,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const predecessor = operationsByKey.get(`${source.id}:${predecessorProcess}`);
     const firstRemaining = process2 === source.nextProcess;
     const interrupted = activeLotInterruptions(seed, source.lot).length > 0;
-    const explicitPlacement = seed.processOperationOverrides?.some((item) => item.batchId === source.id && item.process === process2);
+    const explicitPlacement = seed.processOperationOverrides?.some((item) => item.batchId === source.id && item.process === process2 && item.routeMode !== "automatic");
     const running = seed.processCurrentJobs?.some((item) => item.batchId === source.id && item.process === process2);
     if (seed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === source.id && item.process === source.nextProcess) && !firstRemaining) return [];
     if (interrupted && !running && !explicitPlacement && !(includeInterruptedCandidates && firstRemaining)) return [];

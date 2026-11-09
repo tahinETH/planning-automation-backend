@@ -510,3 +510,58 @@ def test_draft_pub06_lock_and_note_chain_allows_preview_but_physical_output_requ
     assert 'Bu sırayla yeniden hesapla' in error.value.detail
     assert db.planning_state() == physical
     assert collab.collaboration_status()['publicationId'] is None
+
+
+@pytest.mark.parametrize('process,resource,next_processes', [
+    ('drilling', 'D-01', ['deburring', 'gkm']),
+    ('deburring', 'B-01-S1', ['gkm']),
+    ('gkm', 'V-01', []),
+])
+def test_draft_reset11_saved_reset_publishes_future_choices_only(factory, process, resource, next_processes):
+    seed = copy.deepcopy(factory['seed'])
+    lot = seed['wipLots'][0]
+    lot.update(nextProcess=process, stage=f'{process}-queue')
+    lot['completedSteps'] = lot['completedSteps'][:1]
+    for prior in (['drilling'] if process == 'deburring' else ['drilling', 'deburring'] if process == 'gkm' else []):
+        lot['completedSteps'].append(dict(lot['completedSteps'][0], process=prior, resourceId='D-01' if prior == 'drilling' else 'B-01-S1'))
+    current = dict(resourceId=resource, resourceName=process, process=process, batchId=lot['id'],
+        operationId=f"{lot['id']}:{process}", wipLotId=lot['id'], workOrder=lot['workOrder'],
+        product=lot['product'], family=lot['family'], originalQuantity=100, remainingQuantity=100,
+        readyAt=46279, start=46279, end=46280, setupKey=lot['product'], unitsPerShift=100,
+        setupHours=0, updatedAt='2026-09-15T00:00:00Z')
+    seed['processCurrentJobs'] = [current]
+    running_choice = dict(batchId=lot['id'], process=process, resourceId=resource,
+        requestedStart=46279, routeMode='manual', updatedAt='2026-09-15T00:00:00Z')
+    seed['processOperationOverrides'] = [running_choice] + [dict(running_choice, process=p, requestedStart=46300) for p in next_processes]
+    locked = dict(id='reset-locked', machineId='C-04', product=lot['product'], workOrder='RESET-11', quantity=100,
+        start=46280, end=46281, status='planned', planColumn=13, sequence=1,
+        locked=True, routeCommitted=True, routeTargetDate='2026-10-31', diameter='10', setupHours=0)
+    seed['manualBatches'] = [locked, dict(locked, id='reset-route-only', locked=False, planColumn=14, sequence=2)]
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario(world['seed']), 'worldRevision': world['updatedAt']}, A)
+    cleared_lock = {k: v for k, v in locked.items() if k not in ['routeCommitted', 'routeTargetDate']}
+    change = dict(requestId=f'reset-{process}', revision=saved['revision'], worldRevision=world['updatedAt'],
+        delta={'set': {'planningResetVersion': 1, 'planNeedsRecalculation': False,
+            'manualBatches': [cleared_lock], 'processOperationOverrides': [running_choice]}, 'arrays': {}, 'remove': []})
+    accepted = collab.patch_scenario(saved['id'], change, A)['scenario']
+    loaded = collab.get_scenario(saved['id'], A)
+    assert loaded['seed']['planningResetVersion'] == 1
+    assert db.planning_state() == world
+    with pytest.raises(HTTPException) as stale:
+        collab.patch_scenario(saved['id'], {**change, 'requestId': 'old-tab'}, A)
+    assert stale.value.status_code == 409
+    preview = collab.publication_preview(saved['id'], dict(revision=accepted['revision'], worldRevision=world['updatedAt'], previousId=None), A)
+    assert db.planning_state() == world
+    published = collab.publish_scenario(saved['id'], preview, A)
+    after = db.planning_state()['seed']
+    assert 'planningResetVersion' not in after
+    assert after['processOperationOverrides'] == [running_choice]
+    for field in ['processCurrentJobs', 'wipLots', 'productionHistory', 'productionInterruptions', 'machines']:
+        assert after.get(field) == world['seed'].get(field)
+    assert len(after['manualBatches']) == 1
+    for key in ['id', 'machineId', 'product', 'workOrder', 'quantity', 'planColumn', 'locked']:
+        assert after['manualBatches'][0][key] == locked[key]
+    assert not after['manualBatches'][0].get('routeCommitted')
+    assert collab.publish_scenario(saved['id'], preview, A)['publicationId'] == published['publicationId']
