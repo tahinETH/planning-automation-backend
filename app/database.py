@@ -725,7 +725,13 @@ def save_planning_state(
             raise ValueError("Kısmi üretim aktarımını korumak için uygulamayı yenileyip ortak veriyi tekrar yükleyin.")
         if route_placement_version < 1 and (has_route_commitments(seed) or current and has_route_commitments(current["seed"])):
             raise ValueError("Kaydedilmiş üretim akışı tercihlerini korumak için uygulamayı yenileyin. Eski sürümden kayıt yapılamaz.")
-        if not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
+        if not can_manage_settings and shared_inputs_only:
+            from .input_permissions import assert_user_configuration, InputPermissionError
+            try:
+                assert_user_configuration(current["seed"] if current else None, seed, operational=not shared_inputs_only)
+            except InputPermissionError as error:
+                raise ProtectedSettingsChange(str(error)) from error
+        elif not can_manage_settings and protected_settings_changed(seed, current["seed"] if current else None):
             raise ProtectedSettingsChange("Ayarlar yalnızca yöneticiler tarafından değiştirilebilir")
         if "adviceSettings" in seed:
             advice = seed["adviceSettings"]
@@ -775,8 +781,6 @@ def save_planning_state(
         previous_demand = current["seed"].get("customerDemand") if current else None
         accepted_demand = saved_seed.get("customerDemand")
         if accepted_demand != previous_demand:
-            if not can_manage_settings:
-                raise ProtectedSettingsChange("Resmi sipariş Excel’ini yalnız yönetici yükleyebilir.")
             if previous_demand:
                 _insert_demand_import_history(db, previous_demand)
             if accepted_demand:

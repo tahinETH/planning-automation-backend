@@ -480,6 +480,18 @@ def test_draft_workflow_guide_explains_shared_completion_and_physical_remainder(
         assert any("Ortak üretimde tamamla" in source for source in topic["userSources"])
 
 
+def test_publication_protection_guide_separates_route_choices_from_queue_locks():
+    topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": "plan-workspaces"}))
+    for label in ("Ortak kuyruk kilidi", "Kayıtlı akış tercihi", "Öncelikli planla", "Mevcut yerleşimi koru", "Elle yerleştir"):
+        assert label in topic["body"]
+    assert "ilk engel olan şarja" in topic["body"]
+    assert "üretime başlandığını göstermez ve kuyruk kilidi değildir" in topic["body"]
+    assert "Taslaktan kaldırmak Ortak plandaki tercihi kendiliğinden kaldırmaz" in topic["body"]
+    assert any("Kayıtlı akış tercihi" in source for source in topic["userSources"])
+    assert "routeCommitted" not in topic["body"]
+    assert "implementationNotes" not in topic and "sources" not in topic
+
+
 def test_turning_scrap_guide_separates_usable_output_loss_and_unfinished_work():
     from pathlib import Path
     import json
@@ -507,10 +519,12 @@ def test_cancellation_dialog_guide_separates_protected_output_from_new_productio
         assert any(source.get('symbol') == 'cancellationDialogInput' for source in topic['sources'])
 
 
-def test_pln_clear_exception_explains_production_evidence_and_reload_with_visible_sources():
+def test_draft_reset_explains_shared_locks_current_work_and_future_choices_with_visible_sources():
     for topic_id in ('planning-engine', 'scenarios-persistence', 'production-interruptions', 'machines', 'processes-wip', 'process-gantt-placement'):
         topic = knowledge.for_model(knowledge.read_topic(topic_id))
-        assert 'kilitli olsalar da kaldırır' in topic['body']
+        assert 'ortak kilitli şarjları korur' in topic['body']
+        for rule in ('Delme çalışıyorsa', 'Çapak Alma çalışıyorsa', 'Çalışan GKM korunur', 'sonraki proses tercihleri kaldırılır', 'Yalnız taslak açmak tercihleri sıfırlamaz'):
+            assert rule in topic['body']
         assert 'Üretim durumu belirsiz kayıtlar da korunur' in topic['body']
         assert 'Üretilen adet sıfırsa' in topic['body']
         assert 'kayıtlı tarihleri değişmez' in topic['body']

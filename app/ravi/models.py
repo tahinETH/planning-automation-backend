@@ -4,7 +4,7 @@ import json
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-View = Literal["planning", "processes", "control", "stocks", "orders", "machines", "parameters", "settings", "scenarios", "feedback"]
+View = Literal["planning", "processes", "control", "stocks", "orders", "machines", "parameters", "calendar", "materials", "settings", "scenarios", "feedback"]
 
 
 class ChatMessage(BaseModel):

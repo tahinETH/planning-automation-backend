@@ -134,7 +134,16 @@ def list_scenarios(user, limit=None, offset=0, ownership="all"):
     return dict(items=items, total=total, limit=limit, offset=offset, hasMore=offset + len(items) < total)
 
 
-def _save(db, value, user, previous=None, source=None):
+def validate_reset_transition(previous, seed, reset_action=None):
+    version = seed.get("planningResetVersion")
+    if version is not None and (type(version) is not int or version != 1):
+        raise HTTPException(422, "Plan temizleme sürümü desteklenmiyor. Uygulamayı yenileyin.")
+    if previous and previous["seed"].get("planningResetVersion") == 1 and version != 1 and reset_action != "history-restore":
+        raise HTTPException(422, "Planı Temizle bilgisi bu kayıt isteğinde eksik. Kayıtlı taslak korundu. Sayfayı yenileyin ve taslağı yeniden açın. Temizleme işlemini geri almak için Geri al kullanın.")
+
+
+def _save(db, value, user, previous=None, source=None, *, reset_action=None):
+    validate_reset_transition(previous, value["seed"], reset_action)
     timestamp = now_iso()
     revision = previous["revision"] + 1 if previous else 1
     from .production_area import validate_seed_area
@@ -309,7 +318,7 @@ def patch_scenario(scenario_id, value, user):
     from .planning_delta import apply_delta, state_hash, build_delta
     # Response negotiation is not part of the operation identity. Old clients
     # keep their existing receipt digest when the optional field is absent.
-    identity = {k: v for k, v in value.items() if k != "responseMode"}
+    identity = {k: v for k, v in value.items() if k != "responseMode" and not (k == "resetAction" and v is None)}
     request_hash = state_hash(identity)
 
     def replay(db, current):
@@ -344,6 +353,7 @@ def patch_scenario(scenario_id, value, user):
             check_revision(current)
             world_changed = not _only_plan_neutral_since(db, value.get("worldRevision"), world["updatedAt"])
         seed = apply_delta(current["seed"], value["delta"])
+        validate_reset_transition(current, seed, value.get("resetAction"))
         normalized = run_domain({"action": "draft", "seed": seed, "world": world["seed"],
             "worldChanged": world_changed})
         with connection() as db:
@@ -359,7 +369,7 @@ def patch_scenario(scenario_id, value, user):
                 raise HTTPException(409, "Ortak üretim kaydı bulunamadı.")
             if row["updated_at"] != world["updatedAt"]:
                 continue
-            saved = _save(db, {**latest, **normalized, "worldRevision": world["updatedAt"]}, user, latest)
+            saved = _save(db, {**latest, **normalized, "worldRevision": world["updatedAt"]}, user, latest, reset_action=value.get("resetAction"))
             db.execute("INSERT INTO scenario_requests VALUES(?,?,?,?,?)", (user.id, value["requestId"], request_hash, scenario_id, saved["revision"]))
         break
     else:
@@ -389,8 +399,6 @@ def _world(db):
 def production_command(value, user):
     from .database import save_planning_state
     from .planning_delta import state_hash, build_delta
-    if value["command"].get("kind") in {"reviseOfficialOrder", "deactivateParameters"} and not user.is_admin:
-        raise HTTPException(403, "Resmi sipariş revizyonunu yalnız yönetici onaylayabilir.")
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
         current = _world(db)
@@ -406,9 +414,15 @@ def production_command(value, user):
             fields = set(delta.get("set", {})) | set(delta.get("arrays", {})) | set(delta.get("remove", []))
             if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings"}:
                 raise HTTPException(422, "Pasif atama girdileri geçersiz.")
-            assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), True)
+            assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), user.is_admin)
         db.execute("INSERT OR IGNORE INTO production_opening VALUES(?,?,?,?,?)", ("default", now_iso(), current["updatedAt"], current["stateHash"], json.dumps(current["seed"])))
         accepted = run_domain({"action": "command", "seed": current["seed"], "command": value["command"], "expectedBasis": value["expectedBasis"]})
+        if value["command"]["kind"] == "recordManualArchiveReceipt":
+            identity = value["command"]["args"][0]["id"]
+            for field in ("productionHistory", "wipLots"):
+                for row in accepted["seed"].get(field, []):
+                    if row.get("manualReceipt") and (row.get("id") == identity or row.get("sourceHistoryEntryId") == identity):
+                        row["manualReceipt"].update(actorId=user.id, actorName=user.name)
         saved = save_planning_state(accepted["seed"], current["updatedAt"], mode="operational", actor_id=user.id,
             actor_name=user.name, can_manage_settings=user.is_admin, flow_settings_version=1, route_placement_version=1,
             production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1, internal_connection=db)
@@ -522,7 +536,18 @@ def collaboration_status(base_world_revision=None):
 
 def assert_shared_inputs_only(current, candidate, is_admin):
     if not is_admin:
-        raise HTTPException(403, "Ortak girdileri yalnız yönetici değiştirebilir. Planı kişisel taslakta düzenleyin.")
+        allowed = {"orders", "products", "preferences", "machines", "processMasterData", "calendarEvents",
+            "customerDemand", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "orderImport",
+            "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName",
+            "planNeedsRecalculation", "lastAutomaticPlan", "planRunSequence"}
+        previous = current or {}
+        if any(previous.get(field) != candidate.get(field) for field in (previous.keys() | candidate.keys()) - allowed):
+            raise HTTPException(403, "Bu ortak alanı yalnız yönetici değiştirebilir. Üretim için ilgili işlem komutunu kullanın.")
+        from .input_permissions import assert_user_configuration, InputPermissionError
+        try:
+            assert_user_configuration(current, candidate)
+        except InputPermissionError as error:
+            raise HTTPException(403, str(error)) from error
     if current is None:
         if any(candidate.get(field) for field in (*FACTS, "manualBatches", "savedBatches", "processOperationOverrides")) or any(row.get("currentJob", {}).get("quantity", 0) for row in candidate.get("machines", [])):
             raise HTTPException(409, "Fiziksel başlangıç kaydı ayrı doğrulama gerektirir.")

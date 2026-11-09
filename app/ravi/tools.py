@@ -115,15 +115,21 @@ def inspect_state(snapshot: dict | None, args: Inspect) -> dict:
                 projected["İş değiştirme nedeni"] = projected.pop("İşe ara verme nedeni")
                 projected["Kısmi tamamlanma tarihi"] = projected.pop("Ara verme tarihi")
                 projected["Ekran"] = "Şarj Yolculuğu → Kısmi üretim tamamlandı.; Tezgahlar → Torna kuyruğu"
+        elif args.collection == "production" and row.get("manualReceipt"):
+            receipt = row["manualReceipt"]
+            projected = bounded({**row, "completedAt": receipt.get("productionDate"), "start": None, "plannedEnd": None,
+                "Üretim tarihi": receipt.get("productionDate") if receipt.get("productionDate") is not None else "Bilinmiyor",
+                "Kayıt zamanı": receipt.get("recordedAt"), "Son tamamlanan proses": receipt.get("completedThrough"),
+                "Kaynak": "Fiziksel adet beyanı; tarihli tezgah üretimi değildir.", "Ekran": "Üretim arşivi → Manuel adet ekle"})
         elif args.collection == "raw_material_stocks":
             materials = seed.get("rawMaterialSettings") or {}
             projected = {"Hammadde Kodu": row.get("materialCode"), "Ambar stoğu (kg)": row.get("kg"),
                          "Güncelleme Tarihi": materials.get("stockDate"), "Iskarta Oranı (%)": materials.get("scrapPercent", 2),
-                         "Birim": "kg", "Ekran": "Ayarlar → Hammadde Bilgileri → Hammadde Tüketim Tablosu"}
+                         "Birim": "kg", "Ekran": "Hammadde Bilgileri → Hammadde Tüketim Tablosu"}
         elif args.collection == "product_weights":
             projected = {"Tip no": row.get("product"), "Hammadde kodu": row.get("materialCode"),
                          "Hammadde açıklaması": row.get("materialName"), "Hammadde ağırlığı (g)": row.get("grams"),
-                         "Birim": "Gram", "Ekran": "Ayarlar → Hammadde Bilgileri → Ürün Ağırlıkları"}
+                         "Birim": "Gram", "Ekran": "Hammadde Bilgileri → Ürün Ağırlıkları"}
         elif args.collection == "customer_demand":
             demand = seed.get("customerDemand") or {}
             weeks = row.get("weeklyDemands", [])

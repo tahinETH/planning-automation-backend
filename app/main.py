@@ -177,8 +177,6 @@ def get_order_import_history(_: CurrentUser = Depends(current_user)):
 
 @app.post("/api/order-imports/history", status_code=201)
 def post_order_import_history(payload: DemandImportHistoryPayload, user: CurrentUser = Depends(current_user)):
-    if user.role != "admin":
-        raise HTTPException(403, "Resmi sipariş geçmişini yalnız yönetici onaylayabilir.")
     return save_demand_import_history(payload.model_dump())
 
 
@@ -497,6 +495,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class ScenarioDeltaRequest(BaseModel):
     responseMode: Literal["compact-v1"] | None = None
+    resetAction: Literal["history-restore"] | None = None
     worldRevision: str
     requestId: str = Field(min_length=1, max_length=128)
     revision: int = Field(ge=1)

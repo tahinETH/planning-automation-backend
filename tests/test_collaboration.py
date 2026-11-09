@@ -13,6 +13,44 @@ from app.auth import CurrentUser
 A = CurrentUser('operator-a', 'A', 'a@example.test', 'admin')
 B = CurrentUser('operator-b', 'B', 'b@example.test', 'user')
 
+
+@pytest.mark.parametrize('protection,label', [
+    ('queue', 'Ortak kuyruk kilidi:'),
+    ('route', 'Kayıtlı akış tercihi:'),
+    ('both', 'Ortak kuyruk kilidi ve kayıtlı akış tercihi:'),
+])
+@pytest.mark.parametrize('difference', ['missing', 'quantity'])
+def test_draft_pub07_preview_names_protection_and_charge_without_writing(factory, protection, label, difference):
+    seed = copy.deepcopy(factory['seed'])
+    batch = dict(id='pub07-charge', machineId='C-04', product='R902745116', workOrder='PUB-07', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=1,
+        locked=protection != 'route', routeCommitted=protection != 'queue', diameter='10', setupHours=0)
+    seed['manualBatches'] = [batch]
+    world = db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    world = db.planning_state()
+    proposal = copy.deepcopy(world['seed'])
+    proposal['planNeedsRecalculation'] = False
+    proposal['manualBatches'] = [] if difference == 'missing' else [{**batch, 'quantity': 101}]
+    draft = collab.save_scenario({**scenario(proposal), 'worldRevision': world['updatedAt']}, A)
+    with pytest.raises(HTTPException) as rejected:
+        collab.publication_preview(draft['id'], dict(revision=draft['revision'], worldRevision=world['updatedAt'], previousId=None), A)
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail.startswith(label)
+    assert batch['id'] not in rejected.value.detail
+    assert 'Miktar: 100 adet' in rejected.value.detail
+    assert 'Ortak plandaki sıra: 1.' in rejected.value.detail
+    for value in [batch['machineId'], batch['product'], batch['workOrder']]:
+        assert value in rejected.value.detail
+    assert ('Kişisel taslakta bu şarj yok.' if difference == 'missing' else 'Kişisel taslakta bu şarjın korunan bilgileri değişmiş.') in rejected.value.detail
+    if protection == 'route':
+        assert 'kilit' not in rejected.value.detail.lower()
+    assert db.planning_state() == world
+    assert collab.get_scenario(draft['id'], A) == draft
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM publication_previews').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
+
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(db, 'settings', SimpleNamespace(database_path=tmp_path / 'collaboration.sqlite', upload_dir=tmp_path / 'uploads'))
@@ -204,19 +242,16 @@ def test_col13_private_plans_are_not_in_shared_snapshot(factory):
     assert any(item['id'] == saved['id'] for item in db.scenarios())
 
 
-def test_col14_official_revision_is_admin_only_and_does_not_publish_a_queue(factory):
+def test_col14_official_revision_allows_user_and_does_not_publish_a_queue(factory):
     original = db.planning_state()
-    with pytest.raises(HTTPException) as e: collab.production_command(factory['revisionCommand'], B)
-    assert e.value.status_code == 403
-    assert db.planning_state() == original
-    changed = collab.production_command(factory['revisionCommand'], A)['current']
+    changed = collab.production_command(factory['revisionCommand'], B)['current']
     assert changed['seed']['orders'][0]['quantity'] == 120
     assert changed['seed']['manualBatches'] == original['seed']['manualBatches']
     for field in collab.FACTS:
         if field != 'planningEvents': assert changed['seed'].get(field) == original['seed'].get(field)
     assert len(db.revisions()) == 1
     assert db.revisions()[0]['requested']['quantity'] == 120
-    collab.production_command(factory['revisionCommand'], A)
+    collab.production_command(factory['revisionCommand'], B)
     assert len(db.revisions()) == 1
 
 
@@ -475,3 +510,123 @@ def test_draft_pub06_lock_and_note_chain_allows_preview_but_physical_output_requ
     assert 'Bu sırayla yeniden hesapla' in error.value.detail
     assert db.planning_state() == physical
     assert collab.collaboration_status()['publicationId'] is None
+
+
+@pytest.mark.parametrize('process,resource,next_processes', [
+    ('drilling', 'D-01', ['deburring', 'gkm']),
+    ('deburring', 'B-01-S1', ['gkm']),
+    ('gkm', 'V-01', []),
+])
+def test_draft_reset11_saved_reset_publishes_future_choices_only(factory, process, resource, next_processes):
+    seed = copy.deepcopy(factory['seed'])
+    lot = seed['wipLots'][0]
+    lot.update(nextProcess=process, stage=f'{process}-queue')
+    lot['completedSteps'] = lot['completedSteps'][:1]
+    for prior in (['drilling'] if process == 'deburring' else ['drilling', 'deburring'] if process == 'gkm' else []):
+        lot['completedSteps'].append(dict(lot['completedSteps'][0], process=prior, resourceId='D-01' if prior == 'drilling' else 'B-01-S1'))
+    current = dict(resourceId=resource, resourceName=process, process=process, batchId=lot['id'],
+        operationId=f"{lot['id']}:{process}", wipLotId=lot['id'], workOrder=lot['workOrder'],
+        product=lot['product'], family=lot['family'], originalQuantity=100, remainingQuantity=100,
+        readyAt=46279, start=46279, end=46280, setupKey=lot['product'], unitsPerShift=100,
+        setupHours=0, updatedAt='2026-09-15T00:00:00Z')
+    seed['processCurrentJobs'] = [current]
+    running_choice = dict(batchId=lot['id'], process=process, resourceId=resource,
+        requestedStart=46279, routeMode='manual', updatedAt='2026-09-15T00:00:00Z')
+    seed['processOperationOverrides'] = [running_choice] + [dict(running_choice, process=p, requestedStart=46300) for p in next_processes]
+    locked = dict(id='reset-locked', machineId='C-04', product=lot['product'], workOrder='RESET-11', quantity=100,
+        start=46280, end=46281, status='planned', planColumn=13, sequence=1,
+        locked=True, routeCommitted=True, routeTargetDate='2026-10-31', diameter='10', setupHours=0)
+    seed['manualBatches'] = [locked, dict(locked, id='reset-route-only', locked=False, planColumn=14, sequence=2)]
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario(world['seed']), 'worldRevision': world['updatedAt']}, A)
+    cleared_lock = {k: v for k, v in locked.items() if k not in ['routeCommitted', 'routeTargetDate']}
+    change = dict(requestId=f'reset-{process}', revision=saved['revision'], worldRevision=world['updatedAt'],
+        delta={'set': {'planningResetVersion': 1, 'planNeedsRecalculation': False,
+            'manualBatches': [cleared_lock], 'processOperationOverrides': [running_choice]}, 'arrays': {}, 'remove': []})
+    accepted = collab.patch_scenario(saved['id'], change, A)['scenario']
+    loaded = collab.get_scenario(saved['id'], A)
+    assert loaded['seed']['planningResetVersion'] == 1
+    assert db.planning_state() == world
+    with pytest.raises(HTTPException) as stale:
+        collab.patch_scenario(saved['id'], {**change, 'requestId': 'old-tab'}, A)
+    assert stale.value.status_code == 409
+    preview = collab.publication_preview(saved['id'], dict(revision=accepted['revision'], worldRevision=world['updatedAt'], previousId=None), A)
+    assert db.planning_state() == world
+    published = collab.publish_scenario(saved['id'], preview, A)
+    after = db.planning_state()['seed']
+    assert 'planningResetVersion' not in after
+    assert after['processOperationOverrides'] == [running_choice]
+    for field in ['processCurrentJobs', 'wipLots', 'productionHistory', 'productionInterruptions', 'machines']:
+        assert after.get(field) == world['seed'].get(field)
+    assert len(after['manualBatches']) == 1
+    for key in ['id', 'machineId', 'product', 'workOrder', 'quantity', 'planColumn', 'locked']:
+        assert after['manualBatches'][0][key] == locked[key]
+    assert not after['manualBatches'][0].get('routeCommitted')
+    assert collab.publish_scenario(saved['id'], preview, A)['publicationId'] == published['publicationId']
+
+
+@pytest.mark.parametrize('change', ['remove', 'null', 'replacement', 'import'])
+def test_draft_reset13_ordinary_save_cannot_erase_recorded_clear(factory, change):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    with db.connection() as conn:
+        versions_before = conn.execute('SELECT COUNT(*) FROM scenario_versions').fetchone()[0]
+        receipts_before = conn.execute('SELECT COUNT(*) FROM scenario_requests').fetchone()[0]
+    # An older client's world merge omits the field; the generic delta then removes it.
+    with pytest.raises(HTTPException) as rejected:
+        if change in ('replacement', 'import'):
+            seed = copy.deepcopy(saved['seed'])
+            del seed['planningResetVersion']
+            collab.save_scenario({**saved, 'seed': seed}, A, imported=change == 'import')
+        else:
+            delta = {'set': {'planningResetVersion': None} if change == 'null' else {},
+                     'remove': ['planningResetVersion'] if change == 'remove' else [], 'arrays': {}}
+            collab.patch_scenario(saved['id'], dict(requestId='lost-reset', revision=saved['revision'],
+                worldRevision=world['updatedAt'], delta=delta), A)
+    assert rejected.value.status_code == 422
+    assert 'Planı Temizle' in rejected.value.detail
+    assert 'yenileyin' in rejected.value.detail
+    assert collab.get_scenario(saved['id'], A) == saved
+    assert db.planning_state() == world
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM scenario_versions').fetchone()[0] == versions_before
+        assert conn.execute('SELECT COUNT(*) FROM scenario_requests').fetchone()[0] == receipts_before
+
+
+def test_draft_reset14_explicit_history_restore_keeps_cas_and_receipt(factory):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    request = dict(requestId='undo-clear', revision=saved['revision'], worldRevision=world['updatedAt'],
+        resetAction='history-restore', delta={'set': {}, 'remove': ['planningResetVersion'], 'arrays': {}})
+    with pytest.raises(HTTPException) as denied:
+        collab.patch_scenario(saved['id'], request, B)
+    assert denied.value.status_code == 404
+    from app.main import ScenarioDeltaRequest
+    request = ScenarioDeltaRequest.model_validate(request).model_dump()
+    accepted = collab.patch_scenario(saved['id'], request, A)
+    assert 'planningResetVersion' not in accepted['scenario']['seed']
+    assert collab.patch_scenario(saved['id'], request, A)['replayed'] is True
+    with pytest.raises(HTTPException) as conflict:
+        collab.patch_scenario(saved['id'], {**request, 'requestId': 'stale-undo'}, A)
+    assert conflict.value.status_code == 409
+    assert db.planning_state() == world
+
+
+def test_draft_reset17_optional_history_field_preserves_old_receipt_identity(factory):
+    world = db.planning_state()
+    saved = collab.save_scenario({**scenario({**factory['seed'], 'planningResetVersion': 1}),
+        'worldRevision': world['updatedAt']}, A)
+    request = dict(requestId='old-request', revision=saved['revision'], worldRevision=world['updatedAt'],
+        delta={'set': {}, 'remove': [], 'arrays': {}})
+    accepted = collab.patch_scenario(saved['id'], request, A)
+    repeated = collab.patch_scenario(saved['id'], {**request, 'resetAction': None}, A)
+    assert repeated['replayed'] is True
+    assert repeated['appliedRevision'] == accepted['appliedRevision']
+    assert repeated['scenario']['seed']['planningResetVersion'] == 1
+    with pytest.raises(HTTPException) as changed:
+        collab.patch_scenario(saved['id'], {**request, 'resetAction': 'history-restore'}, A)
+    assert changed.value.status_code == 409
