@@ -242,19 +242,16 @@ def test_col13_private_plans_are_not_in_shared_snapshot(factory):
     assert any(item['id'] == saved['id'] for item in db.scenarios())
 
 
-def test_col14_official_revision_is_admin_only_and_does_not_publish_a_queue(factory):
+def test_col14_official_revision_allows_user_and_does_not_publish_a_queue(factory):
     original = db.planning_state()
-    with pytest.raises(HTTPException) as e: collab.production_command(factory['revisionCommand'], B)
-    assert e.value.status_code == 403
-    assert db.planning_state() == original
-    changed = collab.production_command(factory['revisionCommand'], A)['current']
+    changed = collab.production_command(factory['revisionCommand'], B)['current']
     assert changed['seed']['orders'][0]['quantity'] == 120
     assert changed['seed']['manualBatches'] == original['seed']['manualBatches']
     for field in collab.FACTS:
         if field != 'planningEvents': assert changed['seed'].get(field) == original['seed'].get(field)
     assert len(db.revisions()) == 1
     assert db.revisions()[0]['requested']['quantity'] == 120
-    collab.production_command(factory['revisionCommand'], A)
+    collab.production_command(factory['revisionCommand'], B)
     assert len(db.revisions()) == 1
 
 

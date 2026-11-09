@@ -395,6 +395,7 @@ function describeProcessRoute(seed, job, warnings) {
     const op = job.operations.find((o) => (o.recordedProcess ?? o.process) === process2);
     const base = { process: process2, quantity: job.quantity, operationId: op?.id, resourceId: op?.resourceId };
     if (op?.actual) return { ...base, state: "completed" };
+    if (lot?.manualReceipt?.completedProcesses.includes(process2)) return { ...base, state: "completed", reason: lot.manualReceipt.productionDate === void 0 ? "Manuel adet kayd\u0131 ile do\u011Frulanan proses konumu; \xFCretim tarihi bilinmiyor." : "Manuel adet kayd\u0131 ile do\u011Frulanan proses konumu; ge\xE7mi\u015F tezgah i\u015Fi olu\u015Fturulmad\u0131." };
     if (op?.current || job.source === "current-turning" && process2 === "turning" || seed.processCurrentJobs?.some((current) => current.batchId === job.batchId && current.process === process2)) return { ...base, state: "running" };
     if (op) return { ...base, state: "scheduled" };
     let state = "capacity-blocked";
@@ -964,7 +965,7 @@ function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidat
   const jobs = sources.map((source) => {
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual));
     const completion2 = route.at(-1)?.end ?? source.releaseAt;
-    const customRouteComplete = !source.masterProduct.route || source.masterProduct.route.length > 0 && !warnings.some((warning) => warning.product === source.product && warning.code === "invalid-route") && source.masterProduct.route.every((process2) => route.some((operation) => (operation.recordedProcess ?? operation.process) === process2)) && source.lot?.stage !== "on-hold" && source.lot?.stage !== "unclassified";
+    const customRouteComplete = !source.masterProduct.route || source.masterProduct.route.length > 0 && !warnings.some((warning) => warning.product === source.product && warning.code === "invalid-route") && source.masterProduct.route.every((process2) => route.some((operation) => (operation.recordedProcess ?? operation.process) === process2) || source.lot?.manualReceipt?.completedProcesses.includes(process2)) && source.lot?.stage !== "on-hold" && source.lot?.stage !== "unclassified";
     const deliveryReadyAt = !customRouteComplete ? 0 : source.lot?.stage === "delivery-ready" ? source.lot.readyAt : source.masterProduct.route || route.some((operation) => operation.process === "gkm") ? routedDeliveryReadyAt(seed, completion2, source.masterProduct.family, route.at(-1)?.process) : 0;
     return {
       batchId: source.id,

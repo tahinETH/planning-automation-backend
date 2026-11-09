@@ -392,8 +392,6 @@ def _world(db):
 def production_command(value, user):
     from .database import save_planning_state
     from .planning_delta import state_hash, build_delta
-    if value["command"].get("kind") in {"reviseOfficialOrder", "deactivateParameters"} and not user.is_admin:
-        raise HTTPException(403, "Resmi sipariş revizyonunu yalnız yönetici onaylayabilir.")
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
         current = _world(db)
@@ -409,9 +407,15 @@ def production_command(value, user):
             fields = set(delta.get("set", {})) | set(delta.get("arrays", {})) | set(delta.get("remove", []))
             if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings"}:
                 raise HTTPException(422, "Pasif atama girdileri geçersiz.")
-            assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), True)
+            assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), user.is_admin)
         db.execute("INSERT OR IGNORE INTO production_opening VALUES(?,?,?,?,?)", ("default", now_iso(), current["updatedAt"], current["stateHash"], json.dumps(current["seed"])))
         accepted = run_domain({"action": "command", "seed": current["seed"], "command": value["command"], "expectedBasis": value["expectedBasis"]})
+        if value["command"]["kind"] == "recordManualArchiveReceipt":
+            identity = value["command"]["args"][0]["id"]
+            for field in ("productionHistory", "wipLots"):
+                for row in accepted["seed"].get(field, []):
+                    if row.get("manualReceipt") and (row.get("id") == identity or row.get("sourceHistoryEntryId") == identity):
+                        row["manualReceipt"].update(actorId=user.id, actorName=user.name)
         saved = save_planning_state(accepted["seed"], current["updatedAt"], mode="operational", actor_id=user.id,
             actor_name=user.name, can_manage_settings=user.is_admin, flow_settings_version=1, route_placement_version=1,
             production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1, internal_connection=db)
@@ -525,7 +529,18 @@ def collaboration_status(base_world_revision=None):
 
 def assert_shared_inputs_only(current, candidate, is_admin):
     if not is_admin:
-        raise HTTPException(403, "Ortak girdileri yalnız yönetici değiştirebilir. Planı kişisel taslakta düzenleyin.")
+        allowed = {"orders", "products", "preferences", "machines", "processMasterData", "calendarEvents",
+            "customerDemand", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "orderImport",
+            "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName",
+            "planNeedsRecalculation", "lastAutomaticPlan", "planRunSequence"}
+        previous = current or {}
+        if any(previous.get(field) != candidate.get(field) for field in (previous.keys() | candidate.keys()) - allowed):
+            raise HTTPException(403, "Bu ortak alanı yalnız yönetici değiştirebilir. Üretim için ilgili işlem komutunu kullanın.")
+        from .input_permissions import assert_user_configuration, InputPermissionError
+        try:
+            assert_user_configuration(current, candidate)
+        except InputPermissionError as error:
+            raise HTTPException(403, str(error)) from error
     if current is None:
         if any(candidate.get(field) for field in (*FACTS, "manualBatches", "savedBatches", "processOperationOverrides")) or any(row.get("currentJob", {}).get("quantity", 0) for row in candidate.get("machines", [])):
             raise HTTPException(409, "Fiziksel başlangıç kaydı ayrı doğrulama gerektirir.")

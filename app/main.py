@@ -177,8 +177,6 @@ def get_order_import_history(_: CurrentUser = Depends(current_user)):
 
 @app.post("/api/order-imports/history", status_code=201)
 def post_order_import_history(payload: DemandImportHistoryPayload, user: CurrentUser = Depends(current_user)):
-    if user.role != "admin":
-        raise HTTPException(403, "Resmi sipariş geçmişini yalnız yönetici onaylayabilir.")
     return save_demand_import_history(payload.model_dump())
 
 

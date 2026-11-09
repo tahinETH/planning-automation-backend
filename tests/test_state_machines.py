@@ -224,7 +224,7 @@ def test_sm10_history_commits_with_official_import_and_is_immutable(api):
     assert api.post("/api/order-imports/history", json=record).status_code == 201
     assert api.post("/api/order-imports/history", json={**record, "summary": {"totalDemand": 999}}).status_code == 409
     main.app.dependency_overrides[current_user] = lambda: B
-    assert api.post("/api/order-imports/history", json=record).status_code == 403
+    assert api.post("/api/order-imports/history", json=record).status_code == 201
     assert db.demand_import_history() == [record]
 
 

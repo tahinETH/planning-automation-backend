@@ -531,3 +531,17 @@ def test_draft_reset_explains_shared_locks_current_work_and_future_choices_with_
         assert any('Planı Temizle' in source for source in topic['userSources'])
         assert 'hasRecordedTurningProduction' not in topic['body']
         assert 'implementationNotes' not in topic
+
+
+def test_piston_type_deletion_and_downstream_excel_guidance_uses_visible_controls():
+    for query in ("Piston tip silinmiyor", "Delme Excel indir parametre yedek"):
+        assert "parameters-settings" in [topic["id"] for topic in knowledge.search_topics(query)[:3]]
+    topic = ToolSession(None, False).execute("read_knowledge", '{"topic_id":"parameters-settings"}')
+    assert "Tipi sil" in topic["body"]
+    assert "tüm proseslerden kaldırır" in topic["body"]
+    assert "Sıfır bakiyeli geçmiş şarj da kullanım kaydıdır" in topic["body"]
+    assert "dosya seçili sekme veya arama sonucuyla sınırlı değildir" in topic["body"]
+    assert "gizli yedek verisini okur" in topic["body"]
+    assert any("Tipi sil" in value for value in topic["userSources"])
+    assert any("Excel indir / Excel yükle" in value for value in topic["userSources"])
+    assert "implementationNotes" not in topic and "sources" not in topic
