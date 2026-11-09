@@ -487,8 +487,11 @@ def test_perf_n06_from_world_creation_rejects_world_change_during_validation(fac
     request = _from_world_request(factory["seed"], saved_world["updatedAt"], "world-change-request", "world-change-draft")
 
     def change_world(_value):
+        # Change the revision without deleting products used by physical records.
+        changed = json.loads(json.dumps(factory["seed"]))
+        changed["worldMarker"] = "changed during validation"
         db.save_planning_state(
-            {"orders": [], "machines": [], "worldMarker": "changed during validation"},
+            changed,
             can_manage_settings=True, actor_id=A.id, actor_name=A.name,
             flow_settings_version=1, route_placement_version=1, production_split_version=1,
             process_wait_settings_version=1,
