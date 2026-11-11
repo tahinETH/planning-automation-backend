@@ -111,3 +111,18 @@ def test_production_archive_endpoint_is_authenticated_and_returns_excel():
         assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         assert "Uretim_Arsivi_" in response.headers["content-disposition"]
         assert response.content.startswith(b"PK")
+
+
+def test_mgmt_arch02_unknown_production_date_is_not_replaced_by_receipt_time():
+    payload = archive_payload()
+    row = payload["rows"][0]
+    row.update(completedAt="Üretim tarihi bilinmiyor", archivedAt="2026-11-11T09:00:00Z", machineId="MANUEL", machineName="Manuel adet kaydı", workOrder="manual-observed-100", completedQuantity=100, availableQuantity=100, plannedStart="", plannedEnd="", process="drilling")
+    payload["rows"] = [row]
+    workbook = load_workbook(BytesIO(build_production_archive_workbook(payload)))
+    sheet = workbook["WIP - Yarı Mamul"]
+    assert sheet["A10"].value == "Üretim tarihi bilinmiyor"
+    assert sheet["B10"].value == "MANUEL"
+    assert sheet["G10"].value == "Delme"
+    assert sheet["K10"].value == 100
+    assert sheet["L10"].value is None and sheet["M10"].value is None
+    assert "2026-11-11T09:00:00Z" not in [cell.value for cell in sheet[10]]
