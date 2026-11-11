@@ -33,7 +33,7 @@ def write(client, candidate, role="user", method="patch"):
 
 
 @pytest.mark.parametrize("method", ["put", "patch"])
-@pytest.mark.parametrize("change", ["parameter", "eligibility", "shift", "process-shift", "order", "new-type", "holiday-shift"])
+@pytest.mark.parametrize("change", ["parameter", "eligibility", "shift", "process-shift", "order", "order-add", "order-clear", "new-type", "holiday-shift"])
 def test_role01_user_can_save_reviewed_inputs_without_changing_production(workspace, method, change):
     original = db.planning_state()
     seed = copy.deepcopy(original["seed"])
@@ -47,6 +47,8 @@ def test_role01_user_can_save_reviewed_inputs_without_changing_production(worksp
     if change == "shift": seed["machines"][0]["shiftFactor"] = 2
     if change == "process-shift": seed["processMasterData"]["resources"][0]["defaultShifts"] = 1
     if change == "order": seed["orders"][0]["quantity"] += 20
+    if change == "order-add": seed["orders"].append({**seed["orders"][0], "id": "new-planner-order", "quantity": 75})
+    if change == "order-clear": seed["orders"] = []
     if change == "new-type": seed["products"].append({"product": "NEW-ROLE", "batchSize": 0, "source": "Web Parametreleri"})
     if change == "holiday-shift": seed["calendarEvents"].append(dict(id="holiday-shift", machineId=seed["machines"][0]["id"], kind="shift", name="Holiday work", start=46300, end=46300, shiftCount=2))
     response = write(workspace, seed, method=method)
@@ -59,7 +61,7 @@ def test_role01_user_can_save_reviewed_inputs_without_changing_production(worksp
 
 
 @pytest.mark.parametrize("method", ["put", "patch"])
-@pytest.mark.parametrize("change", ["holiday", "maintenance", "ordinary-calendar", "setup", "weights", "stock", "delete-type", "machine-name", "new-machine", "route", "process-rate"])
+@pytest.mark.parametrize("change", ["holiday", "maintenance", "ordinary-calendar", "setup", "weights", "stock", "delete-type", "machine-name", "machine-window", "new-machine", "route", "process-rate"])
 def test_role02_user_cannot_change_admin_configuration_even_with_an_allowed_edit(workspace, method, change):
     original = db.planning_state()
     seed = copy.deepcopy(original["seed"])
@@ -72,6 +74,7 @@ def test_role02_user_cannot_change_admin_configuration_even_with_an_allowed_edit
     if change == "stock": seed["openingStock"] = {"R902745116": 100}
     if change == "delete-type": seed["products"] = []
     if change == "machine-name": seed["machines"][0]["name"] = "Changed"
+    if change == "machine-window": seed["machines"][0]["planEnd"] += 1
     if change == "new-machine": seed["machines"].append({**seed["machines"][0], "id": "NEW-MACHINE"})
     if change == "route": seed["processMasterData"]["products"][0]["route"] = ["turning"]
     if change == "process-rate": seed["processMasterData"]["products"][0]["processes"][0]["unitsPerShift"] = {"D-01": 9999}
@@ -90,6 +93,34 @@ def test_role03_holiday_override_keeps_surrounding_calendar_and_maintenance(work
     response = write(workspace, candidate)
     assert response.status_code == 200, response.text
     assert db.planning_state()["seed"]["calendarEvents"][2] == seed["calendarEvents"][1]
+
+
+@pytest.mark.parametrize("method", ["put", "patch"])
+def test_mgmt_role02_planner_can_preview_and_save_official_customer_excel(workspace, method):
+    from test_order_import import confirmed_overview_bytes
+    original = db.planning_state()
+    headers = {"Authorization": "Bearer " + create_test_session("test-password", "user")}
+    response = workspace.post("/api/order-imports/preview", files={"file": ("customer.xlsx", confirmed_overview_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers=headers)
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    seed = copy.deepcopy(original["seed"])
+    seed["customerDemand"] = {key: preview[key] for key in ("format", "calculationModel", "sheetName", "snapshotDate", "baselineLabel", "baselineDueDate", "weeks", "products")}
+    seed["customerDemand"].update(sourceFile="customer.xlsx", importedAt="2026-11-11T09:00:00.000Z",
+        activeScope={"startWeekId": preview["weeks"][0]["id"], "endWeekId": preview["weeks"][-1]["id"]})
+    seed["orderCatalog"] = [row["product"] for row in preview["products"]]
+    seed["orderCatalogName"] = "customer.xlsx"
+    template = seed["orders"][0]
+    seed["orders"] = [{**template, "id": f"import-{index}", "product": row["product"], "quantity": row["quantity"]} for index, row in enumerate(preview["rows"])]
+    seed["planNeedsRecalculation"] = True
+    saved_response = write(workspace, seed, method=method)
+    assert saved_response.status_code == 200, saved_response.text
+    saved = db.planning_state()["seed"]
+    assert saved["customerDemand"] == seed["customerDemand"]
+    assert [(row["product"], row["quantity"]) for row in saved["orders"]] == [(row["product"], row["quantity"]) for row in preview["rows"]]
+    for field in ("machines", "processMasterData", "openingStock", "manualBatches", "productionHistory", "wipLots", "processCurrentJobs"):
+        assert saved.get(field) == original["seed"].get(field)
+    db.init_database()
+    assert db.planning_state()["seed"] == saved
 
 
 def test_role04_clerk_role_does_not_remove_database_admin_override(workspace):
