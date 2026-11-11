@@ -6528,7 +6528,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     const existingQuantity = existingByProduct.get(productCode) ?? 0;
     const assignedMachines = assignedMachinesByOrder.get(order.id) ?? unique(frozen.filter((batch) => batch.product.toUpperCase() === productCode).map((batch) => batch.machineId));
     let newlyPlanned = newlyPlannedByOrder.get(order.id) ?? 0;
-    if (!product || lot.missingProduct) {
+    if (!product || lot.missingProduct || product.retired && lot.quantity > 0) {
       batches.push({
         ...nextScenarioIdentity(),
         product: order.product,
@@ -6540,8 +6540,8 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
         dailyRate: 0,
         availableStart: 0,
         planEnd: 0,
-        reason: "\xDCr\xFCn parametreleri bulunamad\u0131.",
-        explanation: "\u015Earj b\xFCy\xFCkl\xFC\u011F\xFC, \xE7ap ve \xFCretim h\u0131z\u0131 olmadan sipari\u015F planlanamaz.",
+        reason: product?.retired ? "Tip kullan\u0131mdan kald\u0131r\u0131ld\u0131." : "\xDCr\xFCn parametreleri bulunamad\u0131.",
+        explanation: product?.retired ? "Yeni \u015Farj planlanmaz. Mevcut i\u015Fler ve \xFCretim kay\u0131tlar\u0131 korunur." : "\u015Earj b\xFCy\xFCkl\xFC\u011F\xFC, \xE7ap ve \xFCretim h\u0131z\u0131 olmadan sipari\u015F planlanamaz.",
         planColumn: 0,
         existingQuantity,
         start: 0,

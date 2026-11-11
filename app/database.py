@@ -121,6 +121,17 @@ def init_database() -> None:
               request_hash TEXT NOT NULL, result_json TEXT NOT NULL,
               PRIMARY KEY(actor_id,kind,request_id)
             );
+            CREATE TABLE IF NOT EXISTS type_management_requests (
+              id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_name TEXT NOT NULL,
+              product TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL,
+              revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+              reviewed_at TEXT, reviewer_id TEXT, reviewer_name TEXT,
+              decision TEXT, review_note TEXT, result_revision TEXT, review_basis TEXT
+            );
+            CREATE INDEX IF NOT EXISTS type_requests_actor_idx
+              ON type_management_requests(actor_id, created_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS type_requests_pending_idx
+              ON type_management_requests(actor_id, product) WHERE status='pending';
             CREATE TABLE IF NOT EXISTS planning_write_audit (
               id TEXT PRIMARY KEY, created_at TEXT NOT NULL, metadata_json TEXT NOT NULL
             );
@@ -212,6 +223,9 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS app_updates_created_idx ON app_updates(created_at DESC);
             """
         )
+        request_columns = {row["name"] for row in db.execute("PRAGMA table_info(type_management_requests)").fetchall()}
+        if "review_basis" not in request_columns:
+            db.execute("ALTER TABLE type_management_requests ADD COLUMN review_basis TEXT")
         columns = {row["name"] for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()}
         if "priority" not in columns:
             db.execute("ALTER TABLE feedbacks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
@@ -678,6 +692,8 @@ def save_planning_state(
         if current and "flowSettings" in current["seed"] and "flowSettings" not in seed:
             seed = {**seed, "flowSettings": current["seed"]["flowSettings"]}
         seed = preserve_missing_weights(seed, current["seed"] if current else None)
+        from .product_type_deletion import preserve_type_retirement
+        seed = preserve_type_retirement(seed, current["seed"] if current else None)
 
         current_updated_at = current["updatedAt"] if current else ""
         if mode != "planning" and current and expected_updated_at is None:
