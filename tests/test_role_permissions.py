@@ -33,11 +33,17 @@ def write(client, candidate, role="user", method="patch"):
 
 
 @pytest.mark.parametrize("method", ["put", "patch"])
-@pytest.mark.parametrize("change", ["parameter", "shift", "process-shift", "order", "new-type", "holiday-shift"])
+@pytest.mark.parametrize("change", ["parameter", "eligibility", "shift", "process-shift", "order", "new-type", "holiday-shift"])
 def test_role01_user_can_save_reviewed_inputs_without_changing_production(workspace, method, change):
     original = db.planning_state()
     seed = copy.deepcopy(original["seed"])
     if change == "parameter": seed["products"][0]["shiftRate"] += 1
+    if change == "eligibility":
+        product = seed["products"][0]
+        machine = seed["machines"][-1]
+        product["eligibleMachines"] = list(dict.fromkeys([*product.get("eligibleMachines", []), machine["id"]]))
+        product["alternativeMachines"] = list(product["eligibleMachines"])
+        machine["rates"][product["product"]] = 1800
     if change == "shift": seed["machines"][0]["shiftFactor"] = 2
     if change == "process-shift": seed["processMasterData"]["resources"][0]["defaultShifts"] = 1
     if change == "order": seed["orders"][0]["quantity"] += 20
