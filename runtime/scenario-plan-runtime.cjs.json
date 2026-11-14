@@ -37,7 +37,7 @@
     "lib/setup-families.ts": "6d2c693a5c5b1fa71d240952aafcb287184383ee7a7f6cf7b12c47758605e0a5",
     "lib/turning-queue-identity.ts": "06cc830a3abb833ee14f2b0a5f47abd097af19865629040d4a26137fd19b8345",
     "lib/weekly-demand.ts": "88606a237c5b5aec674d7986db7b9b0de68ea6c77553f485b03669fc17b78188",
-    "lib/wip-ledger.ts": "ace38a04c4231c4993769d0e21cecbddcdb0c6f228065f68fea2cf8d16f74fd4",
+    "lib/wip-ledger.ts": "cc829a59ac7b934ddc6936d6b8492e52ea51fa9420a2cdd02077f6301093a41f",
     "scripts/scenario-plan-runtime.ts": "c019cfc35a15f49ed7d449bfa00d5a65c066d3a58cbf6ee6a7317edd34487e05"
   }
 }

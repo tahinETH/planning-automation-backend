@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "runtimeSha256": "32f1120c799e5b39354c9ba01ae900852f7475e50aba675c475a4f798148f137",
+  "runtimeSha256": "5ae156d22b998ecd48a2015dc1828742b663d6ec0b409d9a4c836636771d6b35",
   "sources": {
     "data/planning-seed.json": "60e4c5dd1c544ff39fca9e6d651490dce737a7a96cd0c63f403d6446f5296ca3",
     "data/process-master-data.json": "6c2204a4d32ee2e41732831de6d140ba467cada1f289735e9eff578bb12cb756",
@@ -62,7 +62,7 @@
     "lib/setup-families.ts": "6d2c693a5c5b1fa71d240952aafcb287184383ee7a7f6cf7b12c47758605e0a5",
     "lib/turning-queue-identity.ts": "06cc830a3abb833ee14f2b0a5f47abd097af19865629040d4a26137fd19b8345",
     "lib/weekly-demand.ts": "88606a237c5b5aec674d7986db7b9b0de68ea6c77553f485b03669fc17b78188",
-    "lib/wip-ledger.ts": "ace38a04c4231c4993769d0e21cecbddcdb0c6f228065f68fea2cf8d16f74fd4",
+    "lib/wip-ledger.ts": "cc829a59ac7b934ddc6936d6b8492e52ea51fa9420a2cdd02077f6301093a41f",
     "lib/wip-manual-actions.ts": "4b9de42ef139947e221b3d7b89543a3139f717246c60f0ea9c9966dd90ba67ac",
     "scripts/collaboration-runtime.ts": "ec537505759cc9202207761faa0e51e8e9a8ac7764884320d9a017724cc3aea3"
   }

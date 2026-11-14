@@ -7755,6 +7755,7 @@ function completeWipOperation(seed, input) {
   if (source.stage === "on-hold") throw new Error("Blokeli yar\u0131 mam\xFCl i\u015Fleme al\u0131namaz.");
   if (terminalStages.has(source.stage)) throw new Error("Kapanm\u0131\u015F yar\u0131 mam\xFCl i\u015Fleme al\u0131namaz.");
   if (source.nextProcess !== input.process) throw new Error(`S\u0131radaki operasyon ${source.nextProcess ?? "tan\u0131ml\u0131 de\u011Fil"}.`);
+  assertProcessNotCompleted(source, input.process);
   if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0) throw new Error("Tamamlanan adet pozitif tam say\u0131 olmal\u0131d\u0131r.");
   if (input.quantity > source.availableQuantity && seed.productionArea !== "cubuk-filtre") throw new Error("Tamamlanan adet, yar\u0131 mam\xFCl bakiyesini a\u015Fmayan pozitif tam say\u0131 olmal\u0131d\u0131r.");
   if (input.quantity > source.availableQuantity && !input.countCorrectionReason?.trim()) throw new Error("Adet bakiyeyi a\u015F\u0131yor. Say\u0131m d\xFCzeltmesi nedenini yaz\u0131n.");
@@ -7904,15 +7905,25 @@ function completeWipOperation(seed, input) {
   });
   return { completed, remainder };
 }
+function hasCompletedProcess(lot, process2) {
+  return lot.completedSteps.some((step) => step.process === process2) || Boolean(lot.manualReceipt?.completedProcesses.includes(process2));
+}
+function assertProcessNotCompleted(lot, process2) {
+  if (hasCompletedProcess(lot, process2)) throw new Error(`${processLabel(process2)} bu par\xE7ada zaten tamamlanm\u0131\u015F. Konum de\u011Fi\u015Fikli\u011Fi veya tekrar tamamlama ile ge\xE7mi\u015F de\u011Fi\u015Ftirilemez.`);
+}
+function processAtStage(lot, stage) {
+  return stage === "process-queue" || stage === "process-buffer" ? lot.nextProcess : nextProcessForWipStage(stage);
+}
 function correctableWipStages(seed, lot) {
   const common = ["unclassified", "delivery-ready", "on-hold"];
+  const unfinished = (stage) => !lot || !processAtStage(lot, stage) || !hasCompletedProcess(lot, processAtStage(lot, stage));
   if (seed.productionArea === "cubuk-filtre") {
-    return lot?.nextProcess ? ["process-queue", "process-buffer", ...common] : common;
+    return (lot?.nextProcess ? ["process-queue", "process-buffer", ...common] : common).filter(unfinished);
   }
   const positions = ["quality-hold", "drilling-queue", "deburring-queue", "washing-buffer", "gkm-buffer", "gkm-queue"];
   const product = lot && processMasterDataForProduct(seed.processMasterData, lot.product);
   const route = product?.route && effectiveProductRoute(product, lot?.completedSteps.find((step) => step.process === "turning")?.resourceId);
-  return [...positions.filter((stage) => !route || route.includes(nextProcessForWipStage(stage))), ...common];
+  return [...positions.filter((stage) => !route || route.includes(nextProcessForWipStage(stage))), ...common].filter(unfinished);
 }
 function correctWipStage(seed, lotIdValue, stage, occurredAt, note = "Manuel konum do\u011Frulamas\u0131", recordedAtValue) {
   const lot = (seed.wipLots ?? []).find((item) => item.id === lotIdValue);
@@ -7920,7 +7931,14 @@ function correctWipStage(seed, lotIdValue, stage, occurredAt, note = "Manuel kon
   if (terminalStages.has(lot.stage)) throw new Error("Teslim edilmi\u015F veya \u0131skartaya ayr\u0131lm\u0131\u015F \u015Farj\u0131n konumu de\u011Fi\u015Ftirilemez.");
   if (!Number.isFinite(occurredAt)) throw new Error("Konum tarihi ge\xE7ersiz.");
   if (lot.stage === "on-hold") throw new Error("Konumu de\u011Fi\u015Ftirmeden \xF6nce Blokeyi kald\u0131r kullan\u0131n.");
+  const nextProcess = processAtStage(lot, stage);
+  if (nextProcess) assertProcessNotCompleted(lot, nextProcess);
   if (!correctableWipStages(seed, lot).includes(stage)) throw new Error("Bu rota i\xE7in konum ge\xE7ersiz. Teslim ve \u0131skarta i\xE7in ilgili \xFCretim i\u015Flemini kullan\u0131n.");
+  const completionEnds = lot.completedSteps.map((step) => step.end);
+  if (lot.manualReceipt) completionEnds.push(lot.manualReceipt.productionDate ?? lot.manualReceipt.observedAt);
+  if (completionEnds.some((end) => !Number.isFinite(end))) throw new Error("Kay\u0131tl\u0131 proses tarihlerini inceleyin.");
+  const latestEnd = Math.max(0, ...completionEnds);
+  if (Math.floor(occurredAt) < Math.floor(latestEnd)) throw new Error("Konum g\xFCn\xFC tamamlanm\u0131\u015F proseslerden \xF6nce olamaz. \xDCretim tarihlerini ayr\u0131 olarak d\xFCzeltin.");
   const recordedAt = isoNow(recordedAtValue);
   const fromStage = lot.stage;
   if (stage === "on-hold") {
@@ -7930,10 +7948,10 @@ function correctWipStage(seed, lotIdValue, stage, occurredAt, note = "Manuel kon
   } else {
     delete lot.heldFromStage;
     delete lot.heldNextProcess;
-    lot.nextProcess = stage === "process-queue" || stage === "process-buffer" ? lot.nextProcess : nextProcessForWipStage(stage);
+    lot.nextProcess = nextProcess;
   }
   lot.stage = stage;
-  lot.readyAt = occurredAt;
+  lot.readyAt = Math.max(occurredAt, latestEnd);
   lot.updatedAt = recordedAt;
   appendMovement(seed, { lotId: lot.id, kind: stage === "on-hold" ? "hold" : "stage-corrected", quantity: lot.availableQuantity, fromStage, toStage: stage, occurredAt, recordedAt, note });
   return lot;
