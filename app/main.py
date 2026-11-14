@@ -77,7 +77,7 @@ if settings.app_env == "test" and settings.auth_test_mode:
 
 @app.get("/api/me")
 def me(user: CurrentUser = Depends(current_user)):
-    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role, "availableAreas": [area for area in ("torna", "cubuk-filtre") if area_available(area)]}
+    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role, "productionDateCorrectionVersion": 1, "availableAreas": [area for area in ("torna", "cubuk-filtre") if area_available(area)]}
 
 
 @app.get("/api/app-updates")

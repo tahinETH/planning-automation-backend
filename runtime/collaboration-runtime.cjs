@@ -4145,6 +4145,38 @@ function processLabel(process2) {
   return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
 }
 
+// lib/process-completion-time.ts
+var SERIAL_EPOCH = Date.UTC(1899, 11, 30);
+var DAY_MS = 864e5;
+function processCompletionTimeInput(serial2) {
+  return new Date(SERIAL_EPOCH + Math.round(serial2 * DAY_MS)).toISOString().slice(0, 16);
+}
+
+// lib/actual-date.ts
+function actualDate(serial2, precision = "minute") {
+  return { precision, value: processCompletionTimeInput(serial2).slice(0, precision === "day" ? 10 : 16) };
+}
+function parseActualDate(input, now = factoryNowSerial()) {
+  if (!input || !["day", "minute"].includes(input.precision) || typeof input.value !== "string") throw Error("Tarih hassasiyetini se\xE7in.");
+  const day = input.precision === "day";
+  if (!(day ? /^\d{4}-\d{2}-\d{2}$/ : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).test(input.value)) throw Error("Ge\xE7erli bir ger\xE7ek tarih girin.");
+  const serial2 = (Date.parse(`${input.value}${day ? "T00:00" : ""}:00Z`) - Date.UTC(1899, 11, 30)) / 864e5;
+  if (!Number.isFinite(serial2) || serial2 <= 0 || actualDate(serial2, input.precision).value !== input.value) throw Error("Ge\xE7erli bir ger\xE7ek tarih girin.");
+  if (day ? serial2 > Math.floor(now) : serial2 > now + 1e-8) throw Error("Ger\xE7ek tarih gelecekte olamaz.");
+  return serial2;
+}
+function assertRecordedDateOrder(values, confirmed, now = factoryNowSerial()) {
+  if (values.some((value) => value.precision === "day") && !confirmed) throw Error("Saat bilinmeyen kay\u0131tlarda proses s\u0131ras\u0131n\u0131 ve teslim \xF6ncesi tamamlanmay\u0131 onaylay\u0131n.");
+  let earliest = -Infinity;
+  for (const value of values) {
+    const lower = value.value;
+    if (!Number.isFinite(lower) || lower <= 0 || (value.precision === "day" ? !Number.isInteger(lower) || lower > Math.floor(now) : lower > now + 1e-8)) throw Error("Ge\xE7erli, gelecekte olmayan bir ger\xE7ek tarih girin.");
+    const upper = value.precision === "day" ? Math.min(lower + 1 - 1e-8, now) : lower;
+    earliest = Math.max(earliest, lower);
+    if (earliest > upper + 1e-9) throw Error("Tarihler proses s\u0131ras\u0131yla \xE7eli\u015Fiyor. \xD6nceki proses sonraki prosesten veya teslimattan sonra olamaz.");
+  }
+}
+
 // lib/process-waits.ts
 function processWaitWorkdays(seed, process2) {
   const item = seed.processWaitSettings?.[process2];
@@ -4166,6 +4198,7 @@ function orderImportMetadataForSeed(seed) {
   };
 }
 function effectiveDeliveryTimestamp(entry) {
+  if (entry.deliveredAtPrecision === "day" && entry.deliveredAt) return entry.deliveredAt.slice(0, 10);
   if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
   const deliveryDate = entry.deliveredAt?.slice(0, 10) ?? "";
   if (deliveryDate && entry.statusChangedAt && factoryDateInput(entry.statusChangedAt) === deliveryDate) {
@@ -4174,12 +4207,19 @@ function effectiveDeliveryTimestamp(entry) {
   if (deliveryDate) return (/* @__PURE__ */ new Date(`${deliveryDate}T00:00:00+03:00`)).toISOString();
   return entry.statusChangedAt && Number.isFinite(Date.parse(entry.statusChangedAt)) ? new Date(entry.statusChangedAt).toISOString() : "";
 }
+function deliveryTimestampBounds(timestamp) {
+  const dayOnly = /^\d{4}-\d{2}-\d{2}$/.test(timestamp);
+  const lower = Date.parse(dayOnly ? `${timestamp}T00:00:00+03:00` : timestamp);
+  return [lower, dayOnly ? lower + 864e5 - 1 : lower];
+}
+var uncertainCutoff = () => new Error("Teslim saati bilinmeyen g\xFCn kesim aral\u0131\u011F\u0131n\u0131n i\xE7inde b\xF6l\xFCn\xFCyor. Tam g\xFCn\xFC kapsayan tarih aral\u0131\u011F\u0131n\u0131 se\xE7in veya ger\xE7ek teslim saatini do\u011Frulay\u0131n.");
 function isInsideFilter(timestamp, filter) {
-  const value = Date.parse(timestamp);
-  const start = Date.parse(filter.startAt);
-  const end = Date.parse(filter.endAt);
+  const [value, latest] = deliveryTimestampBounds(timestamp);
+  const start = Date.parse(filter.startAt), end = Date.parse(filter.endAt);
   if (![value, start, end].every(Number.isFinite)) return false;
-  return (filter.includeStart ? value >= start : value > start) && value <= end;
+  const inside = (filter.includeStart ? value >= start : value > start) && latest <= end;
+  if (!inside && value !== latest && latest >= start && value <= end) throw uncertainCutoff();
+  return inside;
 }
 function validateFilter(filter) {
   const start = Date.parse(filter.startAt);
@@ -4604,10 +4644,10 @@ function addDepartmentWorkMinutes(seed, start, minutes) {
 
 // lib/delivery-calendar.ts
 var EXCEL_EPOCH = Date.UTC(1899, 11, 30);
-var DAY_MS = 864e5;
+var DAY_MS2 = 864e5;
 var TURNING_DELIVERY_LEAD_WORKDAYS = 4;
 function dayOfWeek(serial2) {
-  return new Date(EXCEL_EPOCH + Math.floor(serial2) * DAY_MS).getUTCDay();
+  return new Date(EXCEL_EPOCH + Math.floor(serial2) * DAY_MS2).getUTCDay();
 }
 function addDeliveryWorkdays(completionSerial, workdays) {
   if (!Number.isFinite(completionSerial) || completionSerial <= 0) return completionSerial;
@@ -5072,7 +5112,10 @@ function actualWipOperations(lot, masterProduct) {
     setupKey: "actual",
     unitsPerShift: 0,
     setupHours: 0,
-    runHours: Math.max(0, (step.end - step.start) * 24),
+    runHours: step.startPrecision === "day" || step.endPrecision === "day" ? 0 : Math.max(0, (step.end - step.start) * 24),
+    actualDurationUnknown: step.startPrecision === "day" || step.endPrecision === "day",
+    startPrecision: step.startPrecision,
+    endPrecision: step.endPrecision,
     waitWorkdaysBefore: 0,
     waitRuleLabel: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
     readyAt: step.start,
@@ -7937,12 +7980,16 @@ function consumeLots(seed, lots, quantityValue, kind, occurredAt, recordedAt) {
     quantity -= consumed;
   }
 }
-function deliverWipQuantity(seed, lotId2, quantity, occurredAt, recordedAt) {
+function deliverWipQuantity(seed, lotId2, quantity, occurredAt, recordedAt, precision = "minute") {
   const lot = seed.wipLots?.find((item) => item.id === lotId2);
   const completedAt = lot ? completedDeliveryRouteEnd(seed, lot) : void 0;
-  if (!lot || lot.stage !== "delivery-ready" || completedAt === void 0 || completedAt > occurredAt) throw new Error("Aktif \xFCretim rotas\u0131 (GKM aktifse GKM dahil) tamamlanmadan teslimat yap\u0131lamaz.");
+  if (!lot || lot.stage !== "delivery-ready" || completedAt === void 0 || precision !== "day" && !lot.completedSteps.some((step) => step.endPrecision === "day") && completedAt > occurredAt) throw new Error("Aktif \xFCretim rotas\u0131 (GKM aktifse GKM dahil) tamamlanmadan teslimat yap\u0131lamaz.");
   if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(occurredAt) || occurredAt < wipOperationReadyAt(lot)) throw new Error("Teslim adedini ve haz\u0131r olma zaman\u0131n\u0131 kontrol edin.");
+  if (precision === "day" || lot.completedSteps.some((step) => step.startPrecision === "day" || step.endPrecision === "day")) {
+    assertRecordedDateOrder([...lot.completedSteps.flatMap((step) => [{ value: step.start, precision: step.startPrecision }, { value: step.end, precision: step.endPrecision }]), { value: occurredAt, precision }], lot.processOrderConfirmed === true, factoryNowSerial(recordedAt));
+  }
   consumeLots(seed, [lot], quantity, "delivered", occurredAt, recordedAt);
+  if (precision === "day") seed.wipMovements.at(-1).occurredAtPrecision = "day";
 }
 function scrapWipQuantity(seed, lotId2, quantity, occurredAt, recordedAt) {
   const lot = seed.wipLots?.find((item) => item.id === lotId2);
@@ -9586,7 +9633,7 @@ function cloneSeed(seed) {
 }
 
 // lib/production-command.ts
-var productionCommandNames = ["recordManualArchiveReceipt", "saveMachineAvailability", "setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
+var productionCommandNames = ["correctJourneyDates", "recordManualArchiveReceipt", "saveMachineAvailability", "setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
 function productionCommandBasis(seed, command) {
   if (command.kind === "completeCurrentJob" || command.kind === "deliverJourneyWip") {
     const machineId = command.kind === "completeCurrentJob" ? String(command.args[0]) : void 0;
@@ -9815,6 +9862,7 @@ function clearDelivery(entry) {
   entry.inventoryStatus = "semi-finished";
   delete entry.deliveredAt;
   delete entry.deliveredAtTime;
+  delete entry.deliveredAtPrecision;
   delete entry.wipAllocations;
   entry.statusChangedAt = (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -9879,11 +9927,20 @@ function correctArchiveRecord(seed, result, entryId, quantity, completedAt, deli
   const copied = dateOnly ? structuredClone(seed) : void 0;
   const next = copied ? { seed: copied, result, entry: copied.productionHistory.find((item) => item.id === entryId) } : updateProductionHistoryEntry(seed, result, entryId, quantity, actualAt);
   if (source.inventoryStatus === "delivered") {
-    const deliveryIso = deliveryDate ? factoryDateTimeToIso(deliveryDate) : source.deliveredAtTime || factoryDateTimeToIso(`${source.deliveredAt}T00:00`);
-    const deliveryAt = deliveryIso ? factoryNowSerial(deliveryIso) : Number.NaN;
-    if (!deliveryIso || !Number.isFinite(deliveryAt) || deliveryDate && factoryDateTimeInput(deliveryIso) !== deliveryDate) throw new Error("Ge\xE7erli bir teslim tarihi ve saati se\xE7in.");
-    if (Date.parse(deliveryIso) > Date.now()) throw new Error("Teslim tarihi ve saati \u015Fu andan sonra olamaz.");
-    if (deliveryAt < actualAt || productionHistoryLots(seed, source).some((lot) => lot.completedSteps.some((step) => step.end > deliveryAt))) throw new Error("Teslim tarihi tamamlanan proseslerden \xF6nce olamaz.");
+    const dayOnly = source.deliveredAtPrecision === "day" && (!deliveryDate || /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate));
+    const deliveryValue = dayOnly ? { precision: "day", value: deliveryDate || source.deliveredAt } : { precision: "minute", value: deliveryDate || factoryDateTimeInput(source.deliveredAtTime || factoryDateTimeToIso(`${source.deliveredAt}T00:00`)) };
+    let deliveryAt;
+    try {
+      deliveryAt = parseActualDate(deliveryValue);
+    } catch (error) {
+      throw Error(error instanceof Error && error.message.includes("gelecekte") ? "Teslim tarihi ve saati \u015Fu andan sonra olamaz." : "Ge\xE7erli bir teslim tarihi ve saati se\xE7in.");
+    }
+    const deliveryIso = dayOnly ? void 0 : factoryDateTimeToIso(deliveryValue.value);
+    const related = productionHistoryLots(seed, source);
+    if (dayOnly || source.completedAtPrecision === "day" || related.some((lot) => lot.completedSteps.some((step) => step.endPrecision === "day" || step.startPrecision === "day"))) {
+      for (const lot of related) assertRecordedDateOrder([...lot.completedSteps.flatMap((step) => [{ value: step.start, precision: step.startPrecision }, { value: step.end, precision: step.endPrecision }]), { value: deliveryAt, precision: deliveryValue.precision }], lot.processOrderConfirmed === true);
+      assertRecordedDateOrder([{ value: actualAt, precision: source.completedAtPrecision }, { value: deliveryAt, precision: deliveryValue.precision }], related.length > 0 && related.every((lot) => lot.processOrderConfirmed === true));
+    } else if (deliveryAt < actualAt || related.some((lot) => lot.completedSteps.some((step) => step.end > deliveryAt))) throw new Error("Teslim tarihi tamamlanan proseslerden \xF6nce olamaz.");
     const difference = quantity - source.completedQuantity;
     const allocations = dateOnly ? void 0 : shipmentAllocations(next.seed, source);
     if (difference < 0) {
@@ -9925,8 +9982,9 @@ function correctArchiveRecord(seed, result, entryId, quantity, completedAt, deli
     }
     next.entry.deliveredAt = deliveryDate?.slice(0, 10) || source.deliveredAt;
     next.entry.deliveredAtTime = deliveryIso;
+    next.entry.deliveredAtPrecision = deliveryValue.precision;
     next.entry.statusChangedAt = (/* @__PURE__ */ new Date()).toISOString();
-    next.entry.statusChangeReason = `Teslimat d\xFCzeltmesi: ${source.completedQuantity} \u2192 ${quantity} adet; ${source.deliveredAtTime || source.deliveredAt} \u2192 ${deliveryIso}`;
+    next.entry.statusChangeReason = `Teslimat d\xFCzeltmesi: ${source.completedQuantity} \u2192 ${quantity} adet; ${source.deliveredAtTime || source.deliveredAt} \u2192 ${deliveryValue.value}${dayOnly ? " \xB7 Saat bilinmiyor" : ""}`;
   } else {
     syncWipWithHistoryEdit(next.seed, source, quantity, actualAt, void 0, correctionLotId);
     const delta = quantity - source.completedQuantity;
@@ -9941,11 +9999,109 @@ function correctArchiveRecord(seed, result, entryId, quantity, completedAt, deli
   return next;
 }
 
-// lib/process-completion-time.ts
-var SERIAL_EPOCH = Date.UTC(1899, 11, 30);
-var DAY_MS2 = 864e5;
-function processCompletionTimeInput(serial2) {
-  return new Date(SERIAL_EPOCH + Math.round(serial2 * DAY_MS2)).toISOString().slice(0, 16);
+// lib/production-date-correction.ts
+function correctProductionDates(seed, result, input, now, recordedAt) {
+  const source = seed.wipLots?.find((lot2) => lot2.id === input.lotId);
+  if (!source || source.stage !== "delivery-ready" || source.availableQuantity <= 0 || source.manualReceipt) throw Error("Tarih d\xFCzeltmesi i\xE7in tamamlanm\u0131\u015F a\xE7\u0131k \u015Farj\u0131 se\xE7in.");
+  if (seed.processCurrentJobs?.some((job) => job.wipLotId === source.id)) throw Error("Se\xE7ili par\xE7ada \xE7al\u0131\u015Fan proses var; \xF6nce \xFCretim kayd\u0131n\u0131 inceleyin.");
+  const history = seed.productionHistory?.find((entry) => entry.id === source.sourceHistoryEntryId);
+  if (!history || history.inventoryStatus !== "semi-finished" || history.product !== source.product || history.workOrder !== source.workOrder || !input.expectedHistory || archiveEntrySignature(history) !== input.expectedHistory) throw Error("Ar\u015Fiv kayd\u0131 de\u011Fi\u015Fti. \u0130ncelemeyi yeniden a\xE7\u0131n.");
+  const correction = input.correction;
+  if (!correction || correction.confirmedOrder !== true) throw Error("Proses s\u0131ras\u0131n\u0131 ve teslim \xF6ncesi kontrol ile paketlemenin tamamland\u0131\u011F\u0131n\u0131 onaylay\u0131n.");
+  if (typeof correction.reason !== "string" || !correction.reason.trim() || correction.reason.length > 2e3) throw Error("D\xFCzeltme nedeni zorunludur (en fazla 2000 karakter).");
+  const product = processMasterDataForProduct(seed.processMasterData, source.product);
+  const route = product ? effectiveProductRoute(product, source.completedSteps.find((step) => step.process === "turning")?.resourceId) : [];
+  if (completedDeliveryRouteEnd(seed, source) === void 0 || !source.completedSteps.length) throw Error("Aktif rota tamamlanmam\u0131\u015F; eksik proses tarih d\xFCzeltmesiyle olu\u015Fturulamaz.");
+  if (new Set(source.completedSteps.map((step) => step.process)).size !== source.completedSteps.length || route.length && route.some((process2, index) => source.completedSteps.findIndex((step) => step.process === process2) < 0 || index > 0 && source.completedSteps.findIndex((step) => step.process === route[index - 1]) >= source.completedSteps.findIndex((step) => step.process === process2))) throw Error("Kay\u0131tl\u0131 proses s\u0131ras\u0131 do\u011Frulanamad\u0131.");
+  if (!Array.isArray(correction.steps) || correction.steps.length !== source.completedSteps.length) throw Error("B\xFCt\xFCn kay\u0131tl\u0131 proses tarihlerini inceleyin.");
+  const steps = source.completedSteps.map((step, index) => {
+    const proposed = correction.steps[index];
+    if (!proposed || proposed.process !== step.process) throw Error("Proses kimli\u011Fi veya s\u0131ras\u0131 de\u011Fi\u015Ftirilemez.");
+    const parsedStart = parseActualDate(proposed.start, now), parsedEnd = parseActualDate(proposed.end, now);
+    const unchanged = (value, precision, proposed2) => JSON.stringify(actualDate(value, precision)) === JSON.stringify(proposed2);
+    return {
+      ...step,
+      start: unchanged(step.start, step.startPrecision, proposed.start) ? step.start : parsedStart,
+      end: unchanged(step.end, step.endPrecision, proposed.end) ? step.end : parsedEnd,
+      startPrecision: proposed.start.precision,
+      endPrecision: proposed.end.precision
+    };
+  });
+  const deliveryAt = parseActualDate(correction.delivery, now);
+  assertRecordedDateOrder([...steps.flatMap((step) => [{ value: step.start, precision: step.startPrecision }, { value: step.end, precision: step.endPrecision }]), { value: deliveryAt, precision: correction.delivery.precision }], true, now);
+  const quantity = source.availableQuantity;
+  if (!Number.isSafeInteger(quantity) || quantity <= 0 || history.completedQuantity < quantity || source.originalQuantity !== quantity + source.deliveredQuantity + source.scrappedQuantity) throw Error("Se\xE7ili par\xE7an\u0131n ar\u015Fiv bakiyesi e\u015Fle\u015Fmiyor.");
+  validateFilterShipment(seed, source.product, quantity);
+  const next = structuredClone(seed);
+  let lot = next.wipLots.find((row) => row.id === source.id);
+  if (lot.deliveredQuantity || lot.scrappedQuantity) {
+    lot.originalQuantity -= quantity;
+    lot.availableQuantity = 0;
+    lot.stage = lot.deliveredQuantity ? "delivered" : "scrapped";
+    lot = {
+      ...structuredClone(source),
+      id: `date-correction-${crypto.randomUUID()}`,
+      parentLotId: source.id,
+      originalQuantity: quantity,
+      availableQuantity: quantity,
+      deliveredQuantity: 0,
+      scrappedQuantity: 0,
+      createdAt: recordedAt
+    };
+    next.wipLots.push(lot);
+  }
+  const oldHistory = next.productionHistory.find((row) => row.id === history.id);
+  const shipment = {
+    ...structuredClone(history),
+    id: `corrected-delivery-${crypto.randomUUID()}`,
+    sourceEntryId: history.id,
+    originalQuantity: quantity,
+    completedQuantity: quantity,
+    start: steps[0].start,
+    completedAt: steps[0].end,
+    completedAtPrecision: steps[0].endPrecision,
+    inventoryStatus: "delivered",
+    deliveredAt: correction.delivery.value.slice(0, 10),
+    deliveredAtPrecision: correction.delivery.precision,
+    deliveredAtTime: correction.delivery.precision === "minute" ? factoryDateTimeToIso(correction.delivery.value) : void 0,
+    statusChangedAt: recordedAt,
+    statusChangeReason: correction.reason.trim(),
+    wipAllocations: [{ lotId: lot.id, quantity }]
+  };
+  oldHistory.completedQuantity -= quantity;
+  if (!oldHistory.completedQuantity) oldHistory.inventoryStatus = "voided";
+  next.productionHistory.push(shipment);
+  lot.sourceHistoryEntryId = shipment.id;
+  lot.completedSteps = steps;
+  lot.processOrderConfirmed = true;
+  lot.readyAt = deliveryAt;
+  delete lot.rolledForwardAt;
+  delete lot.rolledForwardFrom;
+  lot.updatedAt = recordedAt;
+  next.wipMovements = [...next.wipMovements ?? [], {
+    id: crypto.randomUUID(),
+    lotId: lot.id,
+    kind: "dates-corrected",
+    quantity,
+    fromStage: source.stage,
+    toStage: source.stage,
+    occurredAt: deliveryAt,
+    occurredAtPrecision: correction.delivery.precision,
+    recordedAt,
+    note: correction.reason.trim(),
+    dateCorrection: {
+      before: structuredClone(source.completedSteps),
+      after: structuredClone(steps),
+      previousReadyAt: source.readyAt,
+      delivery: correction.delivery,
+      confirmedOrder: true
+    }
+  }];
+  deliverWipQuantity(next, lot.id, quantity, deliveryAt, recordedAt, correction.delivery.precision);
+  next.planNeedsRecalculation = true;
+  next.lastAutomaticPlan = void 0;
+  next.planRunSequence = void 0;
+  return { seed: next, result, entries: [shipment] };
 }
 
 // lib/wip-manual-actions.ts
@@ -9959,6 +10115,10 @@ function assertWipActionSnapshot(seed, input) {
   return lot;
 }
 function completeWipDelivery(seed, result, input, occurredAt, recordedAt = (/* @__PURE__ */ new Date()).toISOString()) {
+  if (input.dateCorrection) {
+    assertWipActionSnapshot(seed, input);
+    return correctProductionDates(seed, result, { ...input, correction: input.dateCorrection }, occurredAt, recordedAt);
+  }
   if (input.allocation) return allocateJourneyDelivery(seed, result, input, occurredAt, recordedAt);
   const lot = assertWipActionSnapshot(seed, input);
   if (lot.stage !== "delivery-ready" || lot.availableQuantity <= 0) throw new Error("\u015Earj Paketleme & Final Kontrol a\u015Famas\u0131nda de\u011Fil.");
@@ -10270,17 +10430,25 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     setDirty(true);
     return true;
   }
-  function deliverJourneyWip(input) {
+  function commitJourneyDelivery(input) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const next = completeWipDelivery(seed, result, input, factoryNowSerial(), now);
     commitOperationalChange(
       next.seed,
       next.result,
       "Teslimat kaydedildi \xB7 plan\u0131 yeniden \xE7al\u0131\u015Ft\u0131r\u0131n",
-      { type: "archive-status", message: input.allocation ? `${input.allocation.deliveredQuantity} adet teslim edildi; ${input.allocation.actualQuantity - input.allocation.deliveredQuantity} adet ${input.allocation.remainderAction === "scrap" ? "\u0131skartaya ayr\u0131ld\u0131" : "yar\u0131 mamulde kald\u0131"}.` : `${input.quantity} adet teslim edildi; proses kontrol ve paketleme onayland\u0131.` },
+      { type: "archive-status", message: input.dateCorrection ? `${input.quantity} adet i\xE7in \xFCretim tarihleri d\xFCzeltildi ve teslimat kaydedildi. ${input.dateCorrection.reason}` : input.allocation ? `${input.allocation.deliveredQuantity} adet teslim edildi; ${input.allocation.actualQuantity - input.allocation.deliveredQuantity} adet ${input.allocation.remainderAction === "scrap" ? "\u0131skartaya ayr\u0131ld\u0131" : "yar\u0131 mamulde kald\u0131"}.` : `${input.quantity} adet teslim edildi; proses kontrol ve paketleme onayland\u0131.` },
       "Teslimat geri al\u0131nabilir"
     );
     setDirty(true);
+  }
+  function deliverJourneyWip(input) {
+    if (input.dateCorrection) throw Error("Tarih d\xFCzeltmesi i\xE7in yeni d\xFCzeltme komutunu kullan\u0131n.");
+    commitJourneyDelivery(input);
+  }
+  function correctJourneyDates(input) {
+    if (!input.dateCorrection) throw Error("Tarih d\xFCzeltme incelemesi zorunludur.");
+    commitJourneyDelivery(input);
   }
   function releaseJourneyBuffer(input) {
     assertWipActionSnapshot(seed, input);
@@ -10429,6 +10597,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     allocateProductionHistory,
     finishWipOperation,
     deliverJourneyWip,
+    correctJourneyDates,
     releaseJourneyBuffer,
     beginDownstreamCurrentJob,
     replaceDownstreamCurrentJob,
@@ -10442,7 +10611,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
   return new Proxy(actions, { get(target, property) {
     if (!productionCommandNames.includes(property)) return Reflect.get(target, property);
     return (...args) => {
-      submitCommand({ kind: property, args });
+      submitCommand({ kind: property === "deliverJourneyWip" && args[0]?.dateCorrection ? "correctJourneyDates" : property, args });
       return true;
     };
   } });

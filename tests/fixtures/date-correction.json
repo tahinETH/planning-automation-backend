@@ -1,0 +1,3965 @@
+{
+  "seed": {
+    "source": "Tezgah_Planlama_V51.xlsm",
+    "machineCatalogVersion": 1,
+    "orders": [],
+    "products": [
+      {
+        "product": "R902375400",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 450,
+        "dailyRate": 261,
+        "shiftRate": 87,
+        "parameterDailyRate": 261,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 50,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719052",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04",
+          "C-10"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 375,
+        "shiftRate": 125,
+        "parameterDailyRate": 375,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-04",
+          "C-10"
+        ],
+        "moq": 120,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719738",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 900,
+        "dailyRate": 333,
+        "shiftRate": 111,
+        "parameterDailyRate": 333,
+        "diameter": "Ø 19,8",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719739",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 345,
+        "shiftRate": 115,
+        "parameterDailyRate": 345,
+        "diameter": "Ø 20,7",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719740",
+        "generalMachine": "C-15",
+        "eligibleMachines": [
+          "C-15"
+        ],
+        "batchSize": 960,
+        "dailyRate": 267,
+        "shiftRate": 89,
+        "parameterDailyRate": 267,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-15"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719741",
+        "generalMachine": "C-16",
+        "eligibleMachines": [
+          "C-16"
+        ],
+        "batchSize": 960,
+        "dailyRate": 258,
+        "shiftRate": 86,
+        "parameterDailyRate": 258,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-16"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719742",
+        "generalMachine": "C-11",
+        "eligibleMachines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "batchSize": 480,
+        "dailyRate": 153,
+        "shiftRate": 51,
+        "parameterDailyRate": 153,
+        "diameter": "Ø 30",
+        "alternativeMachines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "moq": 24,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719743",
+        "generalMachine": "C-13",
+        "eligibleMachines": [
+          "C-13"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 402,
+        "shiftRate": 134,
+        "parameterDailyRate": 402,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-13"
+        ],
+        "moq": 240,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719763",
+        "generalMachine": "C-13",
+        "eligibleMachines": [
+          "C-13"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 669,
+        "shiftRate": 223,
+        "parameterDailyRate": 669,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-13"
+        ],
+        "moq": 120,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719764",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 900,
+        "dailyRate": 582,
+        "shiftRate": 194,
+        "parameterDailyRate": 582,
+        "diameter": "Ø 19,8",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719765",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 900,
+        "dailyRate": 642,
+        "shiftRate": 214,
+        "parameterDailyRate": 642,
+        "diameter": "Ø 20,7",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902719812",
+        "generalMachine": "C-05",
+        "eligibleMachines": [
+          "C-05",
+          "C-01"
+        ],
+        "batchSize": 2000,
+        "dailyRate": 459,
+        "shiftRate": 153,
+        "parameterDailyRate": 459,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-05",
+          "C-01"
+        ],
+        "moq": 50,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902725682",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 960,
+        "dailyRate": 1113,
+        "shiftRate": 371,
+        "parameterDailyRate": 1113,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 24,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902729941",
+        "generalMachine": "C-03",
+        "eligibleMachines": [
+          "C-03"
+        ],
+        "batchSize": 960,
+        "dailyRate": 201,
+        "shiftRate": 67,
+        "parameterDailyRate": 201,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-03"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902745116",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04",
+          "C-05"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 729,
+        "shiftRate": 243,
+        "parameterDailyRate": 729,
+        "diameter": "Ø 19,8",
+        "alternativeMachines": [
+          "C-04",
+          "C-05"
+        ],
+        "moq": 120,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745117",
+        "generalMachine": "C-09",
+        "eligibleMachines": [
+          "C-09"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 399,
+        "shiftRate": 133,
+        "parameterDailyRate": 399,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-09"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745119",
+        "generalMachine": "C-02",
+        "eligibleMachines": [
+          "C-02"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 675,
+        "shiftRate": 225,
+        "parameterDailyRate": 675,
+        "diameter": "Ø 20,7",
+        "alternativeMachines": [
+          "C-02"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745121",
+        "generalMachine": "C-03",
+        "eligibleMachines": [
+          "C-03",
+          "C-02"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 669,
+        "shiftRate": 223,
+        "parameterDailyRate": 669,
+        "diameter": "Ø 20,7",
+        "alternativeMachines": [
+          "C-03",
+          "C-02"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745123",
+        "generalMachine": "C-09",
+        "eligibleMachines": [
+          "C-09"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 465,
+        "shiftRate": 155,
+        "parameterDailyRate": 465,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-09"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745127",
+        "generalMachine": "C-05",
+        "eligibleMachines": [
+          "C-05",
+          "C-04"
+        ],
+        "batchSize": 2400,
+        "dailyRate": 852,
+        "shiftRate": 284,
+        "parameterDailyRate": 852,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-05",
+          "C-04"
+        ],
+        "moq": 240,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745129",
+        "generalMachine": "C-05",
+        "eligibleMachines": [
+          "C-05"
+        ],
+        "batchSize": 2400,
+        "dailyRate": 852,
+        "shiftRate": 284,
+        "parameterDailyRate": 852,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-05"
+        ],
+        "moq": 240,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745131",
+        "generalMachine": "C-10",
+        "eligibleMachines": [
+          "C-10"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 792,
+        "shiftRate": 264,
+        "parameterDailyRate": 792,
+        "diameter": "Ø 14,2",
+        "alternativeMachines": [
+          "C-10"
+        ],
+        "moq": 240,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745133",
+        "generalMachine": "C-05",
+        "eligibleMachines": [
+          "C-05"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 819,
+        "shiftRate": 273,
+        "parameterDailyRate": 819,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-05"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745135",
+        "generalMachine": "C-02",
+        "eligibleMachines": [
+          "C-02"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 900,
+        "shiftRate": 300,
+        "parameterDailyRate": 900,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-02"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745138",
+        "generalMachine": "C-06",
+        "eligibleMachines": [
+          "C-06",
+          "C-02"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 864,
+        "shiftRate": 288,
+        "parameterDailyRate": 864,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-06",
+          "C-02"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745143",
+        "generalMachine": "C-07",
+        "eligibleMachines": [
+          "C-07"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 471,
+        "shiftRate": 157,
+        "parameterDailyRate": 471,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-07"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745145",
+        "generalMachine": "C-07",
+        "eligibleMachines": [
+          "C-07",
+          "C-03"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 435,
+        "shiftRate": 145,
+        "parameterDailyRate": 435,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-07",
+          "C-03"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970516",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04",
+          "C-05"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 951,
+        "shiftRate": 317,
+        "parameterDailyRate": 951,
+        "diameter": "Ø 19,8",
+        "alternativeMachines": [
+          "C-04",
+          "C-05"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745149",
+        "generalMachine": "C-12",
+        "eligibleMachines": [
+          "C-12"
+        ],
+        "batchSize": 1600,
+        "dailyRate": 363,
+        "shiftRate": 121,
+        "parameterDailyRate": 363,
+        "diameter": "Ø 30",
+        "alternativeMachines": [
+          "C-12"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745161",
+        "generalMachine": "C-01",
+        "eligibleMachines": [
+          "C-01",
+          "C-07"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 588,
+        "shiftRate": 196,
+        "parameterDailyRate": 588,
+        "diameter": "Ø 23",
+        "alternativeMachines": [
+          "C-01",
+          "C-07"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745163",
+        "generalMachine": "C-06",
+        "eligibleMachines": [
+          "C-06",
+          "C-09",
+          "C-08"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 483,
+        "shiftRate": 161,
+        "parameterDailyRate": 483,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-06",
+          "C-09",
+          "C-08"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745165",
+        "generalMachine": "C-02",
+        "eligibleMachines": [
+          "C-02"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 486,
+        "shiftRate": 162,
+        "parameterDailyRate": 486,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-02"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745169",
+        "generalMachine": "C-01",
+        "eligibleMachines": [
+          "C-01"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 561,
+        "shiftRate": 187,
+        "parameterDailyRate": 561,
+        "diameter": "Ø 23",
+        "alternativeMachines": [
+          "C-01"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902747620",
+        "generalMachine": "C-01",
+        "eligibleMachines": [
+          "C-01"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 561,
+        "shiftRate": 187,
+        "parameterDailyRate": 561,
+        "diameter": "Ø 23",
+        "alternativeMachines": [
+          "C-01"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902747621",
+        "generalMachine": "C-01",
+        "eligibleMachines": [
+          "C-01",
+          "C-07"
+        ],
+        "batchSize": 1980,
+        "dailyRate": 546,
+        "shiftRate": 182,
+        "parameterDailyRate": 546,
+        "diameter": "Ø 23",
+        "alternativeMachines": [
+          "C-01",
+          "C-07"
+        ],
+        "moq": 90,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902747824",
+        "generalMachine": "C-16",
+        "eligibleMachines": [
+          "C-16"
+        ],
+        "batchSize": 960,
+        "dailyRate": 309,
+        "shiftRate": 103,
+        "parameterDailyRate": 309,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-16"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902748350",
+        "generalMachine": "C-15",
+        "eligibleMachines": [
+          "C-15"
+        ],
+        "batchSize": 960,
+        "dailyRate": 375,
+        "shiftRate": 125,
+        "parameterDailyRate": 375,
+        "diameter": "Ø 25,5",
+        "alternativeMachines": [
+          "C-15"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902970039",
+        "generalMachine": "C-03",
+        "eligibleMachines": [
+          "C-03"
+        ],
+        "batchSize": 960,
+        "dailyRate": 270,
+        "shiftRate": 90,
+        "parameterDailyRate": 270,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-03"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902970275",
+        "generalMachine": "C-06",
+        "eligibleMachines": [
+          "C-06"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 492,
+        "shiftRate": 164,
+        "parameterDailyRate": 492,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-06"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970276",
+        "generalMachine": "C-03",
+        "eligibleMachines": [
+          "C-03"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 393,
+        "shiftRate": 131,
+        "parameterDailyRate": 393,
+        "diameter": "Ø 27",
+        "alternativeMachines": [
+          "C-03"
+        ],
+        "moq": 48,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970277",
+        "generalMachine": "C-11",
+        "eligibleMachines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "batchSize": 480,
+        "dailyRate": 207,
+        "shiftRate": 69,
+        "parameterDailyRate": 207,
+        "diameter": "Ø 30",
+        "alternativeMachines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902970513",
+        "generalMachine": "C-02",
+        "eligibleMachines": [
+          "C-02",
+          "C-01"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 747,
+        "shiftRate": 249,
+        "parameterDailyRate": 747,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-02",
+          "C-01"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970514",
+        "generalMachine": "C-02",
+        "eligibleMachines": [
+          "C-02"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 852,
+        "shiftRate": 284,
+        "parameterDailyRate": 852,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-02"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970515",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 876,
+        "shiftRate": 292,
+        "parameterDailyRate": 876,
+        "diameter": "Ø 17,2",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970517",
+        "generalMachine": "C-04",
+        "eligibleMachines": [
+          "C-04"
+        ],
+        "batchSize": 1920,
+        "dailyRate": 762,
+        "shiftRate": 254,
+        "parameterDailyRate": 762,
+        "diameter": "Ø 19,8",
+        "alternativeMachines": [
+          "C-04"
+        ],
+        "moq": 192,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902970729",
+        "generalMachine": "C-17",
+        "eligibleMachines": [
+          "C-17",
+          "C-03"
+        ],
+        "batchSize": 480,
+        "dailyRate": 456,
+        "shiftRate": 152,
+        "parameterDailyRate": 456,
+        "diameter": "Ø 20,7",
+        "alternativeMachines": [
+          "C-17",
+          "C-03"
+        ],
+        "moq": 120,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "center-pin"
+      },
+      {
+        "product": "R902970863",
+        "generalMachine": "C-03",
+        "eligibleMachines": [
+          "C-03"
+        ],
+        "batchSize": 480,
+        "dailyRate": 420,
+        "shiftRate": 140,
+        "parameterDailyRate": 420,
+        "diameter": "Ø 30",
+        "alternativeMachines": [
+          "C-03"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      },
+      {
+        "product": "R902745147",
+        "generalMachine": "C-12",
+        "eligibleMachines": [
+          "C-12"
+        ],
+        "batchSize": 1600,
+        "dailyRate": 354,
+        "shiftRate": 118,
+        "parameterDailyRate": 354,
+        "diameter": "Ø 30",
+        "alternativeMachines": [
+          "C-12"
+        ],
+        "moq": 32,
+        "source": "01-Planlama Şablonu(1).xlsx / Tip Bazlı Özet",
+        "setupFamily": "piston"
+      }
+    ],
+    "preferences": [
+      {
+        "key": "R902719052",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719076",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719738",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719739",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719743",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719762",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719763",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719764",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719765",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719766",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719767",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719768",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902725682",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902729941",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902974042",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902375400",
+        "machines": [
+          "C-04",
+          "C-03"
+        ],
+        "ruleType": "Öncelik",
+        "description": "C-03/C-04 izinli tip. Kapasite ve tarih uygunsa önce C-04’e toplanır; C-04 yetmezse C-03 denenir.",
+        "source": "İlave Talep-1 D sütunu"
+      },
+      {
+        "key": "R902719740",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902719741",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902729695",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902747824",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902748350",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902970039",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902970729",
+        "machines": [
+          "C-15",
+          "C-16",
+          "C-17"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-15/C-16/C-17 grubunda planlanabilir.",
+        "source": "İlave Talep-1 E sütunu"
+      },
+      {
+        "key": "R902719742",
+        "machines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "ruleType": "operational-alternative",
+        "description": "C-11 ve C-12 için C-08 Doosan alternatif tezgahı",
+        "source": "Operasyon kararı · 2026-08-27"
+      },
+      {
+        "key": "R902744004",
+        "machines": [
+          "C-11",
+          "C-12"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-11/C-12 grubunda planlanabilir; varsa özel kural daha üst önceliklidir.",
+        "source": "İlave Talep-1 F sütunu"
+      },
+      {
+        "key": "R902970277",
+        "machines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "ruleType": "operational-alternative",
+        "description": "C-11 ve C-12 için C-08 Doosan alternatif tezgahı",
+        "source": "Operasyon kararı · 2026-08-27"
+      },
+      {
+        "key": "R902970964",
+        "machines": [
+          "C-11",
+          "C-12",
+          "C-08"
+        ],
+        "ruleType": "operational-alternative",
+        "description": "C-11 ve C-12 için C-08 Doosan alternatif tezgahı",
+        "source": "Operasyon kararı · 2026-08-27"
+      },
+      {
+        "key": "R902200287",
+        "machines": [
+          "C-11",
+          "C-12"
+        ],
+        "ruleType": "İzinli grup",
+        "description": "Bu tipler C-11/C-12 grubunda planlanabilir; varsa özel kural daha üst önceliklidir.",
+        "source": "İlave Talep-1 F sütunu"
+      },
+      {
+        "key": "R902745149",
+        "machines": [
+          "C-12"
+        ],
+        "ruleType": "Kesin",
+        "description": "Sadece C-12 tezgahında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902745147",
+        "machines": [
+          "C-12"
+        ],
+        "ruleType": "Kesin",
+        "description": "Sadece C-12 tezgahında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902970964",
+        "machines": [
+          "C-11"
+        ],
+        "ruleType": "Kesin",
+        "description": "Sadece C-11 tezgahında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902745117",
+        "machines": [
+          "C-09"
+        ],
+        "ruleType": "Kesin",
+        "description": "Sadece C-09 tezgahında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902745123",
+        "machines": [
+          "C-09"
+        ],
+        "ruleType": "Kesin",
+        "description": "Sadece C-09 tezgahında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902745163",
+        "machines": [
+          "C-08",
+          "C-09",
+          "C-03",
+          "C-06"
+        ],
+        "ruleType": "Sıralı öncelik",
+        "description": "Önce C-08, kapasite/tarih yetmezse C-09, sonra C-03, sonra C-06.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "R902970276",
+        "machines": [
+          "C-06",
+          "C-07"
+        ],
+        "ruleType": "Kesin alternatif",
+        "description": "Sadece C-06 veya C-07 tezgahlarında planlanır.",
+        "source": "Kullanıcı özel kural"
+      },
+      {
+        "key": "Ø25,5 ve üstü",
+        "machines": [
+          "C-06"
+        ],
+        "ruleType": "Çap kuralı",
+        "description": "Ø25,5 / Ø27 / Ø30 / Ø33 gibi çaplar C-01, C-02, C-04, C-05 tezgahlarına planlanmaz; önce C-06 ve C-07 denenir.",
+        "source": "Kullanıcı çap kuralı"
+      }
+    ],
+    "restrictions": [
+      {
+        "machineId": "C-03",
+        "product": "R902719052"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719076"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719738"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719739"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719743"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719762"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719763"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719764"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719765"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719766"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719767"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902719768"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902725682"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902729941"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902974042"
+      },
+      {
+        "machineId": "C-03",
+        "product": "R902375400"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719052"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719076"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719738"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719739"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719743"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719762"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719763"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719764"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719765"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719766"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719767"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902719768"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902725682"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902729941"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902974042"
+      },
+      {
+        "machineId": "C-04",
+        "product": "R902375400"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902719740"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902719741"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902729695"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902747824"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902748350"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902970039"
+      },
+      {
+        "machineId": "C-15",
+        "product": "R902970729"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902719740"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902719741"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902729695"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902747824"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902748350"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902970039"
+      },
+      {
+        "machineId": "C-16",
+        "product": "R902970729"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902719740"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902719741"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902729695"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902747824"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902748350"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902970039"
+      },
+      {
+        "machineId": "C-17",
+        "product": "R902970729"
+      },
+      {
+        "machineId": "C-11",
+        "product": "R902719742"
+      },
+      {
+        "machineId": "C-11",
+        "product": "R902744004"
+      },
+      {
+        "machineId": "C-11",
+        "product": "R902970277"
+      },
+      {
+        "machineId": "C-11",
+        "product": "R902970964"
+      },
+      {
+        "machineId": "C-11",
+        "product": "R902200287"
+      },
+      {
+        "machineId": "C-12",
+        "product": "R902719742"
+      },
+      {
+        "machineId": "C-12",
+        "product": "R902744004"
+      },
+      {
+        "machineId": "C-12",
+        "product": "R902970277"
+      },
+      {
+        "machineId": "C-12",
+        "product": "R902970964"
+      },
+      {
+        "machineId": "C-12",
+        "product": "R902200287"
+      }
+    ],
+    "machines": [
+      {
+        "id": "C-03",
+        "name": "CITIZEN 3",
+        "active": true,
+        "availableStart": 46195,
+        "planEnd": 46233,
+        "note": "None",
+        "shiftFactor": 3,
+        "capacityFactor": 1,
+        "finishOffset": 0,
+        "rates": {
+          "R902745116": 243,
+          "R902745117": 133,
+          "R902745119": 225,
+          "R902745121": 223,
+          "R902745123": 155,
+          "R902745127": 284,
+          "R902745129": 284,
+          "R902745131": 264,
+          "R902745133": 273,
+          "R902745135": 300,
+          "R902745138": 288,
+          "R902747621": 182,
+          "R902745143": 157,
+          "R902745145": 145,
+          "R902745147": 118,
+          "R902745149": 121,
+          "R902970275": 164,
+          "R902970276": 131,
+          "R902745165": 162,
+          "R902745163": 161,
+          "R902745167": 175,
+          "R902970233": 172,
+          "R902745169": 187,
+          "R902747620": 187,
+          "R902745161": 196,
+          "R902970513": 249,
+          "R902970514": 284,
+          "R902970515": 292,
+          "R902970516": 317,
+          "R902970517": 254,
+          "R902970862": 144,
+          "R902970863": 140,
+          "R902974041": 292,
+          "R902972555": 292,
+          "R902972556": 292,
+          "R902719052": 125,
+          "R902719076": 292,
+          "R902719738": 111,
+          "R902719739": 115,
+          "R902719740": 89,
+          "R902719741": 86,
+          "R902719742": 51,
+          "R902719743": 134,
+          "R902719762": 292,
+          "R902719763": 223,
+          "R902719764": 194,
+          "R902719765": 214,
+          "R902719766": 150,
+          "R902719767": 128,
+          "R902719768": 73,
+          "R902719812": 153,
+          "R902725682": 371,
+          "R902729695": 77,
+          "R902729941": 67,
+          "R902744004": 63,
+          "R902747824": 103,
+          "R902748350": 125,
+          "R902970039": 90,
+          "R902970277": 69,
+          "R902970729": 152,
+          "R902970964": 73,
+          "R902974042": 148,
+          "R902375400": 87,
+          "R902200287": 118
+        },
+        "currentJob": {
+          "workOrder": "SYNTHETIC-754",
+          "product": "R902719741",
+          "quantity": 1295,
+          "start": 46339.625,
+          "end": 46343.625,
+          "dailyRate": 432,
+          "diameter": "Ø 30",
+          "originalQuantity": 1295,
+          "remainingQuantity": 1295,
+          "batchId": "remaining-1295"
+        },
+        "operationalAvailableStart": 46195
+      }
+    ],
+    "holidays": [
+      {
+        "name": "Yılbaşı Tatili",
+        "serial": 46023,
+        "workingShifts": 0
+      },
+      {
+        "name": "Ramazan Arifesi",
+        "serial": 46100,
+        "workingShifts": 0
+      },
+      {
+        "name": "Ramazan Bayramı 1. Günü",
+        "serial": 46101,
+        "workingShifts": 0
+      },
+      {
+        "name": "Ramazan Bayramı 2. Günü",
+        "serial": 46102,
+        "workingShifts": 0
+      },
+      {
+        "name": "Ramazan Bayramı 3. Günü",
+        "serial": 46103,
+        "workingShifts": 0
+      },
+      {
+        "name": "Ulusal Egemenlik ve Çocuk Bayramı",
+        "serial": 46135,
+        "workingShifts": 0
+      },
+      {
+        "name": "Kurban Bayramı Arifesi",
+        "serial": 46168,
+        "workingShifts": 0
+      },
+      {
+        "name": "Kurban Bayramı 1.gün",
+        "serial": 46169,
+        "workingShifts": 0
+      },
+      {
+        "name": "Kurban Bayramı 2.gün",
+        "serial": 46170,
+        "workingShifts": 0
+      },
+      {
+        "name": "Kurban Bayramı 3.gün",
+        "serial": 46171,
+        "workingShifts": 0
+      },
+      {
+        "name": "Kurban Bayramı 4.gün",
+        "serial": 46172,
+        "workingShifts": 0
+      },
+      {
+        "name": "Demokrasi ve Millî Birlik Günü",
+        "serial": 46218,
+        "workingShifts": 0
+      },
+      {
+        "name": "Zafer Bayramı",
+        "serial": 46264,
+        "workingShifts": 0
+      },
+      {
+        "name": "Cumhuriyet Bayramı Arifesi",
+        "serial": 46323,
+        "workingShifts": 0
+      },
+      {
+        "name": "Cumhuriyet Bayramı",
+        "serial": 46324,
+        "workingShifts": 0
+      },
+      {
+        "name": "31 Aralık Yılbaşı gecesi",
+        "serial": 46387,
+        "workingShifts": 0
+      }
+    ],
+    "savedBatches": [
+      {
+        "id": "excel-1",
+        "sequence": 1,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 13,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-2",
+        "sequence": 2,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 14,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-3",
+        "sequence": 3,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 15,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-4",
+        "sequence": 4,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 16,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-5",
+        "sequence": 5,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 17,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-6",
+        "sequence": 6,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 18,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-7",
+        "sequence": 7,
+        "product": "R902745121",
+        "orderQuantity": 15000,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=15000; L=1980; YeniPlanHedef=13860; HedefToplam=15840",
+        "planColumn": 19,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-8",
+        "sequence": 8,
+        "product": "R902745119",
+        "orderQuantity": 8460,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8460; L=1980; YeniPlanHedef=5940; HedefToplam=7920",
+        "planColumn": 13,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-9",
+        "sequence": 9,
+        "product": "R902745119",
+        "orderQuantity": 8460,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8460; L=1980; YeniPlanHedef=5940; HedefToplam=7920",
+        "planColumn": 14,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-10",
+        "sequence": 10,
+        "product": "R902745119",
+        "orderQuantity": 8460,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8460; L=1980; YeniPlanHedef=5940; HedefToplam=7920",
+        "planColumn": 15,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-11",
+        "sequence": 11,
+        "product": "R902745149",
+        "orderQuantity": 5380,
+        "quantity": 1600,
+        "machineId": "C-12",
+        "diameter": "Ø30",
+        "batchSize": 1600,
+        "dailyRate": 0,
+        "availableStart": 46204,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=5380; L=1600; YeniPlanHedef=3200; HedefToplam=4800",
+        "planColumn": 13,
+        "existingQuantity": 1600
+      },
+      {
+        "id": "excel-12",
+        "sequence": 12,
+        "product": "R902745149",
+        "orderQuantity": 5380,
+        "quantity": 1600,
+        "machineId": "C-12",
+        "diameter": "Ø30",
+        "batchSize": 1600,
+        "dailyRate": 0,
+        "availableStart": 46204,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=5380; L=1600; YeniPlanHedef=3200; HedefToplam=4800",
+        "planColumn": 14,
+        "existingQuantity": 1600
+      },
+      {
+        "id": "excel-13",
+        "sequence": 13,
+        "product": "R902745163",
+        "orderQuantity": 10794,
+        "quantity": 1980,
+        "machineId": "C-09",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46207,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10794; L=1980; YeniPlanHedef=7920; HedefToplam=9900",
+        "planColumn": 13,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-14",
+        "sequence": 14,
+        "product": "R902745163",
+        "orderQuantity": 10794,
+        "quantity": 1980,
+        "machineId": "C-09",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46207,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10794; L=1980; YeniPlanHedef=7920; HedefToplam=9900",
+        "planColumn": 14,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-15",
+        "sequence": 15,
+        "product": "R902745163",
+        "orderQuantity": 10794,
+        "quantity": 1980,
+        "machineId": "C-09",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46207,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10794; L=1980; YeniPlanHedef=7920; HedefToplam=9900",
+        "planColumn": 15,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-16",
+        "sequence": 16,
+        "product": "R902745163",
+        "orderQuantity": 10794,
+        "quantity": 1980,
+        "machineId": "C-09",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46207,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10794; L=1980; YeniPlanHedef=7920; HedefToplam=9900",
+        "planColumn": 16,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-17",
+        "sequence": 17,
+        "product": "R902745138",
+        "orderQuantity": 11931,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=11931; L=1920; YeniPlanHedef=9600; HedefToplam=11520",
+        "planColumn": 13,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-18",
+        "sequence": 18,
+        "product": "R902745138",
+        "orderQuantity": 11931,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=11931; L=1920; YeniPlanHedef=9600; HedefToplam=11520",
+        "planColumn": 14,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-19",
+        "sequence": 19,
+        "product": "R902745138",
+        "orderQuantity": 11931,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=11931; L=1920; YeniPlanHedef=9600; HedefToplam=11520",
+        "planColumn": 15,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-20",
+        "sequence": 20,
+        "product": "R902745138",
+        "orderQuantity": 11931,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=11931; L=1920; YeniPlanHedef=9600; HedefToplam=11520",
+        "planColumn": 16,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-21",
+        "sequence": 21,
+        "product": "R902745138",
+        "orderQuantity": 11931,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=11931; L=1920; YeniPlanHedef=9600; HedefToplam=11520",
+        "planColumn": 17,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-22",
+        "sequence": 22,
+        "product": "R902745117",
+        "orderQuantity": 3263,
+        "quantity": 1980,
+        "machineId": "C-09",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46207,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3263; L=1980; YeniPlanHedef=1980; HedefToplam=3960",
+        "planColumn": 17,
+        "existingQuantity": 1980
+      },
+      {
+        "id": "excel-23",
+        "sequence": 23,
+        "product": "R902745145",
+        "orderQuantity": 3748,
+        "quantity": 1920,
+        "machineId": "C-07",
+        "diameter": "Ø27",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3748; L=1920; YeniPlanHedef=1920; HedefToplam=3840",
+        "planColumn": 13,
+        "existingQuantity": 1920
+      },
+      {
+        "id": "excel-24",
+        "sequence": 24,
+        "product": "R902745161",
+        "orderQuantity": 10086,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10086; L=0; YeniPlanHedef=9900; HedefToplam=9900",
+        "planColumn": 14,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-25",
+        "sequence": 25,
+        "product": "R902745161",
+        "orderQuantity": 10086,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10086; L=0; YeniPlanHedef=9900; HedefToplam=9900",
+        "planColumn": 15,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-26",
+        "sequence": 26,
+        "product": "R902745161",
+        "orderQuantity": 10086,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10086; L=0; YeniPlanHedef=9900; HedefToplam=9900",
+        "planColumn": 16,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-27",
+        "sequence": 27,
+        "product": "R902745161",
+        "orderQuantity": 10086,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10086; L=0; YeniPlanHedef=9900; HedefToplam=9900",
+        "planColumn": 17,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-28",
+        "sequence": 28,
+        "product": "R902745161",
+        "orderQuantity": 10086,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=10086; L=0; YeniPlanHedef=9900; HedefToplam=9900",
+        "planColumn": 18,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-29",
+        "sequence": 29,
+        "product": "R902970515",
+        "orderQuantity": 5736,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=5736; L=0; YeniPlanHedef=5760; HedefToplam=5760",
+        "planColumn": 13,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-30",
+        "sequence": 30,
+        "product": "R902970515",
+        "orderQuantity": 5736,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=5736; L=0; YeniPlanHedef=5760; HedefToplam=5760",
+        "planColumn": 14,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-31",
+        "sequence": 31,
+        "product": "R902970515",
+        "orderQuantity": 5736,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=5736; L=0; YeniPlanHedef=5760; HedefToplam=5760",
+        "planColumn": 15,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-32",
+        "sequence": 32,
+        "product": "R902747621",
+        "orderQuantity": 8100,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8100; L=0; YeniPlanHedef=7920; HedefToplam=7920",
+        "planColumn": 19,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-33",
+        "sequence": 33,
+        "product": "R902747621",
+        "orderQuantity": 8100,
+        "quantity": 1980,
+        "machineId": "C-07",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46198,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8100; L=0; YeniPlanHedef=7920; HedefToplam=7920",
+        "planColumn": 20,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-34",
+        "sequence": 34,
+        "product": "R902747621",
+        "orderQuantity": 8100,
+        "quantity": 1980,
+        "machineId": "C-01",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46216,
+        "planEnd": 46249,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8100; L=0; YeniPlanHedef=7920; HedefToplam=7920",
+        "planColumn": 20,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-35",
+        "sequence": 35,
+        "product": "R902747621",
+        "orderQuantity": 8100,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=8100; L=0; YeniPlanHedef=7920; HedefToplam=7920",
+        "planColumn": 16,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-36",
+        "sequence": 36,
+        "product": "R902745129",
+        "orderQuantity": 4800,
+        "quantity": 2400,
+        "machineId": "C-05",
+        "diameter": "Ø14,2",
+        "batchSize": 2400,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "",
+        "planColumn": 16,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-37",
+        "sequence": 37,
+        "product": "R902745129",
+        "orderQuantity": 4800,
+        "quantity": 2400,
+        "machineId": "C-05",
+        "diameter": "Ø14,2",
+        "batchSize": 2400,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "",
+        "planColumn": 17,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-38",
+        "sequence": 38,
+        "product": "R902745169",
+        "orderQuantity": 4320,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4320; L=0; YeniPlanHedef=3960; HedefToplam=3960",
+        "planColumn": 17,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-39",
+        "sequence": 39,
+        "product": "R902745169",
+        "orderQuantity": 4320,
+        "quantity": 1980,
+        "machineId": "C-02",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4320; L=0; YeniPlanHedef=3960; HedefToplam=3960",
+        "planColumn": 18,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-40",
+        "sequence": 40,
+        "product": "R902745165",
+        "orderQuantity": 1585,
+        "quantity": 1980,
+        "machineId": "C-06",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=1585; L=0; YeniPlanHedef=1980; HedefToplam=1980",
+        "planColumn": 18,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-41",
+        "sequence": 41,
+        "product": "R902745135",
+        "orderQuantity": 3264,
+        "quantity": 1920,
+        "machineId": "C-02",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3264; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 19,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-42",
+        "sequence": 42,
+        "product": "R902745135",
+        "orderQuantity": 3264,
+        "quantity": 1920,
+        "machineId": "C-02",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3264; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 20,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-43",
+        "sequence": 43,
+        "product": "R902719052",
+        "orderQuantity": 3170,
+        "quantity": 1920,
+        "machineId": "C-04",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46197,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3170; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 13,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-44",
+        "sequence": 44,
+        "product": "R902719052",
+        "orderQuantity": 3170,
+        "quantity": 1920,
+        "machineId": "C-04",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46197,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=3170; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 14,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-45",
+        "sequence": 45,
+        "product": "R902970513",
+        "orderQuantity": 2304,
+        "quantity": 1920,
+        "machineId": "C-02",
+        "diameter": "Ø17,2",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=2304; L=0; YeniPlanHedef=1920; HedefToplam=1920",
+        "planColumn": 21,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-46",
+        "sequence": 46,
+        "product": "R902745116",
+        "orderQuantity": 5760,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø19,8",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "",
+        "planColumn": 18,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-47",
+        "sequence": 47,
+        "product": "R902745116",
+        "orderQuantity": 5760,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø19,8",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "",
+        "planColumn": 19,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-48",
+        "sequence": 48,
+        "product": "R902745116",
+        "orderQuantity": 5760,
+        "quantity": 1920,
+        "machineId": "C-05",
+        "diameter": "Ø19,8",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "",
+        "planColumn": 20,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-49",
+        "sequence": 49,
+        "product": "R902970039",
+        "orderQuantity": 480,
+        "quantity": 960,
+        "machineId": "C-15",
+        "diameter": "Ø27",
+        "batchSize": 960,
+        "dailyRate": 0,
+        "availableStart": 46209,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=480; L=0; YeniPlanHedef=960; HedefToplam=960",
+        "planColumn": 13,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-50",
+        "sequence": 50,
+        "product": "R902719739",
+        "orderQuantity": 1440,
+        "quantity": 1980,
+        "machineId": "C-04",
+        "diameter": "Ø20,7",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 46197,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=1440; L=0; YeniPlanHedef=1980; HedefToplam=1980",
+        "planColumn": 15,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-51",
+        "sequence": 51,
+        "product": "R902747824",
+        "orderQuantity": 845,
+        "quantity": 960,
+        "machineId": "C-15",
+        "diameter": "Ø27",
+        "batchSize": 960,
+        "dailyRate": 0,
+        "availableStart": 46209,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=845; L=0; YeniPlanHedef=960; HedefToplam=960",
+        "planColumn": 14,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-52",
+        "sequence": 52,
+        "product": "R902970275",
+        "orderQuantity": 4320,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø27",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4320; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 19,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-53",
+        "sequence": 53,
+        "product": "R902970275",
+        "orderQuantity": 4320,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø27",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4320; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 20,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-54",
+        "sequence": 54,
+        "product": "R902745123",
+        "orderQuantity": 4320,
+        "quantity": 0,
+        "machineId": "PLANLANAMADI",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 0,
+        "planEnd": 0,
+        "reason": "Kapasite/tarih yetersiz: aktif tezgahlarin M:Z araliginda, plan bitis tarihinden once uygun bos kolon bulunamadi.",
+        "planColumn": 0,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-55",
+        "sequence": 55,
+        "product": "R902745123",
+        "orderQuantity": 4320,
+        "quantity": 0,
+        "machineId": "PLANLANAMADI",
+        "diameter": "Ø25,5",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 0,
+        "planEnd": 0,
+        "reason": "Kapasite/tarih yetersiz: aktif tezgahlarin M:Z araliginda, plan bitis tarihinden once uygun bos kolon bulunamadi.",
+        "planColumn": 0,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-56",
+        "sequence": 56,
+        "product": "R902719812",
+        "orderQuantity": 1425,
+        "quantity": 2000,
+        "machineId": "C-05",
+        "diameter": "Ø14,2",
+        "batchSize": 2000,
+        "dailyRate": 0,
+        "availableStart": 46199,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=1425; L=0; YeniPlanHedef=2000; HedefToplam=2000",
+        "planColumn": 21,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-57",
+        "sequence": 57,
+        "product": "R902745143",
+        "orderQuantity": 4304,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø27",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4304; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 21,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-58",
+        "sequence": 58,
+        "product": "R902745143",
+        "orderQuantity": 4304,
+        "quantity": 1920,
+        "machineId": "C-06",
+        "diameter": "Ø27",
+        "batchSize": 1920,
+        "dailyRate": 0,
+        "availableStart": 46196,
+        "planEnd": 46233,
+        "reason": "Sarj yuvarlama + L mevcut. Siparis=4304; L=0; YeniPlanHedef=3840; HedefToplam=3840",
+        "planColumn": 22,
+        "existingQuantity": 0
+      },
+      {
+        "id": "excel-59",
+        "sequence": 59,
+        "product": "R902747620",
+        "orderQuantity": 2430,
+        "quantity": 0,
+        "machineId": "PLANLANAMADI",
+        "diameter": "Ø23",
+        "batchSize": 1980,
+        "dailyRate": 0,
+        "availableStart": 0,
+        "planEnd": 0,
+        "reason": "Kapasite/tarih yetersiz: aktif tezgahlarin M:Z araliginda, plan bitis tarihinden once uygun bos kolon bulunamadi.",
+        "planColumn": 0,
+        "existingQuantity": 0
+      }
+    ],
+    "productWeights": [
+      {
+        "product": "R902200287",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 74.45,
+        "sourceRow": 619
+      },
+      {
+        "product": "R902375400",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 380.63,
+        "sourceRow": 640
+      },
+      {
+        "product": "R902719052",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 74.45,
+        "sourceRow": 580
+      },
+      {
+        "product": "R902719076",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 43.15,
+        "sourceRow": 575
+      },
+      {
+        "product": "R902719738",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170008",
+        "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+        "grams": 80.45,
+        "sourceRow": 584
+      },
+      {
+        "product": "R902719739",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170009",
+        "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+        "grams": 228.91,
+        "sourceRow": 566
+      },
+      {
+        "product": "R902719740",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 402.33,
+        "sourceRow": 587
+      },
+      {
+        "product": "R902719741",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 504.17,
+        "sourceRow": 588
+      },
+      {
+        "product": "R902719742",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 697.93,
+        "sourceRow": 595
+      },
+      {
+        "product": "R902719743",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 75.13,
+        "sourceRow": 576
+      },
+      {
+        "product": "R902719762",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 71.42,
+        "sourceRow": 577
+      },
+      {
+        "product": "R902719763",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 70.35,
+        "sourceRow": 581
+      },
+      {
+        "product": "R902719764",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170008",
+        "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+        "grams": 77.95,
+        "sourceRow": 585
+      },
+      {
+        "product": "R902719765",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170009",
+        "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+        "grams": 228.91,
+        "sourceRow": 568
+      },
+      {
+        "product": "R902719766",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 378.84,
+        "sourceRow": 569
+      },
+      {
+        "product": "R902719767",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 477.84,
+        "sourceRow": 571
+      },
+      {
+        "product": "R902719768",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 662.66,
+        "sourceRow": 594
+      },
+      {
+        "product": "R902719812",
+        "productName": "PİSTON",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 37.09,
+        "sourceRow": 578
+      },
+      {
+        "product": "R902725682",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 45.13,
+        "sourceRow": 579
+      },
+      {
+        "product": "R902729695",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 402.33,
+        "sourceRow": 567
+      },
+      {
+        "product": "R902729941",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 504.17,
+        "sourceRow": 590
+      },
+      {
+        "product": "R902744004",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 697.93,
+        "sourceRow": 593
+      },
+      {
+        "product": "R902745116",
+        "productName": "PİSTON",
+        "materialCode": "Z170008",
+        "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+        "grams": 181,
+        "sourceRow": 363
+      },
+      {
+        "product": "R902745117",
+        "productName": "PİSTON",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 340,
+        "sourceRow": 366
+      },
+      {
+        "product": "R902745119",
+        "productName": "PİSTON",
+        "materialCode": "Z170009",
+        "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+        "grams": 222,
+        "sourceRow": 374
+      },
+      {
+        "product": "R902745121",
+        "productName": "PİSTON",
+        "materialCode": "Z170009",
+        "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+        "grams": 204,
+        "sourceRow": 375
+      },
+      {
+        "product": "R902745123",
+        "productName": "PİSTON",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 380,
+        "sourceRow": 376
+      },
+      {
+        "product": "R902745127",
+        "productName": "PİSTON",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 67,
+        "sourceRow": 377
+      },
+      {
+        "product": "R902745129",
+        "productName": "PİSTON",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 67,
+        "sourceRow": 379
+      },
+      {
+        "product": "R902745131",
+        "productName": "PİSTON",
+        "materialCode": "Z170007",
+        "materialName": "[31CrMoV9+QT] [Ø14,2mm] [3000mm] [DIN]",
+        "grams": 67,
+        "sourceRow": 378
+      },
+      {
+        "product": "R902745133",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 380
+      },
+      {
+        "product": "R902745135",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 381
+      },
+      {
+        "product": "R902745138",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 382
+      },
+      {
+        "product": "R902745143",
+        "productName": "PİSTON",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 461.76,
+        "sourceRow": 383
+      },
+      {
+        "product": "R902745145",
+        "productName": "PİSTON",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 461.76,
+        "sourceRow": 384
+      },
+      {
+        "product": "R902745147",
+        "productName": "PİSTON",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 651,
+        "sourceRow": 385
+      },
+      {
+        "product": "R902745149",
+        "productName": "PİSTON",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 651,
+        "sourceRow": 386
+      },
+      {
+        "product": "R902745161",
+        "productName": "PİSTON( CLUSTER 2)",
+        "materialCode": "Z170016",
+        "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+        "grams": 266,
+        "sourceRow": 389
+      },
+      {
+        "product": "R902745163",
+        "productName": "PİSTON( CLUSTER 1)",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 360,
+        "sourceRow": 390
+      },
+      {
+        "product": "R902745165",
+        "productName": "PİSTON( CLUSTER 1)",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 360,
+        "sourceRow": 391
+      },
+      {
+        "product": "R902745167",
+        "productName": "PİSTON( CLUSTER 1)",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 360,
+        "sourceRow": 392
+      },
+      {
+        "product": "R902745169",
+        "productName": "PİSTON( CLUSTER 2)",
+        "materialCode": "Z170016",
+        "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+        "grams": 260,
+        "sourceRow": 393
+      },
+      {
+        "product": "R902747620",
+        "productName": "PİSTON( CLUSTER 2)",
+        "materialCode": "Z170016",
+        "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+        "grams": 266,
+        "sourceRow": 387
+      },
+      {
+        "product": "R902747621",
+        "productName": "PİSTON( CLUSTER 2)",
+        "materialCode": "Z170016",
+        "materialName": "[31CrMoV9+QT] [Ø23mm] [3000mm] [DIN]",
+        "grams": 266,
+        "sourceRow": 388
+      },
+      {
+        "product": "R902747824",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 469,
+        "sourceRow": 565
+      },
+      {
+        "product": "R902748350",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 380.63,
+        "sourceRow": 589
+      },
+      {
+        "product": "R902970039",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 468.02,
+        "sourceRow": 570
+      },
+      {
+        "product": "R902970233",
+        "productName": "PİSTON( CLUSTER 1)",
+        "materialCode": "Z170010",
+        "materialName": "[31CrMoV9] [Ø25,5mm] [3000mm] [DIN]",
+        "grams": 360,
+        "sourceRow": 520
+      },
+      {
+        "product": "R902970275",
+        "productName": "PİSTON( CLUSTER 4)",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 461.76,
+        "sourceRow": 397
+      },
+      {
+        "product": "R902970276",
+        "productName": "PİSTON( CLUSTER 4)",
+        "materialCode": "Z170011",
+        "materialName": "[31CrMoV9+QT] [Ø27mm] [3000mm] [DIN]",
+        "grams": 461.76,
+        "sourceRow": 398
+      },
+      {
+        "product": "R902970277",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 626.57,
+        "sourceRow": 591
+      },
+      {
+        "product": "R902970513",
+        "productName": "PİSTON( CLUSTER 3)",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 487
+      },
+      {
+        "product": "R902970514",
+        "productName": "PİSTON( CLUSTER 3)",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 394
+      },
+      {
+        "product": "R902970515",
+        "productName": "PİSTON( CLUSTER 3)",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 121,
+        "sourceRow": 395
+      },
+      {
+        "product": "R902970516",
+        "productName": "PİSTON( CLUSTER 3)",
+        "materialCode": "Z170008",
+        "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+        "grams": 160,
+        "sourceRow": 396
+      },
+      {
+        "product": "R902970517",
+        "productName": "PİSTON( CLUSTER 3)",
+        "materialCode": "Z170008",
+        "materialName": "[31CrMoV9+QT] [Ø19,8mm] [3000mm] [DIN]",
+        "grams": 158.91,
+        "sourceRow": 460
+      },
+      {
+        "product": "R902970729",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170009",
+        "materialName": "[31CrMoV9+QT] [Ø20,7mm] [3000mm] [DIN]",
+        "grams": 201.63,
+        "sourceRow": 586
+      },
+      {
+        "product": "R902970862",
+        "productName": "PİSTON ( CLUSTER 6)",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 595,
+        "sourceRow": 547
+      },
+      {
+        "product": "R902970863",
+        "productName": "PİSTON ( CLUSTER 6)",
+        "materialCode": "Z170012",
+        "materialName": "[31CrMoV9+QT] [Ø30mm] [3000mm] [DIN]",
+        "grams": 595,
+        "sourceRow": 548
+      },
+      {
+        "product": "R902970964",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170018",
+        "materialName": "Ø  33,5    31 CRMOV 9V + SH + E",
+        "grams": 885.4,
+        "sourceRow": 592
+      },
+      {
+        "product": "R902972555",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 65.28,
+        "sourceRow": 572
+      },
+      {
+        "product": "R902972556",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 65.28,
+        "sourceRow": 573
+      },
+      {
+        "product": "R902972557",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 65.28,
+        "sourceRow": 622
+      },
+      {
+        "product": "R902974041",
+        "productName": "PİSTON",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 111.33,
+        "sourceRow": 582
+      },
+      {
+        "product": "R902974042",
+        "productName": "A2 CENTER PIN",
+        "materialCode": "Z170004",
+        "materialName": "[31CrMoV9V+SH+E] [Ø17,2mm] [3000mm] [DIN]",
+        "grams": 126.89,
+        "sourceRow": 583
+      }
+    ],
+    "rawMaterialSettings": {
+      "scrapPercent": 2,
+      "stockDate": "",
+      "stocks": []
+    },
+    "schemaVersion": 22,
+    "processMasterData": {
+      "version": 2,
+      "transferBatchQuantities": {
+        "drilling": 100
+      },
+      "source": {
+        "kind": "one-time-foundation",
+        "files": [
+          "Makine Kodlama Standartı (1).xlsx",
+          "Delme ve Çapak alma Parametre bilgileri (1).xlsx"
+        ],
+        "calculatedOnce": "GKM vardiyalık kapasiteleri kaynak çalışma kitabından bir kez hesaplandı ve yalnızca sonuç adetleri saklandı."
+      },
+      "machineCodeStandard": [
+        {
+          "processGroup": "AZDIRMA",
+          "prefix": "HB",
+          "meaning": "Hobbing",
+          "example": "HB-01"
+        },
+        {
+          "processGroup": "BASINÇLI YIKAMA",
+          "prefix": "W",
+          "meaning": "Washing",
+          "example": "W-01"
+        },
+        {
+          "processGroup": "CNC DİK İŞLEM",
+          "prefix": "MC",
+          "meaning": "Machining Center",
+          "example": "MC-01"
+        },
+        {
+          "processGroup": "CNC TORNA",
+          "prefix": "C",
+          "meaning": "CNC Turning Center",
+          "example": "C-01"
+        },
+        {
+          "processGroup": "ÇAP TAŞLAMA",
+          "prefix": "CG",
+          "meaning": "Cylindrical Grinding",
+          "example": "CG-01"
+        },
+        {
+          "processGroup": "ÇAPAK ALMA",
+          "prefix": "B",
+          "meaning": "Deburring / Burr Removal",
+          "example": "B-01"
+        },
+        {
+          "processGroup": "DELME",
+          "prefix": "D",
+          "meaning": "Drilling",
+          "example": "D-01"
+        },
+        {
+          "processGroup": "DOĞRULTMA",
+          "prefix": "ST",
+          "meaning": "Straightening",
+          "example": "ST-01"
+        },
+        {
+          "processGroup": "EDDY CURRENT",
+          "prefix": "EC",
+          "meaning": "Eddy Current",
+          "example": "EC-01"
+        },
+        {
+          "processGroup": "EZME",
+          "prefix": "BR",
+          "meaning": "Burnishing",
+          "example": "BR-01"
+        },
+        {
+          "processGroup": "FİLTRE ÇAKMA",
+          "prefix": "FP",
+          "meaning": "Filter Press / Fitting",
+          "example": "FP-01"
+        },
+        {
+          "processGroup": "FİNAL KONTROL",
+          "prefix": "FI",
+          "meaning": "Final Inspection",
+          "example": "FI-01"
+        },
+        {
+          "processGroup": "FORM TAŞLAMA",
+          "prefix": "FG",
+          "meaning": "Form Grinding",
+          "example": "FG-01"
+        },
+        {
+          "processGroup": "FREZE",
+          "prefix": "M",
+          "meaning": "Milling",
+          "example": "M-01"
+        },
+        {
+          "processGroup": "GÖZ KONTROL",
+          "prefix": "V",
+          "meaning": "Visual Inspection",
+          "example": "V-01"
+        },
+        {
+          "processGroup": "GTM",
+          "prefix": "GTM",
+          "meaning": "Mevcut özel proses / makine grubu kodu",
+          "example": "GTM-01"
+        },
+        {
+          "processGroup": "HONLAMA",
+          "prefix": "H",
+          "meaning": "Honing",
+          "example": "H-01"
+        },
+        {
+          "processGroup": "ÖLÇME",
+          "prefix": "ME",
+          "meaning": "Measurement",
+          "example": "ME-01"
+        },
+        {
+          "processGroup": "TAŞLAMA",
+          "prefix": "G",
+          "meaning": "Grinding",
+          "example": "G-01"
+        },
+        {
+          "processGroup": "TESTERE-KESME",
+          "prefix": "SC",
+          "meaning": "Saw Cutting",
+          "example": "SC-01"
+        },
+        {
+          "processGroup": "TORNA",
+          "prefix": "L",
+          "meaning": "Lathe",
+          "example": "L-01"
+        },
+        {
+          "processGroup": "TORNA-SERT",
+          "prefix": "HT",
+          "meaning": "Hard Turning",
+          "example": "HT-01"
+        }
+      ],
+      "resources": [
+        {
+          "id": "C-01",
+          "sourceProgramId": "C-01",
+          "erpWorkCenterCode": "01-16-02-002",
+          "name": "1-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-02",
+          "sourceProgramId": "C-02",
+          "erpWorkCenterCode": "01-16-02-003",
+          "name": "2-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-03",
+          "sourceProgramId": "C-03",
+          "erpWorkCenterCode": "01-16-02-004",
+          "name": "3-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-04",
+          "sourceProgramId": "C-04",
+          "erpWorkCenterCode": "01-16-02-005",
+          "name": "4-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-05",
+          "sourceProgramId": "C-05",
+          "erpWorkCenterCode": "01-16-02-006",
+          "name": "5-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-06",
+          "sourceProgramId": "C-06",
+          "erpWorkCenterCode": "01-16-02-007",
+          "name": "6-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-07",
+          "sourceProgramId": "C-07",
+          "erpWorkCenterCode": "01-16-02-008",
+          "name": "7-CITIZEN (Cincom)",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-08",
+          "sourceProgramId": "C-08",
+          "erpWorkCenterCode": "01-16-02-010",
+          "name": "DOOSAN PUMA",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-09",
+          "sourceProgramId": "C-09",
+          "erpWorkCenterCode": "01-10-02-005",
+          "name": "INDEX MS 32-1",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-10",
+          "sourceProgramId": "C-10",
+          "erpWorkCenterCode": "01-16-02-009",
+          "name": "NOMURADS",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-11",
+          "sourceProgramId": "C-11",
+          "erpWorkCenterCode": "01-13-02-006",
+          "name": "1-MIYANO ABX-64TH2",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-12",
+          "sourceProgramId": "C-12",
+          "erpWorkCenterCode": "01-13-02-007",
+          "name": "2-MIYANO ABX-64TH2",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-13",
+          "sourceProgramId": "C-13",
+          "erpWorkCenterCode": "01-20-02-002",
+          "name": "CITIZEN M32-2",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-14",
+          "sourceProgramId": "C-14",
+          "erpWorkCenterCode": "01-20-02-001",
+          "name": "CITIZEN M32-1",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-15",
+          "sourceProgramId": "C-15",
+          "erpWorkCenterCode": "01-20-02-003",
+          "name": "CITIZEN M32-3",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-16",
+          "sourceProgramId": "C-16",
+          "erpWorkCenterCode": "Fason-1",
+          "name": "BENTRO",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "C-17",
+          "sourceProgramId": "C-17",
+          "erpWorkCenterCode": "Fason-2",
+          "name": "YALIN OTO",
+          "operationCode": "010",
+          "operationName": "CNC TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "D-01",
+          "sourceProgramId": "D-01",
+          "erpWorkCenterCode": "01-16-09-003",
+          "name": "TBT SL250-4 SELSA",
+          "operationCode": "040",
+          "operationName": "DELME",
+          "process": "drilling",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "D-02",
+          "sourceProgramId": "D-02",
+          "erpWorkCenterCode": "01-16-09-002",
+          "name": "TBT SL200-2 SELSA",
+          "operationCode": "040",
+          "operationName": "DELME",
+          "process": "drilling",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "B-01-S1",
+          "sourceProgramId": "B-01 / S1",
+          "erpWorkCenterCode": "01-16-10-002",
+          "name": "1.İstasyon/ÇAPAK ALMA MAKİNESİ SELSA - 2",
+          "operationCode": "060",
+          "operationName": "ÇAPAK ALMA",
+          "process": "deburring",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "B-01-S2",
+          "sourceProgramId": "B-01 / S2",
+          "erpWorkCenterCode": "01-16-10-002",
+          "name": "2.İstasyon/ÇAPAK ALMA MAKİNESİ SELSA - 2",
+          "operationCode": "060",
+          "operationName": "ÇAPAK ALMA",
+          "process": "deburring",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "V-01",
+          "sourceProgramId": "V-01",
+          "erpWorkCenterCode": "01-21-16-001",
+          "name": "GKM-1 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "V-02",
+          "sourceProgramId": "V-02",
+          "erpWorkCenterCode": "01-21-16-002",
+          "name": "GKM-2 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": true,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "V-03",
+          "sourceProgramId": "V-03",
+          "erpWorkCenterCode": "01-21-16-003",
+          "name": "GKM-3 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": [
+            "piston",
+            "center-pin"
+          ]
+        },
+        {
+          "id": "V-04",
+          "sourceProgramId": "V-04",
+          "erpWorkCenterCode": "01-21-16-004",
+          "name": "GKM-4 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        },
+        {
+          "id": "V-05",
+          "sourceProgramId": "V-05",
+          "erpWorkCenterCode": "01-21-16-005",
+          "name": "GKM-5 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        },
+        {
+          "id": "V-06",
+          "sourceProgramId": "V-06",
+          "erpWorkCenterCode": "01-21-16-006",
+          "name": "GKM-6 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        },
+        {
+          "id": "V-07",
+          "sourceProgramId": "V-07",
+          "erpWorkCenterCode": "01-21-16-007",
+          "name": "GKM-7 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        },
+        {
+          "id": "V-08",
+          "sourceProgramId": "V-08",
+          "erpWorkCenterCode": "01-21-16-008",
+          "name": "GKM-8 TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        },
+        {
+          "id": "V-09",
+          "sourceProgramId": "V-09",
+          "erpWorkCenterCode": "01-21-16-011",
+          "name": "VISION TEKNOSKOP",
+          "operationCode": "290",
+          "operationName": "GÖZ KONTROL",
+          "process": "gkm",
+          "active": false,
+          "defaultShifts": 3,
+          "eligibleProductGroups": []
+        }
+      ],
+      "products": [
+        {
+          "product": "R902719741",
+          "family": "center-pin",
+          "processes": [
+            {
+              "process": "drilling",
+              "sequence": 1,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "Ø4,0",
+              "resourcePriority": [
+                "D-02"
+              ],
+              "unitsPerShift": {
+                "D-02": 1224
+              }
+            },
+            {
+              "process": "gkm",
+              "sequence": 2,
+              "waitWorkdaysBefore": 1,
+              "setupKey": "GKM",
+              "resourcePriority": [
+                "V-01",
+                "V-02",
+                "V-03",
+                "V-04",
+                "V-05",
+                "V-06",
+                "V-07",
+                "V-08",
+                "V-09"
+              ],
+              "unitsPerShift": {
+                "V-01": 1071,
+                "V-02": 1071,
+                "V-03": 1071,
+                "V-04": 1071,
+                "V-05": 1071,
+                "V-06": 1071,
+                "V-07": 1071,
+                "V-08": 1071,
+                "V-09": 1071
+              }
+            }
+          ],
+          "productGroup": "center-pin",
+          "route": [
+            "turning",
+            "drilling",
+            "gkm"
+          ]
+        }
+      ],
+      "planningStrategies": {
+        "drilling": "campaign",
+        "deburring": "earliest-ready",
+        "gkm": "earliest-ready"
+      }
+    },
+    "processOperationOverrides": [],
+    "setupSettings": {
+      "model": "product-family",
+      "shiftHours": 8,
+      "sameDiameterHours": 1,
+      "differentDiameterHours": 3,
+      "sameFamilyDifferentDiameterHours": 2,
+      "crossFamilyHours": 5
+    },
+    "customerOrderOverrides": [],
+    "productionHistory": [
+      {
+        "id": "date-history",
+        "product": "R902719741",
+        "workOrder": "SYNTHETIC-754",
+        "machineId": "C-03",
+        "machineName": "Torna",
+        "originalQuantity": 1005,
+        "completedQuantity": 1005,
+        "start": 46331.625,
+        "plannedEnd": 46342.625,
+        "completedAt": 46339.625,
+        "archivedAt": "2026-11-13T12:00:00.000Z",
+        "statusChangedAt": "2026-11-13T12:00:00.000Z",
+        "inventoryStatus": "semi-finished",
+        "process": "turning"
+      }
+    ],
+    "wipLots": [
+      {
+        "id": "date-lot",
+        "sourceHistoryEntryId": "date-history",
+        "product": "R902719741",
+        "workOrder": "SYNTHETIC-754",
+        "family": "center-pin",
+        "originalQuantity": 1005,
+        "availableQuantity": 1005,
+        "deliveredQuantity": 0,
+        "scrappedQuantity": 0,
+        "stage": "delivery-ready",
+        "readyAt": 46340.625,
+        "completedSteps": [
+          {
+            "process": "turning",
+            "resourceId": "C-03",
+            "resourceName": "turning",
+            "start": 46339.325,
+            "end": 46339.425,
+            "quantity": 1005,
+            "recordedAt": "2026-11-13T12:00:00.000Z"
+          },
+          {
+            "process": "drilling",
+            "resourceId": "D-01",
+            "resourceName": "drilling",
+            "start": 46339.424999999996,
+            "end": 46339.525,
+            "quantity": 1005,
+            "recordedAt": "2026-11-13T12:00:00.000Z"
+          },
+          {
+            "process": "gkm",
+            "resourceId": "G-01",
+            "resourceName": "gkm",
+            "start": 46339.524999999994,
+            "end": 46339.625,
+            "quantity": 1005,
+            "recordedAt": "2026-11-13T12:00:00.000Z"
+          }
+        ],
+        "createdAt": "2026-11-13T12:00:00.000Z",
+        "updatedAt": "2026-11-13T12:00:00.000Z"
+      }
+    ],
+    "productionInterruptions": [],
+    "wipMovements": [],
+    "chargeJourneyNotes": [],
+    "openingStock": {},
+    "activePlanningScope": {
+      "startPeriod": "2026-08",
+      "endPeriod": "2026-08"
+    },
+    "manualBatches": [],
+    "planningEvents": [],
+    "calendarEvents": [],
+    "processCurrentJobs": []
+  },
+  "request": {
+    "requestId": "date-j06",
+    "command": {
+      "kind": "correctJourneyDates",
+      "args": [
+        {
+          "lotId": "date-lot",
+          "expectedLot": "[\"date-lot\",\"2026-11-13T12:00:00.000Z\",\"delivery-ready\",1005,46340.625,null,[{\"process\":\"turning\",\"resourceId\":\"C-03\",\"resourceName\":\"turning\",\"start\":46339.325,\"end\":46339.425,\"quantity\":1005,\"recordedAt\":\"2026-11-13T12:00:00.000Z\"},{\"process\":\"drilling\",\"resourceId\":\"D-01\",\"resourceName\":\"drilling\",\"start\":46339.424999999996,\"end\":46339.525,\"quantity\":1005,\"recordedAt\":\"2026-11-13T12:00:00.000Z\"},{\"process\":\"gkm\",\"resourceId\":\"G-01\",\"resourceName\":\"gkm\",\"start\":46339.524999999994,\"end\":46339.625,\"quantity\":1005,\"recordedAt\":\"2026-11-13T12:00:00.000Z\"}]]",
+          "expectedHistory": "{\"id\":\"date-history\",\"product\":\"R902719741\",\"workOrder\":\"SYNTHETIC-754\",\"machineId\":\"C-03\",\"machineName\":\"Torna\",\"originalQuantity\":1005,\"completedQuantity\":1005,\"start\":46331.625,\"plannedEnd\":46342.625,\"completedAt\":46339.625,\"archivedAt\":\"2026-11-13T12:00:00.000Z\",\"statusChangedAt\":\"2026-11-13T12:00:00.000Z\",\"inventoryStatus\":\"semi-finished\",\"process\":\"turning\"}",
+          "quantity": 1005,
+          "confirmed": true,
+          "dateCorrection": {
+            "steps": [
+              {
+                "process": "turning",
+                "start": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                },
+                "end": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                }
+              },
+              {
+                "process": "drilling",
+                "start": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                },
+                "end": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                }
+              },
+              {
+                "process": "gkm",
+                "start": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                },
+                "end": {
+                  "precision": "day",
+                  "value": "2026-11-12"
+                }
+              }
+            ],
+            "delivery": {
+              "precision": "day",
+              "value": "2026-11-12"
+            },
+            "reason": "Geç giriş: 12 Kasım üretim ve teslimat, 13 Kasım kayıt.",
+            "confirmedOrder": true
+          }
+        }
+      ]
+    },
+    "expectedBasis": "d23f0c3946d2c2583e94bfe9a0176584249018c6b688b3424ef094dc42d1407b"
+  }
+}

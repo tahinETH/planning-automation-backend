@@ -375,6 +375,9 @@ function processLabel(process2) {
   return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
 }
 
+// lib/process-completion-time.ts
+var SERIAL_EPOCH = Date.UTC(1899, 11, 30);
+
 // lib/wip-ledger.ts
 var terminalStages = /* @__PURE__ */ new Set(["delivered", "scrapped"]);
 function activeWipLots(seed) {
@@ -547,7 +550,10 @@ function actualWipOperations(lot, masterProduct) {
     setupKey: "actual",
     unitsPerShift: 0,
     setupHours: 0,
-    runHours: Math.max(0, (step.end - step.start) * 24),
+    runHours: step.startPrecision === "day" || step.endPrecision === "day" ? 0 : Math.max(0, (step.end - step.start) * 24),
+    actualDurationUnknown: step.startPrecision === "day" || step.endPrecision === "day",
+    startPrecision: step.startPrecision,
+    endPrecision: step.endPrecision,
     waitWorkdaysBefore: 0,
     waitRuleLabel: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
     readyAt: step.start,
@@ -1540,6 +1546,7 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial2(factoryDa
 
 // lib/delivery-deduction.ts
 function effectiveDeliveryTimestamp(entry) {
+  if (entry.deliveredAtPrecision === "day" && entry.deliveredAt) return entry.deliveredAt.slice(0, 10);
   if (entry.deliveredAtTime && Number.isFinite(Date.parse(entry.deliveredAtTime))) return new Date(entry.deliveredAtTime).toISOString();
   const deliveryDate = entry.deliveredAt?.slice(0, 10) ?? "";
   if (deliveryDate && entry.statusChangedAt && factoryDateInput(entry.statusChangedAt) === deliveryDate) {
@@ -1547,6 +1554,18 @@ function effectiveDeliveryTimestamp(entry) {
   }
   if (deliveryDate) return (/* @__PURE__ */ new Date(`${deliveryDate}T00:00:00+03:00`)).toISOString();
   return entry.statusChangedAt && Number.isFinite(Date.parse(entry.statusChangedAt)) ? new Date(entry.statusChangedAt).toISOString() : "";
+}
+function deliveryTimestampBounds(timestamp) {
+  const dayOnly = /^\d{4}-\d{2}-\d{2}$/.test(timestamp);
+  const lower = Date.parse(dayOnly ? `${timestamp}T00:00:00+03:00` : timestamp);
+  return [lower, dayOnly ? lower + 864e5 - 1 : lower];
+}
+var uncertainCutoff = () => new Error("Teslim saati bilinmeyen g\xFCn kesim aral\u0131\u011F\u0131n\u0131n i\xE7inde b\xF6l\xFCn\xFCyor. Tam g\xFCn\xFC kapsayan tarih aral\u0131\u011F\u0131n\u0131 se\xE7in veya ger\xE7ek teslim saatini do\u011Frulay\u0131n.");
+function deliveryAtOrBeforeCutoff(timestamp, cutoff) {
+  const [lower, upper] = deliveryTimestampBounds(timestamp), boundary = Date.parse(cutoff);
+  if (!Number.isFinite(boundary)) return false;
+  if (lower <= boundary && upper > boundary) throw uncertainCutoff();
+  return upper <= boundary;
 }
 
 // lib/filter-monthly-demand.ts
@@ -1639,7 +1658,7 @@ function buildDeliveryPlanPayload(seed, result, range = deliveryPlanDefaultRange
     const timestamp = effectiveDeliveryTimestamp(entry);
     const deliveredAt = timestamp ? isoDateToSerial(factoryDateInput(timestamp)) : Number.NaN;
     if (!Number.isFinite(deliveredAt) || deliveredAt < start || deliveredAt >= end + 1) return [];
-    return [{ id: entry.id, product: entry.product.trim().toUpperCase(), quantity: Math.max(0, Math.trunc(entry.completedQuantity)), deliveredAt, beforeSnapshot: dailyDemand ? Date.parse(timestamp) <= Date.parse(seed.orderImport?.shipmentsThrough ?? "") : deliveredAt < cutoff }];
+    return [{ id: entry.id, product: entry.product.trim().toUpperCase(), quantity: Math.max(0, Math.trunc(entry.completedQuantity)), deliveredAt, beforeSnapshot: dailyDemand ? deliveryAtOrBeforeCutoff(timestamp, seed.orderImport?.shipmentsThrough ?? "") : deliveredAt < cutoff }];
   });
   const weekColumns = () => calendarWeeks.flatMap((calendarWeek) => {
     const week = { ...calendarWeek, span: 7 };

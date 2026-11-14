@@ -125,6 +125,9 @@ def _build_archive_sheet(workbook: Workbook, section: dict[str, Any], payload: d
             cell.font = Font(name="Aptos", size=8, color=INK, bold=column in {2, 4, 5})
             cell.alignment = Alignment(vertical="center", horizontal="right" if column == 11 else "left")
             cell.border = Border(bottom=thin)
+            if column in {1, 14} and isinstance(value, str) and "Saat bilinmiyor" in value:
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+                sheet.row_dimensions[row_index].height = 30
             if column == 11:
                 cell.number_format = "#,##0"
 

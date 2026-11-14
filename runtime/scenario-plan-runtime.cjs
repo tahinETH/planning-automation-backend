@@ -4346,6 +4346,9 @@ function processLabel(process2) {
   return { turning: "Torna", drilling: "Delme", deburring: "\xC7apak alma", gkm: "GKM", gtm: "GTM", "diameter-grinding": "\xC7ap Ta\u015Flama", "form-grinding": "Form Ta\u015Flama", measuring: "\xD6l\xE7me", milling: "Freze", "final-inspection": "Final Kontrol", "filter-visual": "G\xF6z Kontrol" }[process2];
 }
 
+// lib/process-completion-time.ts
+var SERIAL_EPOCH = Date.UTC(1899, 11, 30);
+
 // lib/wip-ledger.ts
 function isoNow(value) {
   return value ?? (/* @__PURE__ */ new Date()).toISOString();
@@ -4625,7 +4628,10 @@ function actualWipOperations(lot, masterProduct) {
     setupKey: "actual",
     unitsPerShift: 0,
     setupHours: 0,
-    runHours: Math.max(0, (step.end - step.start) * 24),
+    runHours: step.startPrecision === "day" || step.endPrecision === "day" ? 0 : Math.max(0, (step.end - step.start) * 24),
+    actualDurationUnknown: step.startPrecision === "day" || step.endPrecision === "day",
+    startPrecision: step.startPrecision,
+    endPrecision: step.endPrecision,
     waitWorkdaysBefore: 0,
     waitRuleLabel: "Fiili kay\u0131t \xB7 kay\u0131tl\u0131 ba\u015Flang\u0131\xE7 ve biti\u015F",
     readyAt: step.start,

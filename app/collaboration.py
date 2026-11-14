@@ -423,6 +423,15 @@ def production_command(value, user):
                 for row in accepted["seed"].get(field, []):
                     if row.get("manualReceipt") and (row.get("id") == identity or row.get("sourceHistoryEntryId") == identity):
                         row["manualReceipt"].update(actorId=user.id, actorName=user.name)
+        old_movement_ids = {row.get("id") for row in current["seed"].get("wipMovements", [])}
+        for movement in accepted["seed"].get("wipMovements", []):
+            if movement.get("id") not in old_movement_ids and movement.get("kind") == "dates-corrected":
+                movement["actor"] = user.name or user.id
+        if value["command"]["kind"] == "correctJourneyDates":
+            old_history_ids = {row.get("id") for row in current["seed"].get("productionHistory", [])}
+            for row in accepted["seed"].get("productionHistory", []):
+                if row.get("id") not in old_history_ids:
+                    row["statusChangedBy"] = user.name or user.id
         saved = save_planning_state(accepted["seed"], current["updatedAt"], mode="operational", actor_id=user.id,
             actor_name=user.name, can_manage_settings=user.is_admin, flow_settings_version=1, route_placement_version=1,
             production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1, internal_connection=db)
