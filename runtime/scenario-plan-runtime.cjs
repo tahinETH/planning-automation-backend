@@ -166,12 +166,12 @@ function processPlacementIdentities(seed, batchId, allowInheritance = true) {
 }
 
 // lib/process-flow.ts
-function curve(seed, resource, start, end, setupHours, quantity) {
+function curve(seed, resource, start, end, setupHours, quantity, capacityAt) {
   const windows = [];
   let setup = setupHours, hours = 0;
   if (end - start > 36600 || end <= start || quantity <= 0) return void 0;
   for (let day = Math.floor(start); day <= Math.floor(end); day += 1) {
-    const shifts = machineDayCapacity(seed, resource, day).shifts;
+    const shifts = (capacityAt ? capacityAt(day) : machineDayCapacity(seed, resource, day)).shifts;
     let left = Math.max(start, day);
     const right = Math.min(end, day + shifts * getSetupSettings(seed).shiftHours / 24);
     const skipped = Math.min(setup, Math.max(0, right - left) * 24);
@@ -213,7 +213,16 @@ function noStarvation(supply, demand) {
 }
 function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedStart, setupHours, runHours, quantity, targetMinutes) {
   const machine = { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 };
-  const schedule = (start) => addMachineCapacityHours(calendarSeed, machine, start, setupHours + runHours);
+  const capacities = /* @__PURE__ */ new Map();
+  const capacityAt = (day) => {
+    let value = capacities.get(day);
+    if (!value) {
+      value = machineDayCapacity(calendarSeed, machine, day);
+      capacities.set(day, value);
+    }
+    return value;
+  };
+  const schedule = (start) => addMachineCapacityHours(calendarSeed, machine, start, setupHours + runHours, capacityAt);
   const targetEnd = predecessor.end + targetMinutes / 1440;
   const upstream = predecessor.process === "turning" ? seed.machines.find((item) => item.id === predecessor.resourceId) : seed.processMasterData?.resources.find((item) => item.id === predecessor.resourceId);
   const upstreamCalendar = predecessor.resourceId.startsWith("B-01-") ? { ...seed, calendarEvents: seed.calendarEvents?.map((event) => event.machineId === "B-01" ? { ...event, machineId: predecessor.resourceId } : event) } : seed;
@@ -221,7 +230,7 @@ function dynamicFlowTiming(seed, calendarSeed, resource, predecessor, requestedS
   if (!supply) return { ...schedule(Math.max(requestedStart, predecessor.end)), targetEnd, reason: "\xD6nceki prosesin g\xFCvenilir par\xE7a \xE7\u0131k\u0131\u015F e\u011Frisi yok; kay\u0131tl\u0131 biti\u015F sonras\u0131 g\xFCvenli ba\u015Flang\u0131\xE7 kullan\u0131ld\u0131." };
   const safe = (start) => {
     const timing = schedule(start);
-    const consumption = curve(calendarSeed, machine, timing.start, timing.end, setupHours, quantity);
+    const consumption = curve(calendarSeed, machine, timing.start, timing.end, setupHours, quantity, capacityAt);
     return !!consumption && noStarvation(supply, consumption);
   };
   let left = Math.max(requestedStart, predecessor.start), right = Math.max(left, predecessor.end);
@@ -4828,6 +4837,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
           if (override?.queueOrder !== void 0 && nextOverride?.queueOrder !== void 0 && override.queueOrder > nextOverride.queueOrder) continue;
           const incomingSetup = calculateDownstreamSetup(process2, gap.tail, nextSetup, seed.productionArea === "cubuk-filtre" ? void 0 : seed.flowSettings);
           const gapStart = Math.max(readyAt, gap.cursor, override?.requestedStart ?? readyAt, resource.availableStart ?? readyAt);
+          if (gapStart > gap.nextReservation.start + 2e-6 + 1e-8) continue;
           const gapTimeline = rule?.mode === "dynamic" && predecessor ? dynamicFlowTiming(seed, calendarSeed, resource, predecessor, gapStart, incomingSetup.hours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(
             calendarSeed,
             { id: resource.id, shiftFactor: resource.defaultShifts, finishOffset: 0 },
@@ -5218,7 +5228,7 @@ function getSetupSettings(seed) {
     crossFamilyHours: nonNegative(source.crossFamilyHours, DEFAULT_SETUP_SETTINGS.crossFamilyHours)
   };
 }
-function addMachineCapacityHours(seed, machine, startValue, hoursValue) {
+function addMachineCapacityHours(seed, machine, startValue, hoursValue, capacityAt) {
   let cursor = Math.max(0, startValue);
   let remaining = Math.max(0, hoursValue);
   let actualStart = 0;
@@ -5226,7 +5236,7 @@ function addMachineCapacityHours(seed, machine, startValue, hoursValue) {
   const shiftHours = getSetupSettings(seed).shiftHours;
   while (remaining > 0 || !actualStart) {
     const day = Math.floor(cursor);
-    const capacityHours = machineDayCapacity(seed, machine, day).shifts * shiftHours;
+    const capacityHours = (capacityAt ? capacityAt(day) : machineDayCapacity(seed, machine, day)).shifts * shiftHours;
     const windowStart = day;
     const windowEnd = day + capacityHours / 24;
     if (capacityHours <= 0 || cursor >= windowEnd - 1e-8) {
