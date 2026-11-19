@@ -163,7 +163,8 @@ def build_filter_monthly_template(year):
     sheet = workbook.active
     sheet.title = 'SİPARİŞ ŞABLONU'
     sheet['A2'] = 'Day'
-    sheet['A6'] = f'{year} YILI'
+    sheet['A1'] = f'{year} YILI'
+    sheet['A1'].font = Font(bold=True, size=18, color='173D32')
     for column,month in enumerate(['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'],2):
         sheet.cell(8,column,month)
         sheet.cell(2,column,0)
@@ -176,11 +177,20 @@ def build_filter_monthly_template(year):
             if label == 'C100-DRS': cell.value = f'=ROUNDUP(SUM({c}9:{c}10)*1.03/15000,0)*15000'
             elif label == '002-DRS': cell.value = f'=ROUNDUP(SUM({c}11:{c}13)*1.04/1000,0)*1000'
             elif label == '081-DRS': cell.value = f'=ROUNDUP(SUM({c}14:{c}16)*1.04/1000,0)*1100'
-            if label in RULES: cell.fill = PatternFill('solid',fgColor='DDDDDD')
-    sheet['A28'] = 'Gri satırlar uygulamada kaynak miktarlardan hesaplanır. Kaynak adetleri düzenleyin.'
+            elif label == 'DRS Total': cell.value = f'=SUM({c}9:{c}16)'
+            elif label == 'ÇF Total': cell.value = f'=SUM({c}18:{c}24)'
+        total = label in {'DRS Total', 'ÇF Total'}
+        fill = '173D32' if total else 'E2E5E1' if label in RULES else 'EAF4FB'
+        for cell in sheet[row]:
+            cell.fill = PatternFill('solid', fgColor=fill)
+            cell.font = Font(bold=total or cell.column == 1, color='FFFFFF' if total else '17201C')
+            if cell.column > 1: cell.number_format = '#,##0'
+    sheet['A28'] = 'Mavi: kaynak adetleri. Gri: hesaplanan DRS. Yeşil: aylık toplam. Kaynak adetlerini düzenleyin.'
     sheet.column_dimensions['A'].width = 25
     for column in range(2,14): sheet.column_dimensions[get_column_letter(column)].width = 14
     sheet.freeze_panes = 'B9'
-    for cell in sheet[8]: cell.font = Font(bold=True)
+    for cell in sheet[8]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='173D32')
     output = BytesIO(); workbook.save(output)
     return output.getvalue()

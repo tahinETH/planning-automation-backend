@@ -630,3 +630,37 @@ def test_draft_reset17_optional_history_field_preserves_old_receipt_identity(fac
     with pytest.raises(HTTPException) as changed:
         collab.patch_scenario(saved['id'], {**request, 'resetAction': 'history-restore'}, A)
     assert changed.value.status_code == 409
+
+
+def test_fb_lock03_all_queue_locks_are_atomic_retry_safe_and_plan_neutral(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    seed['manualBatches'] = [dict(id=f'bulk-{i}', machineId=machine, product='R902745116', workOrder=f'BULK-{i}', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=i+1, locked=bool(i), diameter='10', setupHours=0)
+        for i, machine in enumerate(['C-04', 'C-05'])]
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    for locked in [True, False]:
+        before = db.planning_state()
+        request = dict(requestId=f'bulk-{locked}', expectedBasis=state_hash({**before['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+            command=dict(kind='setAllMachineQueueLocks', args=[locked]))
+        saved = collab.production_command(request, B)
+        expected = [{**row, 'locked': locked} for row in before['seed']['manualBatches']]
+        assert saved['current']['seed']['manualBatches'] == expected
+        assert db.planning_state()['seed']['manualBatches'] == expected
+        for field in set(before['seed']) - {'manualBatches', 'planningEvents'}:
+            assert saved['current']['seed'].get(field) == before['seed'].get(field), field
+        assert collab.production_command(request, B)['replayed']
+        with pytest.raises(HTTPException) as error:
+            collab.production_command({**request, 'requestId': f'stale-{locked}'}, B)
+        assert error.value.status_code == 409
+    before = db.planning_state()
+    request = dict(requestId='invalid-bulk', expectedBasis=state_hash({**before['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='setAllMachineQueueLocks', args=['false']))
+    with pytest.raises(HTTPException): collab.production_command(request, B)
+    assert db.planning_state() == before
+    with db.connection() as conn:
+        conn.execute("CREATE TRIGGER fail_bulk_receipt BEFORE INSERT ON production_commands BEGIN SELECT RAISE(ABORT, 'injected bulk failure'); END")
+    with pytest.raises(Exception, match='injected bulk failure'):
+        collab.production_command({**request, 'requestId': 'rollback-bulk', 'command': dict(kind='setAllMachineQueueLocks', args=[True])}, B)
+    assert db.planning_state() == before

@@ -340,3 +340,30 @@ def test_cf_mi27_downloadable_blank_template_round_trips_all_sources_and_derived
     assert len(result['rows'])==7
     assert all(row['quantities']==[0]*12 for row in result['rows'])
     with pytest.raises(OrderImportError):build_filter_monthly_template(1999)
+
+
+def test_fb_template01_month_totals_include_each_group_once_and_year_is_first():
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+    from app.filter_monthly_import import build_filter_monthly_template
+    content = build_filter_monthly_template(2027)
+    workbook = load_workbook(BytesIO(content))
+    sheet = workbook.active
+    assert sheet['A1'].value == '2027 YILI'
+    assert sheet['A6'].value is None
+    assert sheet['A17'].value == 'DRS Total'
+    assert sheet['A25'].value == 'ÇF Total'
+    for index in range(2, 14):
+        col = get_column_letter(index)
+        assert sheet.cell(17, index).value == f'=SUM({col}9:{col}16)'
+        assert sheet.cell(25, index).value == f'=SUM({col}18:{col}24)'
+        # Independent monthly example: eight DRS sources, four direct products.
+        for row in range(9, 17): sheet.cell(row, index, 100)
+        for row in [18, 22, 23, 24]: sheet.cell(row, index, 10)
+    assert len({sheet['B9'].fill.fgColor.rgb, sheet['B19'].fill.fgColor.rgb, sheet['B17'].fill.fgColor.rgb}) == 3
+    output = BytesIO(); workbook.save(output)
+    result = parse_order_xlsx(output.getvalue(), allow_filter_monthly=True)
+    # 800 source pieces; 15,000 + 1,000 + 1,100 derived and 4 x 10 direct.
+    assert sum(row['quantities'][0] for row in result['rows']) == 17140
+    assert all(row['quantities'] == [row['quantities'][0]] * 12 for row in result['rows'])

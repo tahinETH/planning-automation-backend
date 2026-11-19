@@ -7482,6 +7482,10 @@ function lockQueueThrough(result, machineId, batchId) {
 function unlockMachineQueue(result, machineId) {
   return { ...result, createdAt: (/* @__PURE__ */ new Date()).toISOString(), batches: result.batches.map((batch) => batch.machineId === machineId ? { ...batch, locked: false } : { ...batch }) };
 }
+function setAllMachineQueueLocks(result, locked) {
+  if (typeof locked !== "boolean") throw new Error("Kuyruk kilidi se\xE7imi ge\xE7ersiz.");
+  return { ...result, createdAt: (/* @__PURE__ */ new Date()).toISOString(), batches: result.batches.map((batch) => batch.status === "planned" ? { ...batch, locked } : { ...batch }) };
+}
 function updateMachineCurrentJob(seed, result, machineId, input, remainingAsOf) {
   const nextSeed = JSON.parse(JSON.stringify(seed));
   const machine = nextSeed.machines.find((item) => item.id === machineId);
@@ -10257,7 +10261,7 @@ function consolidateFilterSharedRemainders(seed, result, at) {
 }
 
 // lib/production-command.ts
-var productionCommandNames = ["correctJourneyDates", "recordManualArchiveReceipt", "saveMachineAvailability", "setMachineQueueLock", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
+var productionCommandNames = ["correctJourneyDates", "recordManualArchiveReceipt", "saveMachineAvailability", "setMachineQueueLock", "setAllMachineQueueLocks", "saveCurrentJob", "replaceTurningJob", "recordOutsidePlanProduction", "completeCurrentJob", "changeProductionHistoryStatus", "restoreProductionDelivery", "editProductionHistoryEntry", "allocateProductionHistory", "deliverJourneyWip", "releaseJourneyBuffer", "finishWipOperation", "beginDownstreamCurrentJob", "replaceDownstreamCurrentJob", "saveDownstreamCurrentJob", "finishDownstreamCurrentJob", "changeWipStage", "releaseHeldWip", "saveJourneyNote", "cancelRemainingProduction", "reviewProductionCancellation", "reviseOfficialOrder", "deactivateParameters"];
 function productionCommandBasis(seed, command) {
   if (seed.productionArea === "cubuk-filtre" && command.kind !== "saveJourneyNote") return { ...seed, chargeJourneyNotes: [], planningEvents: [] };
   if (command.kind === "completeCurrentJob" || command.kind === "deliverJourneyWip") {
@@ -10915,6 +10919,11 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     const message = throughBatchId === null ? `${machineId} ortak kuyruk kilidi kald\u0131r\u0131ld\u0131` : `${machineId} ortak kuyruk kilidi kaydedildi`;
     commitOperationalChange(cloneSeed2(seed), next, message, { type: throughBatchId === null ? "unlock" : "lock", machineId, message });
   }
+  function setAllMachineQueueLocks2(locked) {
+    const next = setAllMachineQueueLocks(result, locked);
+    const message = locked ? "T\xFCm tezgah kuyruklar\u0131 kilitlendi" : "T\xFCm tezgah kuyruklar\u0131n\u0131n kilitleri kald\u0131r\u0131ld\u0131";
+    commitOperationalChange(cloneSeed2(seed), next, message, { type: locked ? "lock" : "unlock", message });
+  }
   function saveMachineAvailability(machineId, start) {
     try {
       const next = cloneSeed2(seed);
@@ -11216,6 +11225,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
   }
   const actions = {
     setMachineQueueLock,
+    setAllMachineQueueLocks: setAllMachineQueueLocks2,
     saveMachineAvailability,
     rescheduleDownstreamOperation,
     placeDownstreamQueueOperation,
@@ -11691,7 +11701,7 @@ function mergeRemainderLocks(liveSeed, proposals, reset = false) {
     if (!hasProtectedProductionRemainder(liveSeed, batch.id, batch.interruptionId)) return batch;
     const matches = proposals.filter((proposal2) => proposal2.id === batch.id);
     const proposal = matches.length === 1 ? matches[0] : void 0;
-    const matchesIdentity = proposal && proposal.interruptionId === batch.interruptionId && proposal.quantity === batch.quantity && proposal.product === batch.product && proposal.workOrder === batch.workOrder && proposal.machineId === batch.machineId && typeof proposal.locked === "boolean";
+    const matchesIdentity = proposal && proposal.interruptionId === batch.interruptionId && proposal.quantity === batch.quantity && proposal.product === batch.product && (proposal.workOrder ?? "") === (batch.workOrder ?? "") && proposal.machineId === batch.machineId && typeof proposal.locked === "boolean";
     const retained = matchesIdentity ? { ...batch, locked: proposal.locked } : batch;
     if (!reset) return retained;
     const clean = withoutRouteChoices(retained);
@@ -11882,7 +11892,7 @@ function publicationProtectionMessage(batch, proposal) {
   const position = queuePosition(batch.planColumn);
   return `${protection} Tezgah: ${batch.machineId} \xB7 \xDCr\xFCn: ${batch.product} \xB7 \u0130\u015F emri: ${batch.workOrder || "Yok"} \xB7 Miktar: ${formatDecimal(batch.quantity)} adet \xB7 Ortak plandaki s\u0131ra: ${position > 0 ? position : "Belirtilmemi\u015F"}. ${difference} Ortak plan ile ki\u015Fisel tasla\u011F\u0131 kar\u015F\u0131la\u015Ft\u0131r\u0131n.`;
 }
-var planNeutralCommands = ["saveJourneyNote", "setMachineQueueLock"];
+var planNeutralCommands = ["saveJourneyNote", "setMachineQueueLock", "setAllMachineQueueLocks"];
 try {
   const request = JSON.parse((0, import_node_fs.readFileSync)(0, "utf8"));
   const seed = request.seed;
