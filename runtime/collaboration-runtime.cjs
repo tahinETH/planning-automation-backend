@@ -4732,6 +4732,9 @@ function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess 
 }
 
 // lib/shared-charge.ts
+function chargeIdNamespace() {
+  return BigInt(`0x${crypto.randomUUID().replace(/-/g, "")}`).toString(36);
+}
 function allocateSharedQuantity(quantity, resources) {
   if (!Number.isSafeInteger(quantity) || quantity <= 0 || !resources.length) return void 0;
   const limits = resources.filter((item) => Number.isFinite(item.start) && Number.isFinite(item.end) && item.end > item.start);
@@ -5158,6 +5161,7 @@ function turningOperation(seed, source) {
   const diameter = current?.diameter ?? batch?.diameter ?? "";
   return {
     id: `${source.id}:turning`,
+    ...sourceSharedCharge(source) ? { sharedCharge: sourceSharedCharge(source) } : {},
     batchId: source.id,
     product,
     family: masterProduct.family,
@@ -5661,10 +5665,15 @@ function placementBaselineWithCandidate(seed, result, operationId, baseline) {
 function previewProcessOperationReschedule(seed, result, operationId, resourceId, requestedStart) {
   return previewProcessOperationRescheduleWithBaseline(seed, result, operationId, resourceId, requestedStart, processPlacementBaseline(seed, result, operationId));
 }
-function previewProcessOperationRescheduleWithBaseline(seed, result, operationId, resourceId, requestedStart, baseline) {
+function previewProcessOperationRescheduleWithBaseline(seed, result, operationId, resourceId, requestedStart, baseline, individual = false) {
   const operation = baseline.operations.find((item) => item.id === operationId);
   if (!operation || operation.actual || operation.current || operation.process === "turning") throw new Error("Yaln\u0131zca kuyruktaki downstream operasyonlar\u0131 ta\u015F\u0131nabilir; \xE7al\u0131\u015Fan ve tamamlanan i\u015Fler sabittir.");
   if (!Number.isFinite(requestedStart) || requestedStart <= 0) throw new Error("Ge\xE7erli bir yeni ba\u015Flang\u0131\xE7 zaman\u0131 se\xE7in.");
+  if (!individual && seed.productionArea === "cubuk-filtre" && operation.sharedCharge) {
+    const portions = baseline.operations.filter((item) => item.sharedCharge?.id === operation.sharedCharge.id && item.process === operation.process && !item.actual);
+    if (portions.length > 1 && new Set(portions.map((item) => item.resourceId)).size > 1)
+      return previewLinkedProcessPlacement(seed, result, baseline, operation, portions, resourceId, requestedStart);
+  }
   if (requestedStart < operation.readyAt - 1e-8) {
     const predecessor = baseline.operations.find((item) => item.id === operation.predecessorOperationId);
     throw new Error(`\xD6nceki proses tamamlanmad\u0131: ${operation.product} i\xE7in ${predecessor ? processLabelForError(predecessor.process) : "\xF6nceki proses"} ve zorunlu bekleme nedeniyle en erken ba\u015Flang\u0131\xE7 ${processStartDate(operation.readyAt)}. \u0130stenen: ${processStartDate(requestedStart)}.`);
@@ -5744,6 +5753,65 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
     return before.id !== moved.id && (Math.abs(before.start - after.start) > 1e-8 || Math.abs(before.end - after.end) > 1e-8 || before.resourceId !== after.resourceId) ? [{ before, after }] : [];
   });
   return { seed: nextSeed, plan, operation: moved, requestedStart, insertionIndex, adjustments, affectedOperations, deliveryWarnings: placementDeliveryWarnings(seed, result, baseline, plan) };
+}
+function previewLinkedProcessPlacement(seed, result, baseline, operation, portions, resourceId, requestedStart) {
+  if (portions.some((item) => item.current)) throw new Error("Ortak \u015Farj\u0131n \xE7al\u0131\u015Fan par\xE7as\u0131 var. Ger\xE7ek ba\u015Flang\u0131\xE7 de\u011Fi\u015Ftirilemez.");
+  const resources = new Map(portions.map((item) => [item.id, item.id === operation.id ? resourceId : item.resourceId]));
+  const groups = /* @__PURE__ */ new Map();
+  for (const portion of [...portions].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))) {
+    const resource = resources.get(portion.id);
+    groups.set(resource, [...groups.get(resource) ?? [], portion]);
+  }
+  const ids = new Set(portions.map((item) => item.id));
+  let next = structuredClone(seed);
+  preserveParallelAllocations(next, baseline.operations);
+  for (const saved of next.processOperationOverrides ?? []) if (portions.some((item) => item.batchId === saved.batchId && item.process === saved.process)) {
+    saved.routeMode = "manual";
+    delete saved.preservedStart;
+    delete saved.preservedEnd;
+  }
+  let plan = baseline;
+  let commonStart = Math.max(requestedStart, ...[...groups.values()].map((items) => items[0].readyAt));
+  for (let attempt = 0; attempt < 128; attempt++) {
+    for (const [target, group] of groups) {
+      let cursor = commonStart;
+      for (const portion of group) {
+        const current = plan.operations.find((item) => item.id === portion.id);
+        const preview = previewProcessOperationRescheduleWithBaseline(next, result, portion.id, target, Math.max(cursor, current.readyAt), plan, true);
+        next = preview.seed;
+        plan = preview.plan;
+        cursor = preview.operation.end;
+      }
+    }
+    const moved = plan.operations.filter((item) => ids.has(item.id));
+    const groupStarts = [...groups.keys()].map((target) => Math.min(...moved.filter((item) => item.resourceId === target).map((item) => item.start)));
+    const nextStart = Math.max(...groupStarts);
+    if (moved.length === portions.length && groupStarts.every((start) => Math.abs(start - nextStart) < 1e-8)) {
+      const affectedOperations = [];
+      for (const before of baseline.operations) {
+        const after = plan.operations.find((item) => item.id === before.id);
+        if (!after || after.quantity !== before.quantity || after.product !== before.product) throw new Error("Ortak ta\u015F\u0131ma \u015Farj kimli\u011Fini veya miktar\u0131n\u0131 koruyamad\u0131.");
+        const changed = after.resourceId !== before.resourceId || after.start !== before.start || after.end !== before.end;
+        if (changed && (before.actual || before.current)) throw new Error("\xC7al\u0131\u015Fan ve tamamlanan i\u015Fler de\u011Fi\u015Ftirilemez.");
+        if (changed && before.id !== operation.id) affectedOperations.push({ before, after });
+      }
+      const selected = plan.operations.find((item) => item.id === operation.id);
+      const order = plan.operations.filter((item) => item.process === selected.process && item.resourceId === resourceId && !item.current && !item.actual).sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+      return {
+        seed: next,
+        plan,
+        operation: selected,
+        requestedStart,
+        insertionIndex: order.findIndex((item) => item.id === selected.id),
+        affectedOperations,
+        adjustments: ["Ortak \u015Farj\u0131n par\xE7alar\u0131 ilk ortak uygun ba\u015Flang\u0131ca ta\u015F\u0131nd\u0131."],
+        deliveryWarnings: placementDeliveryWarnings(seed, result, baseline, plan)
+      };
+    }
+    if (!Number.isFinite(nextStart)) break;
+    commonStart = nextStart;
+  }
+  throw new Error("\u015Earj\u0131n t\xFCm par\xE7alar\u0131 i\xE7in ortak uygun ba\u015Flang\u0131\xE7 bulunamad\u0131. Takvimleri kontrol edin.");
 }
 function placementDeliveryWarnings(seed, result, baseline, plan) {
   if (seed.productionArea === "cubuk-filtre") return [];
@@ -6242,7 +6310,7 @@ function validateFilterShipment(seed, code3, quantity) {
 
 // lib/plan-reset.ts
 function withoutRouteChoices(batch) {
-  const { routeCommitted: _commitment, routeTargetDate: _target, ...retained } = batch;
+  const { routeCommitted: _commitment, routeTargetDate: _target, linkedStart: _linkedStart, ...retained } = batch;
   return retained;
 }
 function mergeSharedQueueLocks(draft, live, replaceExisting = false) {
@@ -6821,7 +6889,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     while (reservedBatchIds.has(`scenario-${sequence}`)) sequence += 1;
     const id = `scenario-${sequence}`;
     reservedBatchIds.add(id);
-    return { id, sequence: sequence++ };
+    return { id, sequence: sequence++, ...seed.productionArea === "cubuk-filtre" && seed.activePlanRun?.chargeIdNamespace ? { workOrder: `ID-${sequence - 1}-${seed.activePlanRun.chargeIdNamespace}` } : {} };
   };
   const lastProduct = (state) => state.scheduled.at(-1)?.product ?? state.currentJob.product;
   const lastDiameter = (state) => normalizedDiameter(state.scheduled.at(-1)?.diameter ?? state.currentJob.diameter);
@@ -6920,11 +6988,12 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
           const shared = choices[0]?.allocation;
           if (shared && shared.length > 1) {
             const identity = nextScenarioIdentity();
-            const sharedCharge = { id: identity.id, quantity: lotQuantity };
+            const sharedCharge = { id: identity.workOrder ?? identity.id, quantity: lotQuantity };
             for (const [index, portion] of shared.entries()) {
               const { state, setup, hoursPerPiece } = portion.resource;
               const batch = {
                 ...index === 0 ? identity : nextScenarioIdentity(),
+                ...identity.workOrder ? { workOrder: identity.workOrder } : {},
                 sharedCharge,
                 product: order.product,
                 orderQuantity: order.quantity,
@@ -7438,7 +7507,11 @@ function recalculateManualBatches(seed, sourceBatches, options = { allowPlanEndO
       if (dailyRate <= 0) throw new Error(`${context}: \xFCretim h\u0131z\u0131 tan\u0131ml\u0131 de\u011Fil.`);
       const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter, machine.id);
       const runHours = machineRunHours(seed, machine, batch.product, batch.quantity);
-      const timeline = addMachineCapacityHours(seed, machine, seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? Math.max(previousEnd, batch.backwardNotBefore) : previousEnd, setup.hours + runHours);
+      const timeline = addMachineCapacityHours(seed, machine, Math.max(
+        previousEnd,
+        seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? batch.backwardNotBefore : 0,
+        Number.isFinite(batch.linkedStart) ? batch.linkedStart : 0
+      ), setup.hours + runHours);
       const start = timeline.start;
       const end = timeline.end;
       if (start < machine.availableStart - 1e-8) {
@@ -11609,6 +11682,7 @@ function preparePlanRun(seed, request, createdAt = (/* @__PURE__ */ new Date()).
     }) : null;
     if (deduction) planningSeed.orders = deduction.adjustedOrders;
     const metadata = {
+      ...seed.productionArea === "cubuk-filtre" ? { chargeIdNamespace: chargeIdNamespace() } : {},
       planId: monthlyContinuation ? previousRun.planId ?? previousRun.createdAt : createdAt,
       version: monthlyContinuation ? (previousRun.version ?? 1) + 1 : 1,
       engineVersion: PLAN_ENGINE_VERSION,

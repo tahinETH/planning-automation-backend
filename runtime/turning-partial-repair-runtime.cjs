@@ -692,6 +692,7 @@ function turningOperation(seed, source) {
   const diameter = current?.diameter ?? batch?.diameter ?? "";
   return {
     id: `${source.id}:turning`,
+    ...sourceSharedCharge(source) ? { sharedCharge: sourceSharedCharge(source) } : {},
     batchId: source.id,
     product,
     family: masterProduct.family,
@@ -1755,7 +1756,11 @@ function recalculateManualBatches(seed, sourceBatches, options = { allowPlanEndO
       if (dailyRate <= 0) throw new Error(`${context}: \xFCretim h\u0131z\u0131 tan\u0131ml\u0131 de\u011Fil.`);
       const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter, machine.id);
       const runHours = machineRunHours(seed, machine, batch.product, batch.quantity);
-      const timeline = addMachineCapacityHours(seed, machine, seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? Math.max(previousEnd, batch.backwardNotBefore) : previousEnd, setup.hours + runHours);
+      const timeline = addMachineCapacityHours(seed, machine, Math.max(
+        previousEnd,
+        seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? batch.backwardNotBefore : 0,
+        Number.isFinite(batch.linkedStart) ? batch.linkedStart : 0
+      ), setup.hours + runHours);
       const start = timeline.start;
       const end = timeline.end;
       if (start < machine.availableStart - 1e-8) {

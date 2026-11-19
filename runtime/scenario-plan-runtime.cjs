@@ -4636,6 +4636,7 @@ function turningOperation(seed, source) {
   const diameter = current?.diameter ?? batch?.diameter ?? "";
   return {
     id: `${source.id}:turning`,
+    ...sourceSharedCharge(source) ? { sharedCharge: sourceSharedCharge(source) } : {},
     batchId: source.id,
     product,
     family: masterProduct.family,

@@ -14,6 +14,34 @@ from test_wip_stage_safety import database_contents
 
 USER = CurrentUser('filter-review', 'Review Planner', 'review@example.test', 'user')
 
+
+def test_cf_trace02_draft_save_reload_retains_ids_common_start_and_factory_records(filter_world):
+    world = copy.deepcopy(db.planning_state())
+    proposal = copy.deepcopy(world['seed'])
+    prototype = proposal['manualBatches'][0]
+    portions = [dict(prototype, id=f'trace-portion-{index}', sequence=100 + index,
+        machineId=machine, workOrder='ID-1224492', sharedCharge={'id': 'ID-1224492', 'quantity': 16000},
+        quantity=8000, planColumn=20, start=46345.5, end=46353.5, linkedStart=46345.5)
+        for index, machine in enumerate(['L-01', 'L-02'])]
+    proposal['manualBatches'].extend(portions)
+    proposal['planNeedsRecalculation'] = True
+    draft = collab.save_scenario(dict(id='trace-draft', name='Charge tracking test', createdAt='2026-11-19T09:00:00Z',
+        notes='', seed=proposal, result={'batches': proposal['manualBatches']}, worldRevision=world['updatedAt']), USER)
+    loaded = collab.get_scenario(draft['id'], USER)
+    actual = [row for row in loaded['seed']['manualBatches'] if row['id'].startswith('trace-portion-')]
+    assert actual == portions
+    assert loaded['seed']['planNeedsRecalculation'] is True
+    assert db.planning_state() == world
+    # Personal drafts store proposals only; the unchanged shared world owns facts.
+    for key in ['productionHistory', 'wipLots', 'processCurrentJobs']:
+        assert loaded['seed'][key] == []
+    assert all(row['currentJob']['quantity'] == 0 for row in loaded['seed']['machines'])
+    with pytest.raises(HTTPException) as stale:
+        collab.save_scenario({**draft, 'revision': 0}, USER)
+    assert stale.value.status_code == 409
+    assert collab.get_scenario(draft['id'], USER) == loaded
+    assert db.planning_state() == world
+
 @pytest.fixture
 def filter_world(tmp_path, monkeypatch):
     token = production_area.set('cubuk-filtre')
