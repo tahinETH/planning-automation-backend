@@ -482,8 +482,11 @@ def test_draft_workflow_guide_explains_shared_completion_and_physical_remainder(
 
 def test_publication_protection_guide_separates_route_choices_from_queue_locks():
     topic = ToolSession(None, False).execute("read_knowledge", json.dumps({"topic_id": "plan-workspaces"}))
-    for label in ("Ortak kuyruk kilidi", "Kayıtlı akış tercihi", "Öncelikli planla", "Mevcut yerleşimi koru", "Elle yerleştir"):
+    for label in ("Kilit sütunu", "Kayıtlı akış tercihi", "Öncelikli planla", "Mevcut yerleşimi koru", "Elle yerleştir"):
         assert label in topic["body"]
+    assert "Ortak plandaki kilitler taslak düzenlenirken değişmez" in topic["body"]
+    assert "İncelenen planı yayınla ile onayladığında" in topic["body"]
+    assert "ortak kilitlerin önceden açılması gerekmez" in topic["body"]
     assert "ilk engel olan şarja" in topic["body"]
     assert "üretime başlandığını göstermez ve kuyruk kilidi değildir" in topic["body"]
     assert "Taslaktan kaldırmak Ortak plandaki tercihi kendiliğinden kaldırmaz" in topic["body"]
@@ -519,10 +522,12 @@ def test_cancellation_dialog_guide_separates_protected_output_from_new_productio
         assert any(source.get('symbol') == 'cancellationDialogInput' for source in topic['sources'])
 
 
-def test_draft_reset_explains_shared_locks_current_work_and_future_choices_with_visible_sources():
+def test_draft_reset_explains_personal_locks_current_work_and_future_choices_with_visible_sources():
     for topic_id in ('planning-engine', 'scenarios-persistence', 'production-interruptions', 'machines', 'processes-wip', 'process-gantt-placement'):
         topic = knowledge.for_model(knowledge.read_topic(topic_id))
-        assert 'ortak kilitli şarjları korur' in topic['body']
+        assert 'taslakta kilitli bırakılan şarjları' in topic['body']
+        assert 'taslakta kaldırılan üretime başlamamış şarjı geri getirmez' in topic['body']
+        assert 'ortak plan onaya kadar aynı kalır' in topic['body']
         for rule in ('Delme çalışıyorsa', 'Çapak Alma çalışıyorsa', 'Çalışan GKM korunur', 'sonraki proses tercihleri kaldırılır', 'Yalnız taslak açmak tercihleri sıfırlamaz'):
             assert rule in topic['body']
         assert 'Üretim durumu belirsiz kayıtlar da korunur' in topic['body']

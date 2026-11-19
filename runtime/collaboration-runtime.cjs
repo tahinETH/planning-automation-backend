@@ -6313,18 +6313,6 @@ function withoutRouteChoices(batch) {
   const { routeCommitted: _commitment, routeTargetDate: _target, linkedStart: _linkedStart, ...retained } = batch;
   return retained;
 }
-function mergeSharedQueueLocks(draft, live, replaceExisting = false) {
-  const sharedIds = new Set((live.manualBatches ?? []).filter((batch) => batch.locked).flatMap((batch) => batch.sharedCharge ? [batch.sharedCharge.id] : []));
-  const locked = reconcileTurningQueue(live, (live.manualBatches ?? []).filter((batch) => batch.locked || batch.sharedCharge && sharedIds.has(batch.sharedCharge.id)));
-  const byId = new Map(locked.map((batch) => [batch.id, batch]));
-  const proposals = draft.manualBatches ?? [];
-  const ids = new Set(proposals.map((batch) => batch.id));
-  const copy2 = (batch) => draft.planningResetVersion === 1 ? withoutRouteChoices({ ...batch }) : { ...batch };
-  return [
-    ...proposals.map((batch) => replaceExisting && byId.has(batch.id) ? copy2(byId.get(batch.id)) : { ...batch }),
-    ...locked.filter((batch) => !ids.has(batch.id)).map(copy2)
-  ];
-}
 var processOverrideKey = (row) => JSON.stringify([row.batchId, row.process]);
 function resetFutureProcessOverrides(seed) {
   const currentKeys = new Set((seed.processCurrentJobs ?? []).map(processOverrideKey));
@@ -11830,8 +11818,7 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
   merged.productionInterruptions = copy(liveSeed.productionInterruptions ?? []);
   if (liveSeed.productionCancellations) merged.productionCancellations = copy(liveSeed.productionCancellations);
   else delete merged.productionCancellations;
-  const proposals = mergeSharedQueueLocks(merged, liveSeed);
-  if (proposals.length !== (merged.manualBatches ?? []).length) merged.planNeedsRecalculation = true;
+  const proposals = merged.manualBatches ?? [];
   merged.manualBatches = mergeRemainderLocks(liveSeed, proposals, merged.planningResetVersion === 1);
   if (merged.planningResetVersion === 1) merged.processOperationOverrides = mergeResetProcessOverrides(merged, liveSeed);
   merged.productionHistory = copy(liveSeed.productionHistory ?? []);
@@ -11958,10 +11945,10 @@ function stable(value) {
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, stable(v)]));
   return value;
 }
-var lockedIdentity = (batch) => batch ? [batch.id, batch.machineId, batch.product, batch.workOrder ?? "", batch.quantity, batch.planColumn, Boolean(batch.locked), Boolean(batch.routeCommitted), batch.routeTargetDate ?? null, batch.interruptionId ?? null, batch.sharedCharge ?? null] : null;
+var lockedIdentity = (batch) => batch ? [batch.id, batch.machineId, batch.product, batch.workOrder ?? "", batch.quantity, batch.planColumn, Boolean(batch.routeCommitted), batch.routeTargetDate ?? null, batch.interruptionId ?? null, batch.sharedCharge ?? null] : null;
 var hash = (value) => (0, import_node_crypto.createHash)("sha256").update(JSON.stringify(stable(value))).digest("hex");
 function publicationProtectionMessage(batch, proposal) {
-  const protection = batch.locked && batch.routeCommitted ? "Ortak kuyruk kilidi ve kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama bu korumalar\u0131 olan \u015Farj\u0131 de\u011Fi\u015Ftiremez." : batch.locked ? "Ortak kuyruk kilidi: Yay\u0131nlama kilitli \u015Farj\u0131 de\u011Fi\u015Ftiremez." : "Kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama ak\u0131\u015F tercihi olan \u015Farj\u0131 de\u011Fi\u015Ftiremez.";
+  const protection = "Kay\u0131tl\u0131 ak\u0131\u015F tercihi: Yay\u0131nlama ak\u0131\u015F tercihi olan \u015Farj\u0131 de\u011Fi\u015Ftiremez.";
   const difference = proposal ? "Ki\u015Fisel taslakta bu \u015Farj\u0131n korunan bilgileri de\u011Fi\u015Fmi\u015F." : "Ki\u015Fisel taslakta bu \u015Farj yok.";
   const position = queuePosition(batch.planColumn);
   return `${protection} Tezgah: ${batch.machineId} \xB7 \xDCr\xFCn: ${batch.product} \xB7 \u0130\u015F emri: ${batch.workOrder || "Yok"} \xB7 Miktar: ${formatDecimal(batch.quantity)} adet \xB7 Ortak plandaki s\u0131ra: ${position > 0 ? position : "Belirtilmemi\u015F"}. ${difference} Ortak plan ile ki\u015Fisel tasla\u011F\u0131 kar\u015F\u0131la\u015Ft\u0131r\u0131n.`;
@@ -11991,7 +11978,7 @@ try {
       if (hash(officialInputValue(candidate, field)) !== hash(officialInputValue(official, field))) throw Error("Taslak sipari\u015F veya parametreleri ortak kay\u0131tla farkl\u0131. \xD6nce ortak girdilerle plan\u0131 yeniden inceleyin.");
     }
     for (const batch of seed.manualBatches ?? []) {
-      if (!batch.locked && (!batch.routeCommitted || reset)) continue;
+      if (!batch.routeCommitted || reset) continue;
       const proposal = draft.manualBatches?.find((row) => row.id === batch.id);
       const identity = (row) => lockedIdentity(reset && row ? withoutRouteChoices(row) : row);
       if (hash(identity(proposal)) !== hash(identity(batch))) throw Error(publicationProtectionMessage(reset ? withoutRouteChoices(batch) : batch, proposal));
