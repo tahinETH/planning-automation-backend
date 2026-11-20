@@ -651,7 +651,63 @@ function sourceDueSerial(seed, source) {
   const dates = seed.orders.filter((order) => order.product.toUpperCase() === source.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => inputDateSerial(order.dueDate)).filter((value) => value > 0);
   return dates.length ? Math.min(...dates) : void 0;
 }
-function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false, continuationControl = { enabled: false, used: false }) {
+function estimateDeliveryReadyFromStage(seed, master, source, stage) {
+  const route = productProcessRoute(source.masterProduct);
+  const stageIndex = route.indexOf(stage.process);
+  if (stageIndex < 0) return Number.POSITIVE_INFINITY;
+  let previous = stage;
+  const shiftHours = getSetupSettings(seed).shiftHours;
+  for (const process2 of route.slice(stageIndex + 1)) {
+    if (process2 === "turning") continue;
+    const parameter = source.masterProduct.processes.find((item) => item.process === process2);
+    if (!parameter) return Number.POSITIVE_INFINITY;
+    const rule = flowRule(seed, source.masterProduct.family, previous.process, process2);
+    let best;
+    try {
+      const readyAt = rule?.mode === "static" ? addDepartmentWorkMinutes(seed, previous.end, rule.minutes) : rule?.mode === "dynamic" && !parameter.leadStages?.length ? previous.start : applyProcessLeadStages(
+        seed,
+        addProcessWaitWorkdays(seed, previous.end, processWaitWorkdays(seed, previous.process)),
+        parameter.leadStages
+      );
+      for (const resourceId of activeProcessResourceIds(parameter)) {
+        const resource = processResource(master, resourceId);
+        const rate = parameter.unitsPerShift[resourceId];
+        if (!resource?.active || resource.process !== process2 || resource.defaultShifts <= 0 || !resourceSupportsProcessProduct(resource, source.masterProduct) || !Number.isFinite(rate) || rate <= 0) continue;
+        const setupHours = parameter.setupMinutesByResource ? (parameter.setupMinutesByResource[resourceId] + (parameter.handlingMinutes ?? 0)) / 60 : calculateDownstreamSetup(process2, void 0, { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey }, seed.flowSettings).hours;
+        if (!Number.isFinite(setupHours)) continue;
+        const runHours = source.quantity / rate * shiftHours;
+        const startAt = Math.max(readyAt, resource.availableStart ?? readyAt);
+        const calendar = processCalendarSeed(seed, resourceId);
+        try {
+          const timing = rule?.mode === "dynamic" ? dynamicFlowTiming(seed, calendar, resource, { ...previous, source: source.source, quantity: source.quantity, actual: false }, startAt, setupHours, runHours, source.quantity, rule.minutes) : addMachineCapacityHours(calendar, { id: resourceId, shiftFactor: resource.defaultShifts, finishOffset: 0 }, startAt, setupHours + runHours);
+          if (resource.planEnd && timing.end > Math.floor(resource.planEnd) + 1 + 1e-8) continue;
+          if (!best || timing.end < best.end) best = { process: process2, resourceId, setupHours, start: timing.start, end: timing.end };
+        } catch {
+        }
+      }
+    } catch {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (!best) return Number.POSITIVE_INFINITY;
+    previous = best;
+  }
+  try {
+    return routedDeliveryReadyAt(seed, previous.end, source.masterProduct.family, previous.process);
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function downstreamSetupRank(process2, option, queue, nextSetup, pinnedForResource, firstSetupHours) {
+  const previous = option.gapIndex >= 0 ? option.previousOperation ? setupSourceForOperation(option.previousOperation) : void 0 : queue;
+  if (previous?.product === nextSetup.product || Boolean(pinnedForResource?.has(nextSetup.product))) return 0;
+  if (process2 === "drilling" && previous) {
+    if (previous.family !== nextSetup.family && option.setupHours > firstSetupHours + 1e-8) return 3;
+    if (previous.setupKey === nextSetup.setupKey && option.setupHours < firstSetupHours - 1e-8) return 1;
+  }
+  return 2;
+}
+function scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates = false) {
+  const isPistonDownstream = seed.productionArea !== "cubuk-filtre" && (process2 === "drilling" || process2 === "deburring" || process2 === "gkm");
   const queueByResource = /* @__PURE__ */ new Map();
   const eligibleResources = /* @__PURE__ */ new Map();
   const usableResources = (source, parameter) => {
@@ -675,7 +731,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   const machineFree = (item) => {
     let free = machineFreeTimes.get(item.source);
     if (free === void 0) {
-      free = process2 === "drilling" ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(
+      free = process2 === "drilling" || isPistonDownstream ? Math.min(...usableResources(item.source, item.parameter).map((id) => Math.max(
         processResource(master, id)?.availableStart ?? 0,
         ...seed.productionArea === "cubuk-filtre" ? [] : (seed.processCurrentJobs ?? []).filter((job) => job.resourceId === id && job.batchId !== item.source.id).map((job) => job.end)
       )), Number.POSITIVE_INFINITY) : 0;
@@ -740,14 +796,16 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     if (leftOrder !== rightOrder) return leftOrder - rightOrder;
     if (Math.abs(leftScheduleAt - rightScheduleAt) > 1e-8) return leftScheduleAt - rightScheduleAt;
     const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
-    if (process2 !== "drilling" && left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
-    if (process2 === "drilling") {
+    if (!isPistonDownstream && left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
+    if (isPistonDownstream) {
       if (Boolean(left.override) !== Boolean(right.override)) return left.override ? -1 : 1;
       const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
       const rightDue = sourceDueSerial(seed, right.source) ?? Number.MAX_SAFE_INTEGER;
       if (leftDue !== rightDue) return leftDue - rightDue;
-      const feeds = (item) => productProcessRoute(item.source.masterProduct).includes("deburring") ? 0 : 1;
-      if (feeds(left) !== feeds(right)) return feeds(left) - feeds(right);
+      if (process2 === "drilling") {
+        const feeds = (item) => productProcessRoute(item.source.masterProduct).includes("deburring") ? 0 : 1;
+        if (feeds(left) !== feeds(right)) return feeds(left) - feeds(right);
+      }
       if (left.source.source !== right.source.source) return rank(left.source.source) - rank(right.source.source);
     }
     if (strategy === "campaign") {
@@ -900,9 +958,39 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     const earliestFinish = evaluated.find((option) => currentJob || !option.resource.planEnd || option.end <= Math.floor(option.resource.planEnd) + 1 + 1e-8);
     const preferred = process2 === "drilling" && !currentJob && !override && earliestFinish ? evaluated.filter((option) => option.start <= earliestFinish.start + 1e-8).sort((left, right) => left.priority - right.priority || left.end - right.end || left.resource.id.localeCompare(right.resource.id))[0] : earliestFinish;
     const due = sourceDueSerial(seed, source);
-    const continuation = continuationControl.enabled && process2 === "drilling" && !currentJob && !override && preferred && due !== void 0 && queueByResource.get(preferred.resource.id)?.product !== source.product ? evaluated.filter((option) => option.gapIndex < 0 && (queueByResource.get(option.resource.id)?.product === source.product || Boolean(pinnedProducts.get(option.resource.id)?.has(source.product)))).sort((left, right) => left.end - right.end || left.priority - right.priority)[0] : void 0;
-    if (continuation && continuation !== preferred) continuationControl.used = true;
-    const chosen = parallel && (parallel.length > 1 || override?.parallelAllocations) ? parallel[0].resource : continuation ?? preferred;
+    let stageChoice = preferred;
+    if (isPistonDownstream && !currentJob && !override && due !== void 0 && evaluated.length) {
+      const firstSetupHours = calculateDownstreamSetup(process2, void 0, nextSetup, seed.flowSettings).hours;
+      const seenResources = /* @__PURE__ */ new Set();
+      const perResource = evaluated.filter((option) => {
+        if (option.resource.planEnd && option.end > Math.floor(option.resource.planEnd) + 1 + 1e-8) return false;
+        if (seenResources.has(option.resource.id)) return false;
+        seenResources.add(option.resource.id);
+        return true;
+      }).map((option) => ({
+        option,
+        setupRank: downstreamSetupRank(process2, option, queueByResource.get(option.resource.id), nextSetup, pinnedProducts.get(option.resource.id), firstSetupHours),
+        projectedReady: estimateDeliveryReadyFromStage(seed, master, source, { ...option, process: process2, resourceId: option.resource.id })
+      }));
+      if (perResource.length) {
+        const onTime = perResource.filter((item2) => Math.floor(item2.projectedReady) <= Math.floor(due));
+        let pool = onTime;
+        if (!pool.length) {
+          const earliestEnd = Math.min(...perResource.map((item2) => item2.option.end));
+          pool = perResource.filter((item2) => item2.option.end <= earliestEnd + 1e-6);
+        }
+        const bestRank = Math.min(...pool.map((item2) => item2.setupRank));
+        const ranked = pool.filter((item2) => item2.setupRank === bestRank);
+        if (process2 === "drilling") {
+          const earliestStart = Math.min(...ranked.map((item2) => item2.option.start));
+          const equalStart = ranked.filter((item2) => item2.option.start <= earliestStart + 1e-8);
+          stageChoice = (equalStart.length ? equalStart : ranked).sort((left, right) => left.option.setupHours - right.option.setupHours || left.option.priority - right.option.priority || left.option.end - right.option.end || left.option.resource.id.localeCompare(right.option.resource.id))[0].option;
+        } else {
+          stageChoice = ranked.sort((left, right) => left.option.setupHours - right.option.setupHours || left.option.end - right.option.end || left.option.priority - right.option.priority || left.option.resource.id.localeCompare(right.option.resource.id))[0].option;
+        }
+      }
+    }
+    const chosen = parallel && (parallel.length > 1 || override?.parallelAllocations) ? parallel[0].resource : stageChoice;
     if (!chosen) {
       warnings.push({ code: "missing-resource", product: source.product, batchId: source.id, message: `${source.product} \xB7 ${process2} i\xE7in kullan\u0131labilir i\u015F merkezi veya vardiya kapasitesi yok.` });
       continue;
@@ -1031,29 +1119,6 @@ function processGapDiagnostics(seed, master, operations) {
   return gaps;
 }
 function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
-  const control = { enabled: seed.productionArea !== "cubuk-filtre" && seed.plannedThroughProcess === void 0, used: false };
-  const consolidated = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, control);
-  if (!control.used) return consolidated;
-  const spread = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, { enabled: false, used: false });
-  const a = onTimeScore(seed, result, consolidated), b = onTimeScore(seed, result, spread);
-  return a.latePieces > b.latePieces || a.latePieces === b.latePieces && a.lateDays > b.lateDays + 1e-8 ? spread : consolidated;
-}
-function onTimeScore(seed, result, plan) {
-  let latePieces = 0, lateDays = 0;
-  for (const job of plan.jobs) {
-    const batch = result.batches.find((item) => item.id === job.batchId);
-    const dueDate = batch?.demandDueDate || seed.orders.filter((order) => order.product.toUpperCase() === job.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => order.dueDate).sort()[0];
-    if (!dueDate) continue;
-    const due = inputDateSerial(dueDate) + 1;
-    const ready = job.deliveryReadyAt > 0 ? job.deliveryReadyAt : Number.POSITIVE_INFINITY;
-    if (ready > due + 1e-8) {
-      latePieces += job.quantity;
-      lateDays += Number.isFinite(ready) ? ready - due : 3650;
-    }
-  }
-  return { latePieces, lateDays };
-}
-function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, continuationControl) {
   const master = seed.processMasterData ?? { version: 0, source: { kind: "one-time-foundation", files: [], calculatedOnce: "" }, machineCodeStandard: [], products: [], resources: [] };
   const warnings = validateProcessMasterData(master);
   const sources = [];
@@ -1116,7 +1181,7 @@ function buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidat
   const operationsByKey = /* @__PURE__ */ new Map();
   const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
   for (const operation of baseOperations) operationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
-  const downstream = productionProcessOrder(seed).filter((process2) => process2 !== "turning").flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates, continuationControl));
+  const downstream = productionProcessOrder(seed).filter((process2) => process2 !== "turning").flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates));
   const operations = [...baseOperations, ...downstream].sort((left, right) => left.start - right.start || left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.id.localeCompare(right.id));
   const jobs = sources.map((source) => {
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.end - right.end);
@@ -1527,7 +1592,7 @@ function orderProductionBreakdown(seed, batches, order, readinessEvents) {
   const existingTotal = filterRows ? filterRows.filter((row) => !row.planned).reduce((sum, row) => sum + row.quantity, 0) : (seed.processStockSettings?.opening ?? []).filter((row) => row.product === code2).reduce((sum, row) => sum + filterSupplyGoodPieces(seed, row.product, row.quantity, row.groupId === "warehouse"), 0) + (seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code2] ?? 0)) + semiFinishedProduction(seed).filter((entry) => entry.product.toUpperCase() === code2).reduce((sum, entry) => sum + filterHistoryGoodPieces(seed, entry), 0) + seed.machines.filter((machine) => machine.currentJob.product.toUpperCase() === code2).reduce((sum, machine) => sum + filterSupplyGoodPieces(seed, machine.currentJob.product, machine.currentJob.quantity), 0);
   const plannedTotal = filterRows ? filterRows.filter((row) => row.planned).reduce((sum, row) => sum + row.quantity, 0) : batches.filter((batch) => batch.status === "planned" && batch.product.toUpperCase() === code2).reduce((sum, batch) => sum + filterSupplyGoodPieces(seed, batch.product, batch.quantity), 0);
   const dueSerial = inputDateSerial2(order.dueDate);
-  const onTimeTotal = dueSerial ? seed.activePlanRun?.optimizationGoal === "coarse" && !seed.monthlyCustomerDemand ? productionQuantityByTurningDate(seed, batches, order.product, dueSerial) : productionQuantityByDate(seed, batches, order.product, dueSerial, readinessEvents) : null;
+  const onTimeTotal = dueSerial ? seed.productionArea === "cubuk-filtre" && seed.activePlanRun?.optimizationGoal === "coarse" && !seed.monthlyCustomerDemand ? productionQuantityByTurningDate(seed, batches, order.product, dueSerial) : productionQuantityByDate(seed, batches, order.product, dueSerial, readinessEvents) : null;
   const productOrders = seed.orders.filter((item) => item.product.toUpperCase() === code2).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || a.sourceRow - b.sourceRow || a.id.localeCompare(b.id));
   const position = productOrders.findIndex((item) => item.id === order.id);
   const priorDemand = productOrders.slice(0, Math.max(0, position)).reduce((sum, item) => sum + item.quantity, 0);
