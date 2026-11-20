@@ -6159,7 +6159,7 @@ function processGapDiagnostics(seed, master, operations) {
   return gaps;
 }
 function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
-  const control = { enabled: seed.productionArea !== "cubuk-filtre" && (seed.plannedThroughProcess === void 0 || seed.plannedThroughProcess === productionProcessOrder(seed).at(-1)), used: false };
+  const control = { enabled: seed.productionArea !== "cubuk-filtre" && seed.plannedThroughProcess === void 0, used: false };
   const consolidated = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, control);
   if (!control.used) return consolidated;
   const spread = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, { enabled: false, used: false });
