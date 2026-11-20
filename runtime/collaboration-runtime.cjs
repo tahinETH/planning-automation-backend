@@ -5444,6 +5444,48 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         if (different >= 0) index = different;
       }
     }
+    if (isPistonDownstream && !first.currentJob && !first.override) {
+      const firstUsable = usableResources(first.source, first.parameter);
+      const firstCount = firstUsable.length;
+      if (firstCount > 0) {
+        const freeAt = Math.min(...firstUsable.map((id) => Math.max(first.readyAt, queueByResource.get(id)?.tail ?? first.readyAt, processResource(master, id)?.availableStart ?? 0)));
+        const readySetupRank = (candidate) => {
+          const setup = { product: candidate.source.product, family: candidate.source.masterProduct.family, setupKey: candidate.parameter.setupKey };
+          const firstSetupHours = calculateDownstreamSetup(process2, void 0, setup, seed.flowSettings).hours;
+          let best = 4;
+          for (const id of usableResources(candidate.source, candidate.parameter)) {
+            const tail = Math.max(queueByResource.get(id)?.tail ?? 0, processResource(master, id)?.availableStart ?? 0);
+            if (tail > freeAt + 1e-8) continue;
+            const queue = queueByResource.get(id);
+            const hours = calculateDownstreamSetup(process2, queue, setup, seed.flowSettings).hours;
+            const rank = downstreamSetupRank(process2, { gapIndex: -1, setupHours: hours }, queue, setup, pinnedProducts.get(id), firstSetupHours);
+            if (rank < best) best = rank;
+          }
+          return best;
+        };
+        const readyIndices = [];
+        for (let i = 0; i < pending.length; i += 1) {
+          const candidate = pending[i];
+          if (candidate.currentJob || candidate.override) break;
+          if (process2 === "drilling" && usableResources(candidate.source, candidate.parameter).length !== firstCount) break;
+          if (candidate.readyAt <= freeAt + 1e-8) readyIndices.push(i);
+        }
+        if (readyIndices.length > 1) {
+          readyIndices.sort((a, b) => {
+            const left = pending[a], right = pending[b];
+            const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
+            const rightDue = sourceDueSerial(seed, right.source) ?? Number.MAX_SAFE_INTEGER;
+            if (leftDue !== rightDue) return leftDue - rightDue;
+            if (leftDue < Number.MAX_SAFE_INTEGER || strategy === "campaign") {
+              const setupDiff = readySetupRank(left) - readySetupRank(right);
+              if (setupDiff) return setupDiff;
+            }
+            return a - b;
+          });
+          index = readyIndices[0];
+        }
+      }
+    }
     const [item] = pending.splice(index, 1);
     const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, waitRuleLabel, rule } = item;
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
@@ -5776,16 +5818,23 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
   const resource = assertProcessPlacementResource(seed, operation, resourceId);
   if (resource.planEnd && requestedStart >= Math.floor(resource.planEnd) + 1) throw new Error(`${resourceId} plan penceresi ${processStartDate(resource.planEnd)} tarihinde bitiyor.`);
   if (operation.parallelPortion || operation.process === "milling" && baseline.operations.some((item) => item.parallelPortion)) return previewParallelMillingPlacement(seed, result, baseline, operation, resourceId, requestedStart);
+  return previewQueuedProcessPlacement(seed, result, baseline, [operation], resource, requestedStart);
+}
+function previewQueuedProcessPlacement(seed, result, baseline, selected, resource, requestedStart) {
+  const [operation] = selected;
+  const resourceId = resource.id;
+  const selectedIds = new Set(selected.map((item) => item.id));
   const process2 = operation.process;
+  if (process2 === "turning") throw new Error("Bu i\u015Flem yaln\u0131zca Torna sonras\u0131ndaki prosesler i\xE7in kullan\u0131labilir.");
   const queues = /* @__PURE__ */ new Map();
-  for (const item of baseline.operations.filter((item2) => item2.process === process2 && !item2.actual && !item2.current && item2.id !== operation.id)) {
+  for (const item of baseline.operations.filter((item2) => item2.process === process2 && !item2.actual && !item2.current && !selectedIds.has(item2.id))) {
     queues.set(item.resourceId, [...queues.get(item.resourceId) ?? [], item]);
   }
   for (const queue of queues.values()) queue.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
   const destination = queues.get(resourceId) ?? [];
   const nextIndex = destination.findIndex((item) => item.end > requestedStart + 1e-8);
   const insertionIndex = nextIndex < 0 ? destination.length : nextIndex;
-  destination.splice(insertionIndex, 0, operation);
+  destination.splice(insertionIndex, 0, ...selected);
   queues.set(resourceId, destination);
   const nextSeed = JSON.parse(JSON.stringify(seed));
   const queuedIds = new Set([...queues.values()].flat().map((item) => item.batchId));
@@ -5795,11 +5844,12 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
     ...[...queues].flatMap(([queueResourceId, queue]) => {
       let cursor = 0;
       return queue.map((item, queueOrder) => {
-        const anchor = item.id === operation.id ? requestedStart : Math.max(item.start, cursor);
+        const moving = selectedIds.has(item.id);
+        const anchor = item.id === operation.id ? requestedStart : Math.max(moving ? item.readyAt : item.start, cursor);
         cursor = anchor + 1 / 86400;
         const previous = seed.processOperationOverrides?.find((value) => value.batchId === item.batchId && value.process === process2);
         const currentMachine = item.source === "current-turning" ? seed.machines.find((machine) => `current:${machine.id}` === item.batchId) : void 0;
-        return { ...previous, ...item.id === operation.id ? { routeMode: "manual", resumeAfterCurrent: false, preservedStart: void 0, preservedEnd: void 0 } : {}, batchId: item.batchId, process: process2, resourceId: queueResourceId, requestedStart: anchor, updatedAt, queueOrder, sourceProduct: item.product, sourceCurrentJobKey: currentMachine ? currentJobRouteIdentity(currentMachine) : void 0 };
+        return { ...previous, ...moving ? { routeMode: "manual", resumeAfterCurrent: false, preservedStart: void 0, preservedEnd: void 0 } : {}, batchId: item.batchId, process: process2, resourceId: queueResourceId, requestedStart: anchor, updatedAt, queueOrder, sourceProduct: item.product, sourceCurrentJobKey: currentMachine ? currentJobRouteIdentity(currentMachine) : void 0 };
       });
     })
   ];
@@ -5813,7 +5863,7 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
         return candidate?.active && candidate.defaultShifts > 0 && candidate.process === "drilling" && resourceSupportsProcessProduct(candidate, masterProduct) && Number.isFinite(parameter.unitsPerShift[id]) && parameter.unitsPerShift[id] > 0;
       }).length;
     };
-    if (resourceCount(operation.product) > 1) for (const reserved of baseline.operations.filter((item) => item.process === process2 && item.resourceId === resourceId && !item.actual && !item.current && item.id !== operation.id && resourceCount(item.product) === 1)) {
+    if (selected.some((item) => resourceCount(item.product) > 1)) for (const reserved of baseline.operations.filter((item) => item.process === process2 && item.resourceId === resourceId && !item.actual && !item.current && !selectedIds.has(item.id) && resourceCount(item.product) === 1)) {
       const after = plan.operations.find((item) => item.id === reserved.id);
       if (!after || after.start > reserved.start + 1e-8 || after.end > reserved.end + 1e-8)
         throw new Error(`${resourceId} kaynak rezervi ve setup d\xF6n\xFC\u015F s\xFCresi istenen s\u0131raya izin vermiyor. Rezervasyonu geciktirmeyen bir bo\u015Fluk veya uygun ba\u015Fka bir istasyon se\xE7in.`);
@@ -5825,15 +5875,15 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
   for (const before of baseline.operations) {
     const after = plan.operations.find((item) => item.id === before.id);
     if (!after) {
-      const limit = seed.processMasterData?.resources.find((item) => item.id === (before.id === operation.id ? resourceId : before.resourceId))?.planEnd;
+      const limit = seed.processMasterData?.resources.find((item) => item.id === (selectedIds.has(before.id) ? resourceId : before.resourceId))?.planEnd;
       throw new Error(`${before.product} \xB7 ${processLabelForError(before.process)} ad\u0131m\u0131 kapasiteye s\u0131\u011Fm\u0131yor${limit ? `; plan penceresi ${processStartDate(limit)} tarihinde bitiyor` : "; i\u015F merkezi kapasitesini ve rota parametrelerini kontrol edin"}. Ta\u015F\u0131ma uygulanmad\u0131.`);
     }
     if ((before.current || before.actual) && (before.start !== after.start || before.end !== after.end || before.resourceId !== after.resourceId)) throw new Error("Ta\u015F\u0131ma \xE7al\u0131\u015Fan veya tamamlanan bir i\u015Fi de\u011Fi\u015Ftirece\u011Fi i\xE7in uygulanamad\u0131.");
-    if (before.process === process2 && before.id !== operation.id && before.resourceId !== after.resourceId) throw new Error(`${before.product} i\xE7in mevcut i\u015F merkezi korunamad\u0131. Ta\u015F\u0131ma uygulanmad\u0131.`);
+    if (before.process === process2 && !selectedIds.has(before.id) && before.resourceId !== after.resourceId) throw new Error(`${before.product} i\xE7in mevcut i\u015F merkezi korunamad\u0131. Ta\u015F\u0131ma uygulanmad\u0131.`);
   }
   if (!moved || moved.resourceId !== resourceId || moved.start < requestedStart - 1e-8) throw new Error("Se\xE7ilen yerle\u015Fim rota ve kapasite kurallar\u0131yla olu\u015Fturulamad\u0131.");
   const actualOrder = plan.operations.filter((item) => item.process === process2 && item.resourceId === resourceId && !item.actual && !item.current).sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
-  if (actualOrder.some((item, index) => item.id !== destination[index]?.id)) throw new Error(`${resourceId} kaynak rezervi ve setup d\xF6n\xFC\u015F s\xFCresi istenen s\u0131raya izin vermiyor. Haz\u0131r olma ve kapasite kurallar\u0131na uyan bir bo\u015Fluk veya uygun ba\u015Fka bir istasyon se\xE7in.`);
+  if (actualOrder.length !== destination.length || actualOrder.some((item, index) => item.id !== destination[index]?.id)) throw new Error(`${resourceId} kaynak rezervi ve setup d\xF6n\xFC\u015F s\xFCresi istenen s\u0131raya izin vermiyor. Haz\u0131r olma ve kapasite kurallar\u0131na uyan bir bo\u015Fluk veya uygun ba\u015Fka bir istasyon se\xE7in.`);
   const adjustments = [];
   if (moved.start > requestedStart + 1e-8) {
     if ((resource.availableStart ?? 0) > requestedStart) adjustments.push(`${resourceId} en erken ${processStartDate(resource.availableStart)} tarihinde kullan\u0131labilir.`);
@@ -5845,7 +5895,7 @@ function previewProcessOperationRescheduleWithBaseline(seed, result, operationId
   }
   const affectedOperations = baseline.operations.flatMap((before) => {
     const after = plan.operations.find((item) => item.id === before.id);
-    return before.id !== moved.id && (Math.abs(before.start - after.start) > 1e-8 || Math.abs(before.end - after.end) > 1e-8 || before.resourceId !== after.resourceId) ? [{ before, after }] : [];
+    return !selectedIds.has(before.id) && (Math.abs(before.start - after.start) > 1e-8 || Math.abs(before.end - after.end) > 1e-8 || before.resourceId !== after.resourceId) ? [{ before, after }] : [];
   });
   return { seed: nextSeed, plan, operation: moved, requestedStart, insertionIndex, adjustments, affectedOperations, deliveryWarnings: placementDeliveryWarnings(seed, result, baseline, plan) };
 }
@@ -6951,10 +7001,13 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
   const reservedBatchIds = new Set([
     ...frozen.map((batch) => batch.id),
     ...seed.machines.map((machine) => machine.currentJob.batchId),
-    ...(seed.productionHistory ?? []).map((entry) => entry.sourceBatchId),
-    ...(seed.wipLots ?? []).map((lot) => lot.sourceBatchId),
+    ...(seed.productionHistory ?? []).flatMap((entry) => [entry.id, entry.sourceBatchId]),
+    ...(seed.wipLots ?? []).flatMap((lot) => [lot.id, lot.sourceBatchId, lot.parentLotId]),
     ...(seed.processOperationOverrides ?? []).map((override) => override.batchId),
-    ...(seed.processCurrentJobs ?? []).map((job) => job.batchId)
+    ...(seed.processCurrentJobs ?? []).map((job) => job.batchId),
+    ...(seed.productionInterruptions ?? []).flatMap((item) => [item.chargeId, item.turningBatch?.id]),
+    ...(seed.productionCancellations ?? []).map((item) => item.chargeId),
+    ...(seed.chargeJourneyNotes ?? []).map((note) => note.chargeKey)
   ].filter(Boolean));
   const nextScenarioIdentity = () => {
     while (reservedBatchIds.has(`scenario-${sequence}`)) sequence += 1;

@@ -4919,6 +4919,48 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
         if (different >= 0) index = different;
       }
     }
+    if (isPistonDownstream && !first.currentJob && !first.override) {
+      const firstUsable = usableResources(first.source, first.parameter);
+      const firstCount = firstUsable.length;
+      if (firstCount > 0) {
+        const freeAt = Math.min(...firstUsable.map((id) => Math.max(first.readyAt, queueByResource.get(id)?.tail ?? first.readyAt, processResource(master, id)?.availableStart ?? 0)));
+        const readySetupRank = (candidate) => {
+          const setup = { product: candidate.source.product, family: candidate.source.masterProduct.family, setupKey: candidate.parameter.setupKey };
+          const firstSetupHours = calculateDownstreamSetup(process2, void 0, setup, seed.flowSettings).hours;
+          let best = 4;
+          for (const id of usableResources(candidate.source, candidate.parameter)) {
+            const tail = Math.max(queueByResource.get(id)?.tail ?? 0, processResource(master, id)?.availableStart ?? 0);
+            if (tail > freeAt + 1e-8) continue;
+            const queue = queueByResource.get(id);
+            const hours = calculateDownstreamSetup(process2, queue, setup, seed.flowSettings).hours;
+            const rank = downstreamSetupRank(process2, { gapIndex: -1, setupHours: hours }, queue, setup, pinnedProducts.get(id), firstSetupHours);
+            if (rank < best) best = rank;
+          }
+          return best;
+        };
+        const readyIndices = [];
+        for (let i = 0; i < pending.length; i += 1) {
+          const candidate = pending[i];
+          if (candidate.currentJob || candidate.override) break;
+          if (process2 === "drilling" && usableResources(candidate.source, candidate.parameter).length !== firstCount) break;
+          if (candidate.readyAt <= freeAt + 1e-8) readyIndices.push(i);
+        }
+        if (readyIndices.length > 1) {
+          readyIndices.sort((a, b) => {
+            const left = pending[a], right = pending[b];
+            const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
+            const rightDue = sourceDueSerial(seed, right.source) ?? Number.MAX_SAFE_INTEGER;
+            if (leftDue !== rightDue) return leftDue - rightDue;
+            if (leftDue < Number.MAX_SAFE_INTEGER || strategy === "campaign") {
+              const setupDiff = readySetupRank(left) - readySetupRank(right);
+              if (setupDiff) return setupDiff;
+            }
+            return a - b;
+          });
+          index = readyIndices[0];
+        }
+      }
+    }
     const [item] = pending.splice(index, 1);
     const { source, parameter, predecessor, readyAt, override, currentJob, effectiveWaitWorkdays, waitRuleLabel, rule } = item;
     const nextSetup = { product: source.product, family: source.masterProduct.family, setupKey: parameter.setupKey };
