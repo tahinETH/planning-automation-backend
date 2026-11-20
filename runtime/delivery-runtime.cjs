@@ -454,6 +454,10 @@ function describeProcessRoute(seed, job, warnings) {
       state = process2 === lot?.nextProcess ? "manual-required" : "predecessor-pending";
       code2 = state;
       message = state === "manual-required" ? "Yar\u0131m \xFCretim: bu prosesi Manuel \u015Farj ile kuyru\u011Fa ekleyin." : "\xD6nceki proses ve manuel \xFCretim onay\u0131 bekleniyor.";
+    } else if (seed.plannedThroughProcess !== void 0 && productionProcessOrder(seed).indexOf(process2) > productionProcessOrder(seed).indexOf(seed.plannedThroughProcess)) {
+      state = "predecessor-pending";
+      code2 = state;
+      message = `${processLabel(process2)} hen\xFCz planlanmad\u0131. Sonraki prosesi planla veya T\xFCm prosesi planla ile devam edin.`;
     } else if (warnings.some((w) => w.product === job.product && (w.code === "invalid-route" || w.code === "missing-parameter" && !w.batchId))) {
       state = "invalid-route";
       code2 = state;
@@ -482,6 +486,7 @@ function processQueueEntries(seed, jobs, operations) {
     if (!job || job.quantity <= 0) continue;
     const step = job.routeSteps?.find((s) => s.process === intent.process);
     if (step?.state === "completed" || step?.state === "running") continue;
+    if (seed.plannedThroughProcess !== void 0 && productionProcessOrder(seed).indexOf(intent.process) > productionProcessOrder(seed).indexOf(seed.plannedThroughProcess)) continue;
     if (seed.processCurrentJobs?.some((c) => c.batchId === job.batchId && c.process === intent.process)) continue;
     const op = operations.find((o) => o.batchId === job.batchId && o.process === intent.process && !o.actual && !o.current);
     rows.set(`${job.batchId}:${intent.process}`, { id: `${job.batchId}:${intent.process}`, batchId: job.batchId, product: job.product, workOrder: job.workOrder, quantity: job.quantity, process: intent.process, resourceId: intent.resourceId, scheduled: Boolean(op), operationId: op?.id, reason: op ? void 0 : step?.reason ?? "Kay\u0131tl\u0131 i\u015F i\xE7in tarih hesaplanamad\u0131; rota ve kapasiteyi kontrol edin.", queueOrder: intent.queueOrder ?? Number.MAX_SAFE_INTEGER, resumeAfterCurrent: Boolean(intent.resumeAfterCurrent) });
@@ -681,6 +686,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
+    const stages = productionProcessOrder(seed);
+    if (seed.plannedThroughProcess !== void 0 && stages.indexOf(process2) > stages.indexOf(seed.plannedThroughProcess) && !seed.processCurrentJobs?.some((item) => item.batchId === source.id && item.process === process2)) return [];
     const parameter = source.masterProduct.processes.find((item) => item.process === process2);
     if (!parameter) return [];
     if (source.masterProduct.route && !source.masterProduct.route.includes(process2)) return [];
@@ -1024,7 +1031,7 @@ function processGapDiagnostics(seed, master, operations) {
   return gaps;
 }
 function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
-  const control = { enabled: seed.productionArea !== "cubuk-filtre", used: false };
+  const control = { enabled: seed.productionArea !== "cubuk-filtre" && (seed.plannedThroughProcess === void 0 || seed.plannedThroughProcess === productionProcessOrder(seed).at(-1)), used: false };
   const consolidated = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, control);
   if (!control.used) return consolidated;
   const spread = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, { enabled: false, used: false });

@@ -723,3 +723,47 @@ def test_draft_lock08_shared_locks_change_only_on_reviewed_admin_publication(fac
     assert after['orders'] == world['seed']['orders']
     assert published['activePublication']['approvedBy']['id'] == A.id
     assert collab.publish_scenario(saved['id'], preview, A)['replayed'] is True
+
+
+def test_step08_stage_scope_survives_save_reload_and_reviewed_publication(factory):
+    original = db.planning_state()
+    proposal = copy.deepcopy(factory['seed'])
+    proposal['plannedThroughProcess'] = 'drilling'
+    proposal['initialProcessPlanComplete'] = False
+    proposal['planNeedsRecalculation'] = False
+    saved = collab.save_scenario({**scenario(proposal), 'worldRevision': original['updatedAt']}, A)
+    assert saved['seed']['plannedThroughProcess'] == 'drilling'
+    assert collab.get_scenario(saved['id'], A)['seed']['plannedThroughProcess'] == 'drilling'
+    assert db.planning_state() == original
+    preview = collab.publication_preview(saved['id'], dict(revision=saved['revision'], worldRevision=original['updatedAt'], previousId=None), A)
+    collab.publish_scenario(saved['id'], preview, A)
+    published = db.planning_state()['seed']
+    assert published['plannedThroughProcess'] == 'drilling'
+    assert published['initialProcessPlanComplete'] is False
+    for field in collab.FACTS:
+        assert published.get(field) == original['seed'].get(field)
+
+
+def test_step09_invalid_area_stage_rejects_without_any_write(factory):
+    original = db.planning_state()
+    proposal = copy.deepcopy(factory['seed'])
+    proposal['plannedThroughProcess'] = 'gtm'
+    with pytest.raises(HTTPException) as error:
+        collab.save_scenario({**scenario(proposal), 'worldRevision': original['updatedAt']}, A)
+    assert error.value.status_code == 422
+    assert db.planning_state() == original
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('field', ['plannedThroughProcess', 'initialProcessPlanComplete'])
+def test_step13_old_save_cannot_remove_initial_plan_state(factory, field):
+    proposal = copy.deepcopy(factory['seed'])
+    proposal.update(plannedThroughProcess='drilling', initialProcessPlanComplete=False)
+    saved = collab.save_scenario(scenario(proposal), A)
+    old_client = copy.deepcopy(saved)
+    del old_client['seed'][field]
+    with pytest.raises(HTTPException) as error:
+        collab.save_scenario(old_client, A)
+    assert error.value.status_code == 422
+    assert collab.get_scenario(saved['id'], A) == saved

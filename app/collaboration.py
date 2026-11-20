@@ -142,7 +142,20 @@ def validate_reset_transition(previous, seed, reset_action=None):
         raise HTTPException(422, "Planı Temizle bilgisi bu kayıt isteğinde eksik. Kayıtlı taslak korundu. Sayfayı yenileyin ve taslağı yeniden açın. Temizleme işlemini geri almak için Geri al kullanın.")
 
 
+def validate_process_plan_scope(previous, seed, reset_action=None):
+    if previous and "initialProcessPlanComplete" in previous["seed"] and "initialProcessPlanComplete" not in seed and reset_action != "history-restore":
+        raise HTTPException(422, "İlk plan durumu bu kayıt isteğinde eksik. Sayfayı yenileyin ve taslağı yeniden açın.")
+    if "initialProcessPlanComplete" in seed and type(seed["initialProcessPlanComplete"]) is not bool:
+        raise HTTPException(422, "İlk plan durumu geçersiz.")
+    stages = ["turning", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"] if seed.get("productionArea") == "cubuk-filtre" else ["turning", "drilling", "deburring", "gkm"]
+    if "plannedThroughProcess" in seed and seed["plannedThroughProcess"] not in stages:
+        raise HTTPException(422, "Kayıtlı planlama prosesi bu üretim alanına ait değil.")
+    if previous and "plannedThroughProcess" in previous["seed"] and "plannedThroughProcess" not in seed and reset_action != "history-restore":
+        raise HTTPException(422, "Planlama prosesi bu kayıt isteğinde eksik. Sayfayı yenileyin ve taslağı yeniden açın.")
+
+
 def _save(db, value, user, previous=None, source=None, *, reset_action=None):
+    validate_process_plan_scope(previous, value["seed"], reset_action)
     validate_reset_transition(previous, value["seed"], reset_action)
     timestamp = now_iso()
     revision = previous["revision"] + 1 if previous else 1

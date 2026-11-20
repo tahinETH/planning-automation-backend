@@ -8,7 +8,7 @@ OPERATIONS = {
     "productionInterruptions", "productionCancellations", "scenarioProvenance",
     "machines", "productionHistory", "wipLots", "wipMovements", "planningEvents",
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
-    "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
+    "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
     "orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders",
 }
 
@@ -43,7 +43,7 @@ REFRESH_GROUPS: dict[str, dict[str, Any]] = {
         "label": "Üretim kayıtları ve plan",
         "fields": ("machines", "productionHistory", "wipLots", "wipMovements", "productionInterruptions",
                    "productionCancellations", "processCurrentJobs", "manualBatches", "savedBatches",
-                   "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
+                   "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
                    "planNeedsRecalculation", "scenarioProvenance"),
         "choices": ("keep-local", "use-source"),
     },

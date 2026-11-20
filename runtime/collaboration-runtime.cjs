@@ -5058,6 +5058,10 @@ function describeProcessRoute(seed, job, warnings) {
       state = process2 === lot?.nextProcess ? "manual-required" : "predecessor-pending";
       code3 = state;
       message = state === "manual-required" ? "Yar\u0131m \xFCretim: bu prosesi Manuel \u015Farj ile kuyru\u011Fa ekleyin." : "\xD6nceki proses ve manuel \xFCretim onay\u0131 bekleniyor.";
+    } else if (seed.plannedThroughProcess !== void 0 && productionProcessOrder(seed).indexOf(process2) > productionProcessOrder(seed).indexOf(seed.plannedThroughProcess)) {
+      state = "predecessor-pending";
+      code3 = state;
+      message = `${processLabel(process2)} hen\xFCz planlanmad\u0131. Sonraki prosesi planla veya T\xFCm prosesi planla ile devam edin.`;
     } else if (warnings.some((w) => w.product === job.product && (w.code === "invalid-route" || w.code === "missing-parameter" && !w.batchId))) {
       state = "invalid-route";
       code3 = state;
@@ -5086,6 +5090,7 @@ function processQueueEntries(seed, jobs, operations) {
     if (!job || job.quantity <= 0) continue;
     const step = job.routeSteps?.find((s) => s.process === intent.process);
     if (step?.state === "completed" || step?.state === "running") continue;
+    if (seed.plannedThroughProcess !== void 0 && productionProcessOrder(seed).indexOf(intent.process) > productionProcessOrder(seed).indexOf(seed.plannedThroughProcess)) continue;
     if (seed.processCurrentJobs?.some((c) => c.batchId === job.batchId && c.process === intent.process)) continue;
     const op = operations.find((o) => o.batchId === job.batchId && o.process === intent.process && !o.actual && !o.current);
     rows.set(`${job.batchId}:${intent.process}`, { id: `${job.batchId}:${intent.process}`, batchId: job.batchId, product: job.product, workOrder: job.workOrder, quantity: job.quantity, process: intent.process, resourceId: intent.resourceId, scheduled: Boolean(op), operationId: op?.id, reason: op ? void 0 : step?.reason ?? "Kay\u0131tl\u0131 i\u015F i\xE7in tarih hesaplanamad\u0131; rota ve kapasiteyi kontrol edin.", queueOrder: intent.queueOrder ?? Number.MAX_SAFE_INTEGER, resumeAfterCurrent: Boolean(intent.resumeAfterCurrent) });
@@ -5285,6 +5290,8 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   const strategy = master.planningStrategies?.[process2] ?? (process2 === "drilling" ? "campaign" : "earliest-ready");
   const candidates = sources.flatMap((source) => {
     if (!source.nextProcess) return [];
+    const stages = productionProcessOrder(seed);
+    if (seed.plannedThroughProcess !== void 0 && stages.indexOf(process2) > stages.indexOf(seed.plannedThroughProcess) && !seed.processCurrentJobs?.some((item) => item.batchId === source.id && item.process === process2)) return [];
     const parameter = source.masterProduct.processes.find((item) => item.process === process2);
     if (!parameter) return [];
     if (source.masterProduct.route && !source.masterProduct.route.includes(process2)) return [];
@@ -5872,9 +5879,20 @@ function processJobStartAvailability(seed, plan, resourceId, now) {
 function processStartDate(serial2) {
   return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(excelSerialToDate(serial2));
 }
+function initialProcessEditSeed(seed, process2) {
+  if (seed.initialProcessPlanComplete !== false) return seed;
+  const order = productionProcessOrder(seed);
+  const index = order.indexOf(process2);
+  if (index < 0 || seed.plannedThroughProcess === void 0 || index > order.indexOf(seed.plannedThroughProcess))
+    throw new Error("\xD6nce se\xE7ili prosesi planlay\u0131n.");
+  const next = structuredClone(seed);
+  next.plannedThroughProcess = process2;
+  next.processOperationOverrides = (next.processOperationOverrides ?? []).filter((row) => order.indexOf(row.process) <= index || next.processCurrentJobs?.some((job) => job.batchId === row.batchId && job.process === row.process));
+  return next;
+}
 function resetDownstreamProcessPlan(seed, result, process2) {
   if (!productionProcessOrder(seed).filter((p) => p !== "turning").includes(process2)) throw new Error("Yaln\u0131zca Delme, \xC7apak Alma veya GKM ayr\u0131 planlanabilir.");
-  const nextSeed = JSON.parse(JSON.stringify(seed));
+  const nextSeed = structuredClone(initialProcessEditSeed(seed, process2));
   nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).filter((override) => override.process !== process2 || nextSeed.processCurrentJobs?.some((job) => job.batchId === override.batchId && job.process === process2) || nextSeed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === override.batchId && item.process === process2) || activeLotInterruptions(nextSeed, nextSeed.wipLots?.find((lot) => lot.id === override.batchId)).length > 0);
   return { seed: nextSeed, plan: buildDownstreamProcessPlan(nextSeed, result) };
 }
@@ -6141,7 +6159,7 @@ function processGapDiagnostics(seed, master, operations) {
   return gaps;
 }
 function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
-  const control = { enabled: seed.productionArea !== "cubuk-filtre", used: false };
+  const control = { enabled: seed.productionArea !== "cubuk-filtre" && (seed.plannedThroughProcess === void 0 || seed.plannedThroughProcess === productionProcessOrder(seed).at(-1)), used: false };
   const consolidated = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, control);
   if (!control.used) return consolidated;
   const spread = buildDownstreamProcessPlanWith(seed, result, includeInterruptedCandidates, { enabled: false, used: false });
@@ -11712,7 +11730,7 @@ function completedCustomerPlanRanges(seed) {
 
 // lib/scenario-safety.ts
 var officialInputFields = ["orders", "products", "preferences", "restrictions", "machines", "holidays", "calendarEvents", "setupSettings", "processMasterData", "processWaitSettings", "flowSettings", "productWeights", "rawMaterialSettings", "customerDemand", "openingStock", "productionArea", "processStockSettings", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "filterWaitShifts", "filterQualityShifts", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines", "orderImport", "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName"];
-var personalProposalFields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan", "planningResetVersion"];
+var personalProposalFields = ["manualBatches", "savedBatches", "processOperationOverrides", "activePlanningScope", "demandTargets", "activePlanRun", "planRunSequence", "lastAutomaticPlan", "planningResetVersion", "plannedThroughProcess", "initialProcessPlanComplete"];
 function officialInputValue(seed, field) {
   if (field !== "machines") return seed[field] ?? null;
   return seed.machines.map(({ availableStart: _available, operationalAvailableStart: _operational, currentJob: _current, ...machine }) => machine);
@@ -11740,6 +11758,8 @@ function emptyCurrentJob(machine) {
   };
 }
 function scenarioPlanningSeed(seed) {
+  if (seed.initialProcessPlanComplete !== void 0 && typeof seed.initialProcessPlanComplete !== "boolean") throw new Error("\u0130lk plan durumu ge\xE7ersiz.");
+  if (seed.plannedThroughProcess !== void 0 && !productionProcessOrder(seed).includes(seed.plannedThroughProcess)) throw new Error("Kay\u0131tl\u0131 planlama prosesi bu \xFCretim alan\u0131na ait de\u011Fil.");
   const scenario = copy(seed);
   delete scenario.filterInitialStockSetup;
   delete scenario.filterMonthlyDeliveryBaselines;
