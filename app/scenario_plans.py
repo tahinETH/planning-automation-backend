@@ -22,6 +22,13 @@ MAX_INPUT = 32 * 1024 * 1024
 MAX_OUTPUT = 16 * 1024 * 1024
 RUNTIME_TIMEOUT = 30
 
+PISTON_PLAN_PROCESSES = ("turning", "drilling", "deburring", "gkm")
+FILTER_PLAN_PROCESSES = ("turning", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual")
+
+
+def scenario_plan_processes(area: str | None) -> tuple[str, ...]:
+    return FILTER_PLAN_PROCESSES if area == "cubuk-filtre" else PISTON_PLAN_PROCESSES
+
 
 class ScenarioPlanError(ValueError):
     pass
@@ -57,17 +64,20 @@ def _run(records: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
     if not isinstance(result, dict) or result.get("version") != 1 or not isinstance(result.get("scenarios"), list) or result.get("error"):
         raise ScenarioPlanError(str(result.get("error")) if isinstance(result, dict) and result.get("error") else "Senaryo plan çıktısı geçersiz.")
     expected_ids = [record.get("id") for record in records]
-    if [item.get("id") if isinstance(item, dict) else None for item in result["scenarios"]] != expected_ids or not all(map(_valid_plan, result["scenarios"])):
+    if [item.get("id") if isinstance(item, dict) else None for item in result["scenarios"]] != expected_ids:
+        raise ScenarioPlanError("Senaryo plan çıktısı doğrulanamadı.")
+    if not all(_valid_plan(item, scenario_plan_processes(record["seed"].get("productionArea")))
+               for item, record in zip(result["scenarios"], records, strict=True)):
         raise ScenarioPlanError("Senaryo plan çıktısı doğrulanamadı.")
     return result, engine
 
 
-def _valid_plan(item: Any) -> bool:
+def _valid_plan(item: Any, processes: tuple[str, ...]) -> bool:
     """Shape check of one runtime result; anything else is rejected, not shown."""
     if not isinstance(item, dict) or item.get("status") not in ("ok", "invalid") or not isinstance(item.get("warnings"), list):
         return False
     rows = item.get("rows")
-    if not isinstance(rows, dict) or set(rows) != {"turning", "drilling", "deburring", "gkm"}:
+    if not isinstance(rows, dict) or set(rows) != set(processes):
         return False
     for values in rows.values():
         if not isinstance(values, list) or not all(isinstance(row, dict) and isinstance(row.get("quantity"), (int, float)) and not isinstance(row.get("quantity"), bool) for row in values):
@@ -110,7 +120,7 @@ def scenario_plans(requested: list[dict[str, Any]], load: Any) -> dict[str, Any]
         if not isinstance(record, dict) or not isinstance(record.get("seed"), dict) or not isinstance(record.get("result"), dict):
             plans["scenarios"].append({"id": identifier, "name": next((str(item.get("name", "")) for item in requested if isinstance(item, dict) and item.get("id") == identifier), ""),
                                        "createdAt": "", "status": "not-stored", "error": "Sunucuda kayıtlı değil; plan hesaplanmadı.",
-                                       "rows": {"turning": [], "drilling": [], "deburring": [], "gkm": []}, "warnings": []})
+                                       "rows": {}, "warnings": []})
             continue
         stored.append({"id": record.get("id", identifier), "name": record.get("name", ""), "createdAt": record.get("createdAt", ""),
                        "seed": record["seed"], "result": record["result"]})
@@ -123,7 +133,7 @@ def scenario_plans(requested: list[dict[str, Any]], load: Any) -> dict[str, Any]
             plans["error"] = str(error)
             for record in stored:
                 plans["scenarios"].append({"id": record["id"], "name": record["name"], "createdAt": record["createdAt"], "status": "invalid",
-                                           "error": f"Plan hesaplanamadı: {error}", "rows": {"turning": [], "drilling": [], "deburring": [], "gkm": []}, "warnings": []})
+                                           "error": f"Plan hesaplanamadı: {error}", "rows": {}, "warnings": []})
     order = {identifier: index for index, identifier in enumerate(ids)}
     plans["scenarios"].sort(key=lambda item: order.get(item.get("id"), len(order)))
     return plans

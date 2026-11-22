@@ -1057,8 +1057,50 @@ def app_update_record(db: sqlite3.Connection, update_id: str) -> dict[str, Any] 
     }
 
 
+def merge_filter_platform_records() -> None:
+    """Copy legacy area-wide platform records once, leaving the source intact."""
+    legacy = area_database_path(settings.database_path, "cubuk-filtre")
+    with connection(shared=True) as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("CREATE TABLE IF NOT EXISTS platform_migrations (id TEXT PRIMARY KEY)")
+        migration = "shared-feedback-and-updates-v1"
+        if db.execute("SELECT 1 FROM platform_migrations WHERE id=?", (migration,)).fetchone():
+            return
+        db.execute("ATTACH DATABASE ? AS legacy_platform", (legacy.resolve().as_uri() + "?mode=ro",))
+        db.execute("""
+            INSERT INTO app_updates (id, title, bullets_json, created_at, seen_at)
+            SELECT id, title, bullets_json, created_at, seen_at FROM legacy_platform.app_updates WHERE 1
+            ON CONFLICT(id) DO UPDATE SET seen_at=COALESCE(app_updates.seen_at, excluded.seen_at)
+        """)
+        db.execute("""
+            INSERT INTO feedbacks (id, author_id, author_name, page_path, body, status, priority, created_at, updated_at, resolved_at, canceled_at)
+            SELECT id, author_id, author_name, page_path, body, status, priority, created_at, updated_at, resolved_at, canceled_at
+            FROM legacy_platform.feedbacks WHERE 1
+            ON CONFLICT(id) DO UPDATE SET body=excluded.body, status=excluded.status, priority=excluded.priority,
+                updated_at=excluded.updated_at, resolved_at=excluded.resolved_at, canceled_at=excluded.canceled_at
+            WHERE excluded.updated_at > feedbacks.updated_at
+        """)
+        db.execute("""
+            INSERT INTO feedback_comments (id, feedback_id, author_id, author_name, body, created_at, updated_at)
+            SELECT id, feedback_id, author_id, author_name, body, created_at, updated_at FROM legacy_platform.feedback_comments WHERE 1
+            ON CONFLICT(id) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at
+            WHERE excluded.updated_at > feedback_comments.updated_at
+        """)
+        db.execute("""
+            INSERT INTO feedback_attachments (id, feedback_id, author_id, kind, original_name, content_type, size, storage_key, created_at)
+            SELECT id, feedback_id, author_id, kind, original_name, content_type, size, storage_key, created_at
+            FROM legacy_platform.feedback_attachments WHERE 1 ON CONFLICT(id) DO NOTHING
+        """)
+        db.execute("""
+            INSERT INTO operation_requests (actor_id, kind, request_id, request_hash, result_json)
+            SELECT actor_id, kind, request_id, request_hash, result_json FROM legacy_platform.operation_requests
+            WHERE kind IN ('feedback', 'attachments') ON CONFLICT(actor_id, kind, request_id) DO NOTHING
+        """)
+        db.execute("INSERT INTO platform_migrations (id) VALUES (?)", (migration,))
+
+
 def all_app_updates() -> list[dict[str, Any]]:
-    with connection() as db:
+    with connection(shared=True) as db:
         rows = db.execute("SELECT id FROM app_updates ORDER BY created_at DESC").fetchall()
         return [record for row in rows if (record := app_update_record(db, row["id"])) is not None]
 
@@ -1089,6 +1131,6 @@ def feedback_record(db: sqlite3.Connection, feedback_id: str) -> dict[str, Any] 
 
 
 def all_feedback() -> list[dict[str, Any]]:
-    with connection() as db:
+    with connection(shared=True) as db:
         ids = [row["id"] for row in db.execute("SELECT id FROM feedbacks ORDER BY updated_at DESC").fetchall()]
         return [record for feedback_id in ids if (record := feedback_record(db, feedback_id)) is not None]

@@ -151,3 +151,28 @@ def test_stk_r01_ravi_reads_saved_stock_and_daily_rows_with_bounded_source():
     assert daily['rows'][0]['ordered'] == 20
     assert daily['workbookSource']['fileName'] == 'synthetic.xlsm'
     assert daily['productionArea'] == 'cubuk-filtre'
+
+
+def test_cf_b5_daily_upload_entry_point_requires_the_sevkiyat_plani_sheet(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from openpyxl import Workbook
+    from app.main import app
+    from app.auth import create_test_session
+    monkeypatch.setitem(settings.__dict__, "database_path", tmp_path / "daily.xlsx-test.sqlite")
+    monkeypatch.setitem(settings.__dict__, "upload_dir", tmp_path / "uploads")
+    base = {"Authorization": f"Bearer {create_test_session(settings.admin_password, 'user')}"}
+    headers = {**base, "X-Production-Area": "cubuk-filtre"}
+    generic = BytesIO()
+    workbook = Workbook()
+    workbook.active.append(["Ürün", "Sipariş", "Termin"])
+    workbook.active.append(["F.00V.P01.309", 100, "2026-10-05"])
+    workbook.save(generic)
+    with TestClient(app) as client:
+        endpoint = "/api/order-imports/preview?daily=true"
+        result = client.post(endpoint, headers=headers, files={"file": ("sevkiyat.xlsm", daily_workbook())})
+        assert result.status_code == 200, result.text
+        assert result.json()["format"] == "filter-daily"
+        assert result.json()["dailyRows"][0]["ordered"] == 150
+        assert client.post(endpoint, headers=headers, files={"file": ("liste.xlsx", generic.getvalue())}).status_code == 422
+        assert client.post(endpoint, headers=base, files={"file": ("sevkiyat.xlsx", daily_workbook())}).status_code == 422
+        assert client.get("/api/planning-state", headers=headers).json() is None

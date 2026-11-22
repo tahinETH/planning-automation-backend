@@ -6798,47 +6798,221 @@ function deliveryReadyQuantityFromEvents(seed, events, product, serial2) {
   return openingStock + events.filter((event) => event.product === code3 && Math.floor(event.readyAt) <= dueDay).reduce((sum, event) => sum + event.quantity, 0);
 }
 
-// lib/cubuk-filtre-parameters.ts
-function validateFilterShipment(seed, code3, quantity) {
-  if (seed.productionArea !== "cubuk-filtre") return;
-  const product = seed.products.find((p) => p.product === code3);
-  if (!product || product.moq <= 0) throw new Error("Min. Sevkiyat Adedi tan\u0131mlanmal\u0131.");
-  if (quantity < product.moq || (product.shipmentMultiple ?? 0) > 0 && quantity % product.shipmentMultiple !== 0) throw new Error("Teslim adedi Min. Sevkiyat Adedi ve Sevkiyat Kat\u0131 kural\u0131na uymuyor.");
+// lib/parameter-deactivation.ts
+var code = (value) => value.trim().toUpperCase();
+var clone = (value) => structuredClone(value);
+var label = (target) => `${target.product} \xD7 ${target.resourceId} (${target.process === "turning" ? "Torna" : processLabel(target.process)})`;
+function downstreamParameter(seed, product, process2) {
+  return seed.processMasterData?.products.find((item) => code(item.product) === code(product))?.processes.find((item) => item.process === process2);
 }
-
-// lib/plan-reset.ts
-function withoutRouteChoices(batch) {
-  const { routeCommitted: _commitment, routeTargetDate: _target, linkedStart: _linkedStart, ...retained } = batch;
-  return retained;
+function isAssignmentPasif(seed, target) {
+  if (target.process === "turning") return Boolean(seed.products.find((item) => code(item.product) === code(target.product))?.inactiveMachineIds?.includes(target.resourceId));
+  return Boolean(downstreamParameter(seed, target.product, target.process)?.inactiveResourceIds?.includes(target.resourceId));
 }
-var processOverrideKey = (row) => JSON.stringify([row.batchId, row.process]);
-function resetFutureProcessOverrides(seed) {
-  const currentKeys = new Set((seed.processCurrentJobs ?? []).map(processOverrideKey));
-  const kept = (seed.processOperationOverrides ?? []).filter((row) => currentKeys.has(processOverrideKey(row))).map((row) => ({ ...row }));
-  for (const lot of seed.wipLots ?? []) {
-    const identities = processPlacementIdentities(seed, lot.id).slice(1);
-    for (const inherited of kept.slice()) {
-      const key = processOverrideKey({ batchId: lot.id, process: inherited.process });
-      if (currentKeys.has(key) || kept.some((row) => processOverrideKey(row) === key) || !identities.includes(inherited.batchId) || inherited.sourceCurrentJobKey || inherited.sourceProduct && inherited.sourceProduct !== lot.product) continue;
-      kept.push({
-        batchId: lot.id,
-        process: inherited.process,
-        resourceId: inherited.resourceId,
-        requestedStart: inherited.requestedStart,
-        updatedAt: inherited.updatedAt,
-        sourceProduct: lot.product,
-        routeMode: "automatic"
+function setAssignmentPasif(seed, target) {
+  if (target.process === "turning") {
+    const product = seed.products.find((item) => code(item.product) === code(target.product));
+    if (!product) throw new Error(`${target.product} Torna parametresi bulunamad\u0131.`);
+    product.inactiveMachineIds = [.../* @__PURE__ */ new Set([...product.inactiveMachineIds ?? [], target.resourceId])];
+    return;
+  }
+  const parameter = downstreamParameter(seed, target.product, target.process);
+  if (!parameter || !parameter.resourcePriority.includes(target.resourceId)) throw new Error(`${label(target)} atamas\u0131 Parametreler\u2019de bulunamad\u0131.`);
+  parameter.inactiveResourceIds = [.../* @__PURE__ */ new Set([...parameter.inactiveResourceIds ?? [], target.resourceId])];
+}
+function turningMoveTargets(seed, target) {
+  return seed.machines.filter((machine) => machine.id !== target.resourceId && machine.active && machine.shiftFactor > 0 && (machine.rates[code(target.product)] ?? 0) > 0 && isMachineEligibleForProduct(seed, machine.id, target.product)).map((machine) => machine.id);
+}
+function downstreamMoveTargets(seed, target) {
+  const product = seed.processMasterData?.products.find((item) => code(item.product) === code(target.product));
+  const parameter = downstreamParameter(seed, target.product, target.process);
+  if (!product || !parameter) return [];
+  return activeProcessResourceIds(parameter).filter((id) => {
+    const resource = seed.processMasterData?.resources.find((item) => item.id === id);
+    const hasSetup = seed.productionArea !== "cubuk-filtre" || Number.isFinite(parameter.setupMinutesByResource?.[id]);
+    return id !== target.resourceId && resource?.active && resource.process === target.process && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, product) && (parameter.unitsPerShift[id] ?? 0) > 0 && hasSetup;
+  });
+}
+function referencedByLaterWork(seed, batchId) {
+  return Boolean(seed.wipLots?.some((lot) => lot.sourceBatchId === batchId) || seed.processOperationOverrides?.some((item) => item.batchId === batchId) || seed.processCurrentJobs?.some((item) => item.batchId === batchId) || seed.productionHistory?.some((item) => item.sourceBatchId === batchId));
+}
+function signatureOf(running, queued) {
+  return JSON.stringify([...running, ...queued].map((job) => [job.key, job.resourceId, job.quantity, job.start, job.end, job.locked]));
+}
+function parameterDeactivationImpact(seed, result, target) {
+  const after = clone(seed);
+  if (!isAssignmentPasif(after, target)) setAssignmentPasif(after, target);
+  const running = [];
+  const queued = [];
+  if (target.process === "turning") {
+    const machine = seed.machines.find((item) => item.id === target.resourceId);
+    if (!machine) throw new Error(`${target.resourceId} tezgah\u0131 bulunamad\u0131.`);
+    const current = machine.currentJob;
+    if (current.quantity > 0 && code(current.product) === code(target.product)) running.push({
+      key: `turning:current:${machine.id}`,
+      kind: "running",
+      process: "turning",
+      product: current.product,
+      resourceId: machine.id,
+      batchId: current.batchId ?? `current:${machine.id}`,
+      workOrder: current.workOrder,
+      quantity: current.remainingQuantity ?? current.quantity,
+      start: current.start,
+      end: current.end,
+      locked: true,
+      protectedRemainder: false,
+      pinned: true,
+      allowedDecisions: [],
+      moveTargets: []
+    });
+    const baseMoveTargets = turningMoveTargets(after, target);
+    for (const batch of result.batches.filter((item) => item.status === "planned" && item.machineId === target.resourceId && code(item.product) === code(target.product)).sort((a, b) => a.planColumn - b.planColumn)) {
+      const protectedRemainder = hasProtectedProductionRemainder(seed, batch.id, batch.interruptionId);
+      const sharedId = batch.sharedCharge?.id;
+      const siblingMachines = sharedId ? /* @__PURE__ */ new Set([
+        ...result.batches.filter((item) => item.id !== batch.id && item.sharedCharge?.id === sharedId).map((item) => item.machineId),
+        ...seed.machines.filter((item) => item.currentJob.quantity > 0 && item.currentJob.sharedCharge?.id === sharedId).map((item) => item.id)
+      ]) : /* @__PURE__ */ new Set();
+      const splitShared = siblingMachines.size > 0;
+      const moveTargets = splitShared ? baseMoveTargets.filter((id) => !siblingMachines.has(id)) : baseMoveTargets;
+      const removable = !splitShared && !batch.locked && !protectedRemainder && !batch.routeCommitted && !referencedByLaterWork(seed, batch.id);
+      queued.push({
+        key: `turning:${batch.id}`,
+        kind: "queued",
+        process: "turning",
+        product: batch.product,
+        resourceId: batch.machineId,
+        batchId: batch.id,
+        workOrder: batch.workOrder?.trim() ?? "",
+        quantity: batch.quantity,
+        start: batch.start,
+        end: batch.end,
+        locked: Boolean(batch.locked),
+        protectedRemainder,
+        pinned: true,
+        allowedDecisions: [...moveTargets.length ? ["move"] : [], ...removable ? ["remove"] : []],
+        moveTargets
       });
     }
+  } else {
+    const process2 = target.process;
+    const visible = clone(seed);
+    const parameter = downstreamParameter(visible, target.product, process2);
+    if (parameter) parameter.inactiveResourceIds = parameter.inactiveResourceIds?.filter((id) => id !== target.resourceId);
+    const plan = buildDownstreamProcessPlan(visible, result);
+    const moveTargets = downstreamMoveTargets(after, { ...target, process: process2 });
+    for (const operation of plan.operations.filter((item) => item.process === process2 && item.resourceId === target.resourceId && code(item.product) === code(target.product) && !item.actual)) {
+      const pinned = Boolean(seed.processOperationOverrides?.some((item) => item.batchId === operation.batchId && item.process === process2 && item.resourceId === target.resourceId && item.routeMode !== "automatic"));
+      const job = {
+        key: `${process2}:${operation.batchId}`,
+        kind: operation.current ? "running" : "queued",
+        process: process2,
+        product: operation.product,
+        resourceId: operation.resourceId,
+        batchId: operation.batchId,
+        workOrder: operation.workOrder,
+        quantity: operation.quantity,
+        start: operation.start,
+        end: operation.end,
+        locked: Boolean(operation.current),
+        protectedRemainder: false,
+        pinned,
+        allowedDecisions: operation.current ? [] : [...moveTargets.length ? ["move"] : [], "release-to-automatic"],
+        moveTargets: operation.current ? [] : moveTargets
+      };
+      (operation.current ? running : queued).push(job);
+    }
   }
-  return kept;
+  return { target, running, queued, signature: signatureOf(running, queued) };
 }
-function mergeResetProcessOverrides(draft, live) {
-  const currentKeys = new Set((live.processCurrentJobs ?? []).map(processOverrideKey));
-  const protectedRows = resetFutureProcessOverrides(live);
-  const proposed = (draft.processOperationOverrides ?? []).filter((row) => !currentKeys.has(processOverrideKey(row)));
-  const proposedKeys = new Set(proposed.map(processOverrideKey));
-  return [...protectedRows.filter((row) => currentKeys.has(processOverrideKey(row)) || !proposedKeys.has(processOverrideKey(row))), ...proposed];
+function applyParameterDeactivation(seed, result, target, decisions, signature) {
+  const impact = parameterDeactivationImpact(seed, result, target);
+  if (impact.signature !== signature) throw new Error("Plan de\u011Fi\u015Fti; etkilenen i\u015Fleri yeniden inceleyin.");
+  const byKey = /* @__PURE__ */ new Map();
+  for (const decision of decisions) {
+    if (byKey.has(decision.key)) throw new Error(`${label(target)}: ${decision.key} i\xE7in birden fazla karar var.`);
+    byKey.set(decision.key, decision);
+  }
+  const unknown = decisions.find((decision) => !impact.queued.some((job) => job.key === decision.key));
+  if (unknown) throw new Error(`${label(target)}: ${unknown.key} etkilenen kuyruk i\u015Fleri aras\u0131nda de\u011Fil.`);
+  for (const job of impact.queued) {
+    const decision = byKey.get(job.key);
+    const trace = `${job.product} \xB7 ${job.workOrder || job.batchId} \xB7 ${job.resourceId}`;
+    if (!decision) throw new Error(`Parametreler: ${label(target)} Pasif yap\u0131lamad\u0131. ${trace} kuyrukta bekliyor; bu i\u015F i\xE7in karar se\xE7in.`);
+    if (!job.allowedDecisions.includes(decision.kind)) throw new Error(`Parametreler: ${trace} i\xE7in \u201C${decision.kind}\u201D karar\u0131 uygun de\u011Fil${job.locked ? " (kilitli i\u015F)" : ""}${job.protectedRemainder ? " (yar\u0131m kalan i\u015F)" : ""}.`);
+    if (decision.kind === "move" && !job.moveTargets.includes(decision.targetResourceId ?? "")) throw new Error(`Parametreler: ${trace} i\xE7in se\xE7ilen hedef ${decision.targetResourceId || "\u2014"} aktif ve uygun de\u011Fil.`);
+  }
+  const nextSeed = clone(seed);
+  setAssignmentPasif(nextSeed, target);
+  let nextResult = { ...result, batches: result.batches.map((batch) => ({ ...batch })) };
+  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (target.process === "turning") {
+    let batches = nextResult.batches;
+    for (const job of impact.queued) {
+      const decision = byKey.get(job.key);
+      if (decision.kind === "remove") batches = batches.filter((batch) => batch.id !== job.batchId);
+      if (decision.kind === "move") {
+        const tail = Math.max(12, ...batches.filter((batch) => batch.status === "planned" && batch.machineId === decision.targetResourceId).map((batch) => batch.planColumn));
+        batches = batches.map((batch) => {
+          if (batch.id !== job.batchId) return batch;
+          const { linkedStart: _linked, ...rest } = batch;
+          return { ...rest, machineId: decision.targetResourceId, planColumn: tail + 1 };
+        });
+      }
+    }
+    const touched = /* @__PURE__ */ new Set([target.resourceId, ...[...byKey.values()].map((item) => item.targetResourceId).filter(Boolean)]);
+    const recalculated = recalculateManualScenario({ ...nextSeed, machines: nextSeed.machines.filter((machine) => touched.has(machine.id)) }, batches.filter((batch) => touched.has(batch.machineId) && batch.status === "planned"));
+    const byId = new Map(recalculated.batches.map((batch) => [batch.id, batch]));
+    const merged = batches.map((batch) => byId.get(batch.id) ?? batch);
+    nextResult = { ...scenarioResultFromBatches(nextSeed, merged), planRun: result.planRun ?? seed.activePlanRun };
+  } else {
+    const process2 = target.process;
+    for (const job of impact.queued) {
+      const decision = byKey.get(job.key);
+      nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).filter((item) => !(item.batchId === job.batchId && item.process === process2));
+      nextSeed.processOperationOverrides.push(decision.kind === "move" ? { batchId: job.batchId, process: process2, resourceId: decision.targetResourceId, requestedStart: job.start, routeMode: "manual", sourceProduct: job.product, updatedAt } : { batchId: job.batchId, process: process2, resourceId: target.resourceId, requestedStart: job.start, routeMode: "automatic", sourceProduct: job.product, updatedAt });
+    }
+  }
+  nextSeed.planNeedsRecalculation = true;
+  const moved = impact.queued.filter((job) => byKey.get(job.key)?.kind === "move").length;
+  const removed = impact.queued.filter((job) => byKey.get(job.key)?.kind === "remove").length;
+  const released = impact.queued.length - moved - removed;
+  return {
+    seed: nextSeed,
+    result: nextResult,
+    summary: `${label(target)} Pasif \xB7 ${impact.running.length} \xE7al\u0131\u015Fan i\u015F korundu \xB7 ${moved} ta\u015F\u0131nd\u0131 \xB7 ${released} otomatik planlamaya b\u0131rak\u0131ld\u0131 \xB7 ${removed} plandan \xE7\u0131kar\u0131ld\u0131`
+  };
+}
+function pasifTargets(seed) {
+  const targets = [];
+  for (const product of seed.products) for (const resourceId of product.inactiveMachineIds ?? []) targets.push({ process: "turning", product: product.product, resourceId });
+  for (const product of seed.processMasterData?.products ?? []) for (const parameter of product.processes) {
+    for (const resourceId of parameter.inactiveResourceIds ?? []) targets.push({ process: parameter.process, product: product.product, resourceId });
+  }
+  return targets;
+}
+var targetKey = (target) => `${target.process}|${code(target.product)}|${target.resourceId}`;
+function assertParameterTransitionDecided(before, after, batches = after.manualBatches ?? []) {
+  const previous = new Set(pasifTargets(before).map(targetKey));
+  const problems = [];
+  for (const target of pasifTargets(after).filter((item) => !previous.has(targetKey(item)))) {
+    if (target.process === "turning") {
+      for (const batch of batches.filter((item) => item.status === "planned" && item.machineId === target.resourceId && code(item.product) === code(target.product))) {
+        problems.push(`${batch.product} \xB7 ${batch.workOrder?.trim() || batch.id} \xB7 ${batch.machineId} (Torna${batch.locked ? ", kilitli" : ""})`);
+      }
+    } else {
+      const process2 = target.process;
+      const visible = { ...before, manualBatches: batches };
+      const affected = parameterDeactivationImpact(visible, { batches }, target).queued;
+      for (const job of affected) {
+        const decided = after.processOperationOverrides?.some((item) => item.batchId === job.batchId && item.process === process2 && (item.routeMode === "automatic" || item.resourceId !== target.resourceId));
+        if (!decided) problems.push(`${job.product} \xB7 ${job.workOrder || job.batchId} \xB7 ${job.resourceId} (${processLabel(process2)}${job.pinned ? ", elle yerle\u015Fim" : ""})`);
+      }
+    }
+  }
+  if (problems.length) {
+    throw new Error(`Parametreler: Pasif yap\u0131lan atamada kuyruktaki i\u015Fler i\xE7in karar gerekiyor. ${problems.slice(0, 5).join("; ")}${problems.length > 5 ? ` ve ${problems.length - 5} i\u015F daha` : ""}. \u201CPasif yapmadan \xF6nce etkilenen i\u015Fler\u201D penceresinden her i\u015F i\xE7in karar verin.`);
+  }
 }
 
 // data/product-setup-families.json
@@ -6924,6 +7098,49 @@ function catalogProductSetupFamily(productCode) {
 }
 function resolvedProductSetupFamily(productCode, storedFamily) {
   return normalizeProductSetupFamily(storedFamily) ?? catalogProductSetupFamily(productCode);
+}
+
+// lib/cubuk-filtre-parameters.ts
+function validateFilterShipment(seed, code3, quantity) {
+  if (seed.productionArea !== "cubuk-filtre") return;
+  const product = seed.products.find((p) => p.product === code3);
+  if (!product || product.moq <= 0) throw new Error("Min. Sevkiyat Adedi tan\u0131mlanmal\u0131.");
+  if (quantity < product.moq || (product.shipmentMultiple ?? 0) > 0 && quantity % product.shipmentMultiple !== 0) throw new Error("Teslim adedi Min. Sevkiyat Adedi ve Sevkiyat Kat\u0131 kural\u0131na uymuyor.");
+}
+
+// lib/plan-reset.ts
+function withoutRouteChoices(batch) {
+  const { routeCommitted: _commitment, routeTargetDate: _target, linkedStart: _linkedStart, ...retained } = batch;
+  return retained;
+}
+var processOverrideKey = (row) => JSON.stringify([row.batchId, row.process]);
+function resetFutureProcessOverrides(seed) {
+  const currentKeys = new Set((seed.processCurrentJobs ?? []).map(processOverrideKey));
+  const kept = (seed.processOperationOverrides ?? []).filter((row) => currentKeys.has(processOverrideKey(row))).map((row) => ({ ...row }));
+  for (const lot of seed.wipLots ?? []) {
+    const identities = processPlacementIdentities(seed, lot.id).slice(1);
+    for (const inherited of kept.slice()) {
+      const key = processOverrideKey({ batchId: lot.id, process: inherited.process });
+      if (currentKeys.has(key) || kept.some((row) => processOverrideKey(row) === key) || !identities.includes(inherited.batchId) || inherited.sourceCurrentJobKey || inherited.sourceProduct && inherited.sourceProduct !== lot.product) continue;
+      kept.push({
+        batchId: lot.id,
+        process: inherited.process,
+        resourceId: inherited.resourceId,
+        requestedStart: inherited.requestedStart,
+        updatedAt: inherited.updatedAt,
+        sourceProduct: lot.product,
+        routeMode: "automatic"
+      });
+    }
+  }
+  return kept;
+}
+function mergeResetProcessOverrides(draft, live) {
+  const currentKeys = new Set((live.processCurrentJobs ?? []).map(processOverrideKey));
+  const protectedRows = resetFutureProcessOverrides(live);
+  const proposed = (draft.processOperationOverrides ?? []).filter((row) => !currentKeys.has(processOverrideKey(row)));
+  const proposedKeys = new Set(proposed.map(processOverrideKey));
+  return [...protectedRows.filter((row) => currentKeys.has(processOverrideKey(row)) || !proposedKeys.has(processOverrideKey(row))), ...proposed];
 }
 
 // lib/planning.ts
@@ -7181,12 +7398,12 @@ function withheldReplacementQuantities(seed) {
   }
   const withheld = /* @__PURE__ */ new Map();
   for (const [product, records2] of byProduct) {
-    const flow = maxFlow(product, records2, orders);
+    const flow = maxFlow(seed, product, records2, orders);
     if (flow > 0) withheld.set(product, flow);
   }
   return withheld;
 }
-function maxFlow(product, records2, orders) {
+function maxFlow(seed, product, records2, orders) {
   const graph = [[], []];
   const addEdge = (from, to, capacity) => {
     graph[from].push({ to, capacity, reverse: graph[to].length });
@@ -7204,7 +7421,9 @@ function maxFlow(product, records2, orders) {
     return node;
   };
   for (const item of records2) {
-    const budget = Number.isSafeInteger(item.cancelledQuantity) && item.cancelledQuantity > 0 ? item.cancelledQuantity : 0;
+    if (!Number.isSafeInteger(item.cancelledQuantity) || item.cancelledQuantity <= 0) continue;
+    const made = Number.isSafeInteger(item.completedQuantity) ? item.completedQuantity : 0;
+    const budget = filterSupplyGoodPieces(seed, product, made + item.cancelledQuantity) - filterSupplyGoodPieces(seed, product, made);
     if (!budget) continue;
     const edges = [...new Set(item.orderIds ?? [])].flatMap((id) => {
       const order = orders.get(id);
@@ -8753,13 +8972,17 @@ function completedDeliveryRouteEnd(seed, lot) {
 function releaseWipBuffer(seed, lotId2, occurredAt, confirmed, recordedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   const lot = seed.wipLots?.find((item) => item.id === lotId2);
   if (!lot || lot.availableQuantity <= 0) throw new Error("A\xE7\u0131k yar\u0131 mam\xFCl bulunamad\u0131.");
-  const customRoute = processMasterDataForProduct(seed.processMasterData, lot.product)?.route;
+  const product = processMasterDataForProduct(seed.processMasterData, lot.product);
+  const filterBuffer = lot.stage === "process-buffer" && lot.family === "cubuk-filtre";
+  const customRoute = filterBuffer && product?.route ? effectiveProductRoute(product, lot.completedSteps.find((step) => step.process === "turning")?.resourceId) : product?.route;
   const previousProcess = customRoute ? lot.stage === "delivery-ready" ? customRoute.at(-1) : customRoute[customRoute.indexOf(lot.nextProcess) - 1] : { "quality-hold": "turning", "washing-buffer": "drilling", "gkm-buffer": "deburring", "delivery-ready": "gkm" }[lot.stage];
   const previous = lot.completedSteps.find((step) => step.process === previousProcess);
   if (!previous || !Number.isFinite(previous.end) || !Number.isFinite(occurredAt) || occurredAt < previous.end) throw new Error("Bekleme yaln\u0131z \xF6nceki proses ger\xE7ekten tamamland\u0131ktan sonra kald\u0131r\u0131labilir.");
   if (!confirmed) throw new Error("Proses kontrol\xFCn\xFCn tamamland\u0131\u011F\u0131n\u0131 onaylay\u0131n.");
   if (occurredAt >= wipOperationReadyAt(lot)) throw new Error("Bu \u015Farj\u0131n bekleme s\xFCresi zaten tamamlanm\u0131\u015F.");
   const previousReadyAt = wipOperationReadyAt(lot);
+  const fromStage = lot.stage;
+  if (filterBuffer) lot.stage = "process-queue";
   lot.readyAt = occurredAt;
   delete lot.rolledForwardFrom;
   delete lot.rolledForwardAt;
@@ -8768,11 +8991,11 @@ function releaseWipBuffer(seed, lotId2, occurredAt, confirmed, recordedAt = (/* 
     lotId: lot.id,
     kind: "buffer-released",
     quantity: lot.availableQuantity,
-    fromStage: lot.stage,
+    fromStage,
     toStage: lot.stage,
     occurredAt,
     recordedAt,
-    note: lot.stage === "delivery-ready" ? "Proses kontrol ve paketleme tamamland\u0131 onay\u0131yla teslimat tamponu kald\u0131r\u0131ld\u0131." : "\u0130lgili kontrol / y\u0131kama tamamland\u0131 onay\u0131yla proses tamponu kald\u0131r\u0131ld\u0131.",
+    note: filterBuffer ? "D\u0131\u015F proses beklemesi tamamland\u0131." : fromStage === "delivery-ready" ? "Proses kontrol ve paketleme tamamland\u0131 onay\u0131yla teslimat tamponu kald\u0131r\u0131ld\u0131." : "\u0130lgili kontrol / y\u0131kama tamamland\u0131 onay\u0131yla proses tamponu kald\u0131r\u0131ld\u0131.",
     previousReadyAt
   });
   return lot;
@@ -9244,223 +9467,6 @@ function applyPlanningDelta(base, delta) {
     result[key] = order.map((id) => rows.get(id));
   }
   return result;
-}
-
-// lib/parameter-deactivation.ts
-var code = (value) => value.trim().toUpperCase();
-var clone = (value) => structuredClone(value);
-var label = (target) => `${target.product} \xD7 ${target.resourceId} (${target.process === "turning" ? "Torna" : processLabel(target.process)})`;
-function downstreamParameter(seed, product, process2) {
-  return seed.processMasterData?.products.find((item) => code(item.product) === code(product))?.processes.find((item) => item.process === process2);
-}
-function isAssignmentPasif(seed, target) {
-  if (target.process === "turning") return Boolean(seed.products.find((item) => code(item.product) === code(target.product))?.inactiveMachineIds?.includes(target.resourceId));
-  return Boolean(downstreamParameter(seed, target.product, target.process)?.inactiveResourceIds?.includes(target.resourceId));
-}
-function setAssignmentPasif(seed, target) {
-  if (target.process === "turning") {
-    const product = seed.products.find((item) => code(item.product) === code(target.product));
-    if (!product) throw new Error(`${target.product} Torna parametresi bulunamad\u0131.`);
-    product.inactiveMachineIds = [.../* @__PURE__ */ new Set([...product.inactiveMachineIds ?? [], target.resourceId])];
-    return;
-  }
-  const parameter = downstreamParameter(seed, target.product, target.process);
-  if (!parameter || !parameter.resourcePriority.includes(target.resourceId)) throw new Error(`${label(target)} atamas\u0131 Parametreler\u2019de bulunamad\u0131.`);
-  parameter.inactiveResourceIds = [.../* @__PURE__ */ new Set([...parameter.inactiveResourceIds ?? [], target.resourceId])];
-}
-function turningMoveTargets(seed, target) {
-  return seed.machines.filter((machine) => machine.id !== target.resourceId && machine.active && machine.shiftFactor > 0 && (machine.rates[code(target.product)] ?? 0) > 0 && isMachineEligibleForProduct(seed, machine.id, target.product)).map((machine) => machine.id);
-}
-function downstreamMoveTargets(seed, target) {
-  const product = seed.processMasterData?.products.find((item) => code(item.product) === code(target.product));
-  const parameter = downstreamParameter(seed, target.product, target.process);
-  if (!product || !parameter) return [];
-  return activeProcessResourceIds(parameter).filter((id) => {
-    const resource = seed.processMasterData?.resources.find((item) => item.id === id);
-    const hasSetup = seed.productionArea !== "cubuk-filtre" || Number.isFinite(parameter.setupMinutesByResource?.[id]);
-    return id !== target.resourceId && resource?.active && resource.process === target.process && resource.defaultShifts > 0 && resourceSupportsProcessProduct(resource, product) && (parameter.unitsPerShift[id] ?? 0) > 0 && hasSetup;
-  });
-}
-function referencedByLaterWork(seed, batchId) {
-  return Boolean(seed.wipLots?.some((lot) => lot.sourceBatchId === batchId) || seed.processOperationOverrides?.some((item) => item.batchId === batchId) || seed.processCurrentJobs?.some((item) => item.batchId === batchId) || seed.productionHistory?.some((item) => item.sourceBatchId === batchId));
-}
-function signatureOf(running, queued) {
-  return JSON.stringify([...running, ...queued].map((job) => [job.key, job.resourceId, job.quantity, job.start, job.end, job.locked]));
-}
-function parameterDeactivationImpact(seed, result, target) {
-  const after = clone(seed);
-  if (!isAssignmentPasif(after, target)) setAssignmentPasif(after, target);
-  const running = [];
-  const queued = [];
-  if (target.process === "turning") {
-    const machine = seed.machines.find((item) => item.id === target.resourceId);
-    if (!machine) throw new Error(`${target.resourceId} tezgah\u0131 bulunamad\u0131.`);
-    const current = machine.currentJob;
-    if (current.quantity > 0 && code(current.product) === code(target.product)) running.push({
-      key: `turning:current:${machine.id}`,
-      kind: "running",
-      process: "turning",
-      product: current.product,
-      resourceId: machine.id,
-      batchId: current.batchId ?? `current:${machine.id}`,
-      workOrder: current.workOrder,
-      quantity: current.remainingQuantity ?? current.quantity,
-      start: current.start,
-      end: current.end,
-      locked: true,
-      protectedRemainder: false,
-      pinned: true,
-      allowedDecisions: [],
-      moveTargets: []
-    });
-    const baseMoveTargets = turningMoveTargets(after, target);
-    for (const batch of result.batches.filter((item) => item.status === "planned" && item.machineId === target.resourceId && code(item.product) === code(target.product)).sort((a, b) => a.planColumn - b.planColumn)) {
-      const protectedRemainder = hasProtectedProductionRemainder(seed, batch.id, batch.interruptionId);
-      const sharedId = batch.sharedCharge?.id;
-      const siblingMachines = sharedId ? /* @__PURE__ */ new Set([
-        ...result.batches.filter((item) => item.id !== batch.id && item.sharedCharge?.id === sharedId).map((item) => item.machineId),
-        ...seed.machines.filter((item) => item.currentJob.quantity > 0 && item.currentJob.sharedCharge?.id === sharedId).map((item) => item.id)
-      ]) : /* @__PURE__ */ new Set();
-      const splitShared = siblingMachines.size > 0;
-      const moveTargets = splitShared ? baseMoveTargets.filter((id) => !siblingMachines.has(id)) : baseMoveTargets;
-      const removable = !splitShared && !batch.locked && !protectedRemainder && !batch.routeCommitted && !referencedByLaterWork(seed, batch.id);
-      queued.push({
-        key: `turning:${batch.id}`,
-        kind: "queued",
-        process: "turning",
-        product: batch.product,
-        resourceId: batch.machineId,
-        batchId: batch.id,
-        workOrder: batch.workOrder?.trim() ?? "",
-        quantity: batch.quantity,
-        start: batch.start,
-        end: batch.end,
-        locked: Boolean(batch.locked),
-        protectedRemainder,
-        pinned: true,
-        allowedDecisions: [...moveTargets.length ? ["move"] : [], ...removable ? ["remove"] : []],
-        moveTargets
-      });
-    }
-  } else {
-    const process2 = target.process;
-    const visible = clone(seed);
-    const parameter = downstreamParameter(visible, target.product, process2);
-    if (parameter) parameter.inactiveResourceIds = parameter.inactiveResourceIds?.filter((id) => id !== target.resourceId);
-    const plan = buildDownstreamProcessPlan(visible, result);
-    const moveTargets = downstreamMoveTargets(after, { ...target, process: process2 });
-    for (const operation of plan.operations.filter((item) => item.process === process2 && item.resourceId === target.resourceId && code(item.product) === code(target.product) && !item.actual)) {
-      const pinned = Boolean(seed.processOperationOverrides?.some((item) => item.batchId === operation.batchId && item.process === process2 && item.resourceId === target.resourceId && item.routeMode !== "automatic"));
-      const job = {
-        key: `${process2}:${operation.batchId}`,
-        kind: operation.current ? "running" : "queued",
-        process: process2,
-        product: operation.product,
-        resourceId: operation.resourceId,
-        batchId: operation.batchId,
-        workOrder: operation.workOrder,
-        quantity: operation.quantity,
-        start: operation.start,
-        end: operation.end,
-        locked: Boolean(operation.current),
-        protectedRemainder: false,
-        pinned,
-        allowedDecisions: operation.current ? [] : [...moveTargets.length ? ["move"] : [], "release-to-automatic"],
-        moveTargets: operation.current ? [] : moveTargets
-      };
-      (operation.current ? running : queued).push(job);
-    }
-  }
-  return { target, running, queued, signature: signatureOf(running, queued) };
-}
-function applyParameterDeactivation(seed, result, target, decisions, signature) {
-  const impact = parameterDeactivationImpact(seed, result, target);
-  if (impact.signature !== signature) throw new Error("Plan de\u011Fi\u015Fti; etkilenen i\u015Fleri yeniden inceleyin.");
-  const byKey = /* @__PURE__ */ new Map();
-  for (const decision of decisions) {
-    if (byKey.has(decision.key)) throw new Error(`${label(target)}: ${decision.key} i\xE7in birden fazla karar var.`);
-    byKey.set(decision.key, decision);
-  }
-  const unknown = decisions.find((decision) => !impact.queued.some((job) => job.key === decision.key));
-  if (unknown) throw new Error(`${label(target)}: ${unknown.key} etkilenen kuyruk i\u015Fleri aras\u0131nda de\u011Fil.`);
-  for (const job of impact.queued) {
-    const decision = byKey.get(job.key);
-    const trace = `${job.product} \xB7 ${job.workOrder || job.batchId} \xB7 ${job.resourceId}`;
-    if (!decision) throw new Error(`Parametreler: ${label(target)} Pasif yap\u0131lamad\u0131. ${trace} kuyrukta bekliyor; bu i\u015F i\xE7in karar se\xE7in.`);
-    if (!job.allowedDecisions.includes(decision.kind)) throw new Error(`Parametreler: ${trace} i\xE7in \u201C${decision.kind}\u201D karar\u0131 uygun de\u011Fil${job.locked ? " (kilitli i\u015F)" : ""}${job.protectedRemainder ? " (yar\u0131m kalan i\u015F)" : ""}.`);
-    if (decision.kind === "move" && !job.moveTargets.includes(decision.targetResourceId ?? "")) throw new Error(`Parametreler: ${trace} i\xE7in se\xE7ilen hedef ${decision.targetResourceId || "\u2014"} aktif ve uygun de\u011Fil.`);
-  }
-  const nextSeed = clone(seed);
-  setAssignmentPasif(nextSeed, target);
-  let nextResult = { ...result, batches: result.batches.map((batch) => ({ ...batch })) };
-  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  if (target.process === "turning") {
-    let batches = nextResult.batches;
-    for (const job of impact.queued) {
-      const decision = byKey.get(job.key);
-      if (decision.kind === "remove") batches = batches.filter((batch) => batch.id !== job.batchId);
-      if (decision.kind === "move") {
-        const tail = Math.max(12, ...batches.filter((batch) => batch.status === "planned" && batch.machineId === decision.targetResourceId).map((batch) => batch.planColumn));
-        batches = batches.map((batch) => {
-          if (batch.id !== job.batchId) return batch;
-          const { linkedStart: _linked, ...rest } = batch;
-          return { ...rest, machineId: decision.targetResourceId, planColumn: tail + 1 };
-        });
-      }
-    }
-    const touched = /* @__PURE__ */ new Set([target.resourceId, ...[...byKey.values()].map((item) => item.targetResourceId).filter(Boolean)]);
-    const recalculated = recalculateManualScenario({ ...nextSeed, machines: nextSeed.machines.filter((machine) => touched.has(machine.id)) }, batches.filter((batch) => touched.has(batch.machineId) && batch.status === "planned"));
-    const byId = new Map(recalculated.batches.map((batch) => [batch.id, batch]));
-    const merged = batches.map((batch) => byId.get(batch.id) ?? batch);
-    nextResult = { ...scenarioResultFromBatches(nextSeed, merged), planRun: result.planRun ?? seed.activePlanRun };
-  } else {
-    const process2 = target.process;
-    for (const job of impact.queued) {
-      const decision = byKey.get(job.key);
-      nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).filter((item) => !(item.batchId === job.batchId && item.process === process2));
-      nextSeed.processOperationOverrides.push(decision.kind === "move" ? { batchId: job.batchId, process: process2, resourceId: decision.targetResourceId, requestedStart: job.start, routeMode: "manual", sourceProduct: job.product, updatedAt } : { batchId: job.batchId, process: process2, resourceId: target.resourceId, requestedStart: job.start, routeMode: "automatic", sourceProduct: job.product, updatedAt });
-    }
-  }
-  nextSeed.planNeedsRecalculation = true;
-  const moved = impact.queued.filter((job) => byKey.get(job.key)?.kind === "move").length;
-  const removed = impact.queued.filter((job) => byKey.get(job.key)?.kind === "remove").length;
-  const released = impact.queued.length - moved - removed;
-  return {
-    seed: nextSeed,
-    result: nextResult,
-    summary: `${label(target)} Pasif \xB7 ${impact.running.length} \xE7al\u0131\u015Fan i\u015F korundu \xB7 ${moved} ta\u015F\u0131nd\u0131 \xB7 ${released} otomatik planlamaya b\u0131rak\u0131ld\u0131 \xB7 ${removed} plandan \xE7\u0131kar\u0131ld\u0131`
-  };
-}
-function pasifTargets(seed) {
-  const targets = [];
-  for (const product of seed.products) for (const resourceId of product.inactiveMachineIds ?? []) targets.push({ process: "turning", product: product.product, resourceId });
-  for (const product of seed.processMasterData?.products ?? []) for (const parameter of product.processes) {
-    for (const resourceId of parameter.inactiveResourceIds ?? []) targets.push({ process: parameter.process, product: product.product, resourceId });
-  }
-  return targets;
-}
-var targetKey = (target) => `${target.process}|${code(target.product)}|${target.resourceId}`;
-function assertParameterTransitionDecided(before, after, batches = after.manualBatches ?? []) {
-  const previous = new Set(pasifTargets(before).map(targetKey));
-  const problems = [];
-  for (const target of pasifTargets(after).filter((item) => !previous.has(targetKey(item)))) {
-    if (target.process === "turning") {
-      for (const batch of batches.filter((item) => item.status === "planned" && item.machineId === target.resourceId && code(item.product) === code(target.product))) {
-        problems.push(`${batch.product} \xB7 ${batch.workOrder?.trim() || batch.id} \xB7 ${batch.machineId} (Torna${batch.locked ? ", kilitli" : ""})`);
-      }
-    } else {
-      const process2 = target.process;
-      const visible = { ...before, manualBatches: batches };
-      const affected = parameterDeactivationImpact(visible, { batches }, target).queued;
-      for (const job of affected) {
-        const decided = after.processOperationOverrides?.some((item) => item.batchId === job.batchId && item.process === process2 && (item.routeMode === "automatic" || item.resourceId !== target.resourceId));
-        if (!decided) problems.push(`${job.product} \xB7 ${job.workOrder || job.batchId} \xB7 ${job.resourceId} (${processLabel(process2)}${job.pinned ? ", elle yerle\u015Fim" : ""})`);
-      }
-    }
-  }
-  if (problems.length) {
-    throw new Error(`Parametreler: Pasif yap\u0131lan atamada kuyruktaki i\u015Fler i\xE7in karar gerekiyor. ${problems.slice(0, 5).join("; ")}${problems.length > 5 ? ` ve ${problems.length - 5} i\u015F daha` : ""}. \u201CPasif yapmadan \xF6nce etkilenen i\u015Fler\u201D penceresinden her i\u015F i\xE7in karar verin.`);
-  }
 }
 
 // lib/collaboration-runtime.ts
@@ -11414,6 +11420,12 @@ function correctProductionDates(seed, result, input, now, recordedAt) {
 function wipActionSignature(lot) {
   return JSON.stringify([lot.id, lot.updatedAt, lot.stage, lot.availableQuantity, lot.readyAt, lot.rolledForwardFrom, lot.completedSteps]);
 }
+function wipBufferQuestion(lot) {
+  if (lot.stage === "process-buffer" && lot.family === "cubuk-filtre") return "D\u0131\u015F proses beklemesi tamamland\u0131 m\u0131?";
+  if (lot.stage === "quality-hold") return "Proses kontrol tamamland\u0131 m\u0131?";
+  if (lot.stage === "washing-buffer" || lot.stage === "gkm-buffer") return "Y\u0131kama ve proses kontrol tamamland\u0131 m\u0131?";
+  if (lot.stage === "delivery-ready") return "Proses kontrol ve paketleme tamamland\u0131 m\u0131?";
+}
 function assertWipActionSnapshot(seed, input) {
   const lot = seed.wipLots?.find((item) => item.id === input.lotId);
   if (!lot || wipActionSignature(lot) !== input.expectedLot) throw new Error("\u015Earj de\u011Fi\u015Fti. G\xFCncel bilgileri yeniden a\xE7\u0131p onaylay\u0131n.");
@@ -11768,7 +11780,8 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     commitJourneyDelivery(input);
   }
   function releaseJourneyBuffer(input) {
-    assertWipActionSnapshot(seed, input);
+    const selected = assertWipActionSnapshot(seed, input);
+    if (!wipBufferQuestion(selected)) throw new Error("\u015Earj bu i\u015Flem i\xE7in beklemede de\u011Fil.");
     const nextSeed = cloneSeed2(seed);
     const lot = releaseWipBuffer(nextSeed, input.lotId, factoryNowSerial(), input.confirmed);
     commitOperationalChange(
@@ -11946,7 +11959,7 @@ function cancellableRemainders(seed, result) {
   const rows = [];
   for (const machine of seed.machines) {
     const current = machine.currentJob;
-    if (!current.product || current.quantity <= 0) continue;
+    if (!current.product || current.quantity <= 0 || current.sharedCharge) continue;
     const chargeId = current.batchId ?? `current:${machine.id}`;
     rows.push({
       kind: "current",
@@ -11962,7 +11975,7 @@ function cancellableRemainders(seed, result) {
     });
   }
   const open = new Map((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item) && !item.completedAt).map((item) => [item.chargeId, item]));
-  for (const batch of result.batches.filter((item) => item.status === "planned" && open.has(item.id))) {
+  for (const batch of result.batches.filter((item) => item.status === "planned" && !item.sharedCharge && open.has(item.id))) {
     if (seed.machines.some((machine) => machine.currentJob.batchId === batch.id && machine.currentJob.quantity > 0)) continue;
     const interruptions = (seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && item.chargeId === batch.id && !item.completedAt && isProtectedProductionRemainder(item));
     const valid = interruptions.every((item) => Number.isFinite(item.occurredAt) && item.occurredAt > 0 && (item.resumedAt == null || Number.isFinite(item.resumedAt) && item.resumedAt >= item.occurredAt));

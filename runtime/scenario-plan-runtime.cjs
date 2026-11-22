@@ -6461,16 +6461,17 @@ var finite = (value) => typeof value === "number" && Number.isFinite(value) && v
 var text = (value) => typeof value === "string" ? value.slice(0, 500) : value == null ? "" : String(value).slice(0, 500);
 var SOURCE_LABEL = { wip: "Yar\u0131 mamul", "current-turning": "Mevcut Torna i\u015Fi", "turning-plan": "Torna plan\u0131" };
 function planScenario(record) {
-  const output = { id: text(record.id), name: text(record.name), createdAt: text(record.createdAt), status: "ok", rows: { turning: [], drilling: [], deburring: [], gkm: [] }, warnings: [] };
+  const raw = record.seed;
+  const stages = productionProcessOrder({ productionArea: raw?.productionArea });
+  const emptyRows = () => ({ turning: [], ...Object.fromEntries(stages.map((process2) => [process2, []])) });
+  const output = { id: text(record.id), name: text(record.name), createdAt: text(record.createdAt), status: "ok", rows: emptyRows(), warnings: [] };
   try {
-    const raw = record.seed;
     if (!raw || ![raw.orders, raw.products, raw.machines, raw.preferences].every(Array.isArray)) throw Error("Senaryo girdisi ge\xE7ersiz.");
-    if (raw.productionArea === "cubuk-filtre") throw Error("\xC7ubuk Filtre senaryolar\u0131 bu plan sayfalar\u0131na al\u0131nmaz.");
     const batches = record.result?.batches;
     if (!Array.isArray(batches) || batches.length > MAX_ROWS) throw Error("Senaryo sonucu ge\xE7ersiz veya \xE7ok b\xFCy\xFCk.");
     const seed = migratePlanningSeed(structuredClone(raw));
     if (JSON.stringify(raw.processMasterData ?? null) !== JSON.stringify(seed.processMasterData ?? null)) {
-      output.warnings.push({ code: "migrated-process-data", product: "", batchId: "", message: "Senaryo eski veri \u015Femas\u0131nda; Delme/\xC7apak Alma/GKM ana verisi uygulamada y\xFCkleme s\u0131ras\u0131ndaki gibi g\xFCncellenerek hesapland\u0131." });
+      output.warnings.push({ code: "migrated-process-data", product: "", batchId: "", message: "Senaryo eski veri \u015Femas\u0131nda; proses ana verisi uygulamada y\xFCkleme s\u0131ras\u0131ndaki gibi g\xFCncellenerek hesapland\u0131." });
     }
     for (const batch of batches) {
       const planned = batch.status === "planned";
@@ -6550,9 +6551,9 @@ function planScenario(record) {
     }
     const plan = buildDownstreamProcessPlan(seed, { batches });
     for (const operation of plan.operations) {
-      if (operation.process !== "drilling" && operation.process !== "deburring" && operation.process !== "gkm") continue;
+      if (operation.process === "turning") continue;
       const start = finite(operation.start), end = finite(operation.end);
-      output.rows[operation.process].push({
+      output.rows[operation.process]?.push({
         id: text(operation.batchId),
         workOrder: text(operation.workOrder),
         product: text(operation.product),
@@ -6572,12 +6573,12 @@ function planScenario(record) {
     }
     for (const warning of plan.warnings) output.warnings.push({ code: warning.code, product: text(warning.product), batchId: text(warning.batchId), message: text(warning.message) });
     for (const job of plan.jobs) if (!job.deliveryReadyAt && job.source !== "wip") output.warnings.push({ code: "undated", product: text(job.product), batchId: text(job.batchId), message: "Teslimata haz\u0131r tarihi hesaplanamad\u0131 (eksik veya ge\xE7ersiz rota)." });
-    const total = Object.values(output.rows).reduce((sum, rows) => sum + rows.length, 0);
-    if (total > MAX_ROWS * 4) throw Error("Senaryo plan\u0131 sat\u0131r s\u0131n\u0131r\u0131n\u0131 a\u015F\u0131yor.");
+    const total = Object.values(output.rows).reduce((sum, rows) => sum + (rows?.length ?? 0), 0);
+    if (total > MAX_ROWS * stages.length) throw Error("Senaryo plan\u0131 sat\u0131r s\u0131n\u0131r\u0131n\u0131 a\u015F\u0131yor.");
   } catch (error) {
     output.status = "invalid";
     output.error = error instanceof Error ? error.message.slice(0, 300) : "Senaryo plan\u0131 hesaplanamad\u0131.";
-    output.rows = { turning: [], drilling: [], deburring: [], gkm: [] };
+    output.rows = emptyRows();
     output.warnings = [];
   }
   return output;

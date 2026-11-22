@@ -32,11 +32,11 @@ def test_piston_plan_layout_keeps_dates_quantities_and_recoverable_payload():
     assert book["Bilgi"]["B7"].alignment.wrap_text
 
 
-def test_filter_scenario_summary_layout_and_payload_stay_unchanged():
+def test_filter_scenario_missing_record_has_formatted_summary_and_no_fabricated_plan():
     records = [{"id": "filter-id", "name": "CF", "seed": {"productionArea": "cubuk-filtre"}, "result": {}}]
     content = build_data_package("scenarios", records)
     book = load_workbook(BytesIO(content))
-    assert book["Senaryolar"].max_column == 7
-    assert book["Senaryolar"].freeze_panes == "A2"
-    assert "Torna Planı" not in book.sheetnames
+    assert book["Senaryolar"].max_column == 8
+    assert book["Senaryolar"].freeze_panes == "B2"
+    assert book["Torna Planı"]["O2"].value == "Plan yok"
     assert parse_data_package(content, "scenarios") == records

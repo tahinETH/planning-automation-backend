@@ -97,6 +97,10 @@ def test_cf_r01_ravi_reads_selected_area_and_offers_only_its_navigation(client):
             assert result["orderQuantity"] == expected
             targets = [t["id"] for t in knowledge.navigation_targets(False)]
             assert ("filter-production-data" in targets) == (area == "cubuk-filtre")
+            assert ("daily-order-import" in targets) == (area == "cubuk-filtre")
+            assert ("cnc-delivery-export" in targets) == (area == "torna")
+            assert ("new-product-type" in targets) == (area == "torna")
+            assert "type-requests" in targets
             assert "settings" not in targets
         finally:
             production_area.reset(token)
@@ -135,3 +139,55 @@ def test_cf_p05_production_filter_requires_explicit_enable_and_keeps_piston_iden
     assert client.get("/api/me", headers=headers()).json()["availableAreas"] == ["torna"], "A flag alone cannot expose an unverified Filter opening."
     assert client.get("/api/planning-state", headers=headers("cubuk-filtre")).status_code == 400
     assert client.get("/api/planning-state", headers=headers()).json() == before
+
+
+def test_cf_b5_old_feedback_comments_attachments_and_updates_are_shared_once(tmp_path, monkeypatch):
+    import json
+    from app import request_receipts
+
+    monkeypatch.setitem(settings.__dict__, "database_path", tmp_path / "platform.sqlite")
+    monkeypatch.setitem(settings.__dict__, "upload_dir", tmp_path / "uploads")
+    stamp = "2026-11-02T09:00:00Z"
+    database.init_database()
+    with database.connection() as db:
+        db.execute("INSERT INTO app_updates VALUES(?,?,?,?,NULL)", ("torna-news", "Torna duyurusu", json.dumps(["Kayıtlı"]), stamp))
+    token = production_area.set("cubuk-filtre")
+    try:
+        database.init_database()
+        with database.connection() as db:
+            db.execute("INSERT INTO app_updates VALUES(?,?,?,?,?)", ("filter-news", "Eski duyuru", json.dumps(["Kayıtlı"]), stamp, stamp))
+            db.execute("INSERT INTO feedbacks(id,author_id,author_name,body,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                       ("filter-feedback", "old-author", "Test", "Eski geri bildirim", stamp, stamp))
+            db.execute("INSERT INTO feedback_comments VALUES(?,?,?,?,?,?,?)", ("old-comment", "filter-feedback", "old-author", "Test", "Eski yorum", stamp, stamp))
+            db.execute("INSERT INTO feedback_attachments VALUES(?,?,?,?,?,?,?,?,?)",
+                       ("old-attachment", "filter-feedback", "old-author", "document", "test.txt", "text/plain", 4, "old-test.txt", stamp))
+            request_receipts.record(db, "old-author", "feedback", "prior-request", {"body": "Eski geri bildirim"}, {"id": "filter-feedback"})
+    finally:
+        production_area.reset(token)
+    (settings.upload_dir / "old-test.txt").write_text("test")
+
+    with TestClient(app) as client:
+        for area in ("torna", "cubuk-filtre"):
+            responses = client.get("/api/app-updates", headers=headers(area)).json()
+            assert {row["id"] for row in responses} == {"torna-news", "filter-news"}
+            feedback = client.get("/api/feedbacks", headers=headers(area)).json()
+            assert feedback[0]["comments"][0]["body"] == "Eski yorum"
+            assert client.get(feedback[0]["attachments"][0]["url"], headers=headers(area)).content == b"test"
+        edited = client.patch("/api/feedbacks/filter-feedback", headers=headers("cubuk-filtre"), json={"body": "Ortak kayıt"})
+        assert edited.status_code == 200
+        assert client.get("/api/feedbacks", headers=headers()).json()[0]["body"] == "Ortak kayıt"
+        assert client.delete("/api/app-updates/filter-news", headers=headers()).status_code == 200
+        new = client.post("/api/feedbacks", headers=headers("cubuk-filtre"), json={"body": "Yeni ortak kayıt", "priority": 2})
+        assert new.status_code == 201
+        with database.connection(shared=True) as db:
+            assert request_receipts.replay(db, "old-author", "feedback", "prior-request", {"body": "Eski geri bildirim"}) == {"id": "filter-feedback"}
+
+    with TestClient(app) as client:
+        assert [row["id"] for row in client.get("/api/app-updates", headers=headers()).json()] == ["torna-news"]
+        assert len(client.get("/api/feedbacks", headers=headers()).json()) == 2
+        token = production_area.set("cubuk-filtre")
+        try:
+            with database.connection() as db:
+                assert database.feedback_record(db, "filter-feedback")["body"] == "Eski geri bildirim"
+        finally:
+            production_area.reset(token)

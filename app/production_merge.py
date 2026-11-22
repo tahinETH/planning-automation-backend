@@ -10,7 +10,7 @@ OPERATIONS = {
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
     "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
     "filterInitialStockSetup",
-    "orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan", "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName",
+    "orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan", "filterMonthlyDeliveryBaselines", "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName",
 }
 
 
@@ -50,7 +50,7 @@ REFRESH_GROUPS: dict[str, dict[str, Any]] = {
     },
     "orders": {
         "label": "Siparişler",
-        "fields": ("orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan",
+        "fields": ("orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan", "filterMonthlyDeliveryBaselines",
                    "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName"),
         "choices": ("keep-local", "use-source"),
     },
@@ -75,11 +75,12 @@ def _group_values(seed: dict[str, Any] | None, fields: tuple[str, ...]) -> dict[
     return {field: seed[field] for field in fields if field in seed}
 
 
-def _collection_summary(local: Any, source: Any) -> dict[str, int]:
+def _collection_summary(local: Any, source: Any, identity: str = "id") -> dict[str, int]:
     def by_id(rows: Any) -> dict[str, str]:
         if not isinstance(rows, list):
             return {}
-        return {str(row.get("id")): json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows if isinstance(row, dict) and row.get("id") is not None}
+        return {str(row[identity]): json.dumps(row, sort_keys=True, ensure_ascii=False)
+                for row in rows if isinstance(row, dict) and row.get(identity) is not None}
     left, right = by_id(local), by_id(source)
     return {
         "onlyLocal": len(left.keys() - right.keys()),
@@ -95,7 +96,7 @@ def _group_summary(group_id: str, local: dict[str, Any], source: dict[str, Any])
         left, right = local.get(field), source.get(field)
         if isinstance(left, list) or isinstance(right, list):
             if left != right:
-                collections[field] = _collection_summary(left, right)
+                collections[field] = _collection_summary(left, right, "year" if field == "filterMonthlyDeliveryBaselines" else "id")
         elif left != right:
             collections[field] = {"changed": True}
     summary: dict[str, Any] = {"collections": collections}

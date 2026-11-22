@@ -149,3 +149,34 @@ the complete route for deadline coverage, including the correct delivery wait.
 bekleyen işler** in both production areas. If a downstream placement makes
 good-piece coverage worse at a Çubuk Filtre deadline, **Termin uyarısı** appears
 before apply. A saved Filter draft restores its scenario name on reload.
+
+## Çubuk Filtre shop-floor work and calendars
+
+**Beklemeyi tamamla** for external processing releases the open lot to its next
+queue at confirmation time. Prior actual work and the lot quantity stay recorded.
+**Adedi düzenle** shows the count time and the calculated finish for a current
+downstream job. The observation uses Türkiye time.
+
+**Kalan üretimi iptal et** is available on eligible single Torna jobs and
+protected remainders. **Üretim iptalleri** and **İptal sonrası inceleme** show
+the selected area's records. In monthly Filter demand, the review holds the
+expected good-piece loss while the production record stores physical pieces.
+Shared charge portions are outside this flow.
+
+**Takvim** shows the CF-BEKLEME, CF-KALITE and CF-DEMAND normal shifts.
+A planner can filter their records. An administrator can add a dated holiday shift
+in **Ortak plan**.
+
+## Çubuk Filtre Batch 5
+
+**Prod’dan güncelle** keeps the monthly delivery baselines in the
+**Siparişler** group. **Tam yedek (Parametreler ve Ayarlar)** supports both
+areas for administrators. Visible Filter sheets show the stock inputs,
+calendar shifts and product settings. The hidden payload is the restore
+source. **Senaryolar → Seçilenleri indir** uses authorized saved records
+and gives Filter all eight process sheets.
+
+**Günlük Sevkiyat Planı yükle** and **Müşteri Excel’ini yükle** are separate
+controls in Filter. The selected source is applied after review. Ravi offers
+area-specific suggestions and navigation. Both areas share feedback and app
+updates. Plan and scenario data remain scoped to the selected area.

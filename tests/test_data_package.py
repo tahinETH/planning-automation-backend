@@ -57,3 +57,31 @@ def test_data_package_api_is_authenticated_and_round_trips():
         )
         assert imported.status_code == 200
         assert imported.json()["data"] == sample_parameters()
+
+
+def test_cf_b5_complete_workbook_exposes_filter_calendar_stock_and_product_parameters():
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    product = "F.00V.C15.100"
+    parameters = {"productionArea": "cubuk-filtre", "products": [{"product": product, "setupFamily": "cubuk-filtre",
+        "moq": 125, "shipmentMultiple": 25, "setupScrapPercent": 1.5, "productionScrapPercent": 2,
+        "eligibleMachines": ["L-01"], "turningSetupMinutes": {"L-01": 120}}], "machineRates": [{"id": "L-01", "rates": {product: 5400}}]}
+    settings = {"productionArea": "cubuk-filtre", "filterWaitShifts": 0, "filterQualityShifts": 3, "processStockSettings": {
+        "limits": [{"groupId": "warehouse", "min": 1000, "max": 2500}],
+        "scrap": [{"groupId": "form-front", "product": product, "percent": 2}],
+        "openingDate": "2026-11-01", "opening": [{"groupId": "warehouse", "product": product, "quantity": 1100}]}}
+    data = {"version": 1, "productionArea": "cubuk-filtre", "parameters": parameters, "settings": settings}
+    content = build_data_package("complete", data)
+    workbook = load_workbook(BytesIO(content))
+    product_rows = list(workbook["Ürün Parametreleri"].values)
+    assert dict(zip(*product_rows))["Min. Sevkiyat"] == 125
+    assert dict(zip(*product_rows))["Ayar Iskartası %"] == 1.5
+    assert tuple(workbook["Tezgah Öncelikleri"].values)[1] == (product, 1, "L-01", 5400, 120)
+    assert [row[2] for row in list(workbook["Çubuk Filtre Takvimleri"].values)[1:]] == [0, 3, 2]
+    assert tuple(workbook["Proses Başlangıç Stoğu"].values)[1] == ("Ambar + BB", product, 1100, "2026-11-01")
+    assert workbook["__SelsaVeri"].sheet_state == "veryHidden"
+    workbook["Ürün Parametreleri"]["A2"] = "Görünür sayfa düzenlemesi"
+    edited = BytesIO()
+    workbook.save(edited)
+    assert parse_data_package(edited.getvalue(), "complete") == data
