@@ -149,3 +149,20 @@ the complete route for deadline coverage, including the correct delivery wait.
 bekleyen işler** in both production areas. If a downstream placement makes
 good-piece coverage worse at a Çubuk Filtre deadline, **Termin uyarısı** appears
 before apply. A saved Filter draft restores its scenario name on reload.
+
+## Çubuk Filtre shop-floor work and calendars
+
+**Beklemeyi tamamla** for external processing releases the open lot to its next
+queue at confirmation time. Prior actual work and the lot quantity stay recorded.
+**Adedi düzenle** shows the count time and the calculated finish for a current
+downstream job. The observation uses Türkiye time.
+
+**Kalan üretimi iptal et** is available on eligible single Torna jobs and
+protected remainders. **Üretim iptalleri** and **İptal sonrası inceleme** show
+the selected area's records. In monthly Filter demand, the review holds the
+expected good-piece loss while the production record stores physical pieces.
+Shared charge portions are outside this flow.
+
+**Takvim** shows the CF-BEKLEME, CF-KALITE and CF-DEMAND normal shifts.
+A planner can filter their records. An administrator can add a dated holiday shift
+in **Ortak plan**.

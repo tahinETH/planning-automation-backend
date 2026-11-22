@@ -7181,12 +7181,12 @@ function withheldReplacementQuantities(seed) {
   }
   const withheld = /* @__PURE__ */ new Map();
   for (const [product, records2] of byProduct) {
-    const flow = maxFlow(product, records2, orders);
+    const flow = maxFlow(seed, product, records2, orders);
     if (flow > 0) withheld.set(product, flow);
   }
   return withheld;
 }
-function maxFlow(product, records2, orders) {
+function maxFlow(seed, product, records2, orders) {
   const graph = [[], []];
   const addEdge = (from, to, capacity) => {
     graph[from].push({ to, capacity, reverse: graph[to].length });
@@ -7204,7 +7204,9 @@ function maxFlow(product, records2, orders) {
     return node;
   };
   for (const item of records2) {
-    const budget = Number.isSafeInteger(item.cancelledQuantity) && item.cancelledQuantity > 0 ? item.cancelledQuantity : 0;
+    if (!Number.isSafeInteger(item.cancelledQuantity) || item.cancelledQuantity <= 0) continue;
+    const made = Number.isSafeInteger(item.completedQuantity) ? item.completedQuantity : 0;
+    const budget = filterSupplyGoodPieces(seed, product, made + item.cancelledQuantity) - filterSupplyGoodPieces(seed, product, made);
     if (!budget) continue;
     const edges = [...new Set(item.orderIds ?? [])].flatMap((id) => {
       const order = orders.get(id);
@@ -8753,13 +8755,17 @@ function completedDeliveryRouteEnd(seed, lot) {
 function releaseWipBuffer(seed, lotId2, occurredAt, confirmed, recordedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   const lot = seed.wipLots?.find((item) => item.id === lotId2);
   if (!lot || lot.availableQuantity <= 0) throw new Error("A\xE7\u0131k yar\u0131 mam\xFCl bulunamad\u0131.");
-  const customRoute = processMasterDataForProduct(seed.processMasterData, lot.product)?.route;
+  const product = processMasterDataForProduct(seed.processMasterData, lot.product);
+  const filterBuffer = lot.stage === "process-buffer" && lot.family === "cubuk-filtre";
+  const customRoute = filterBuffer && product?.route ? effectiveProductRoute(product, lot.completedSteps.find((step) => step.process === "turning")?.resourceId) : product?.route;
   const previousProcess = customRoute ? lot.stage === "delivery-ready" ? customRoute.at(-1) : customRoute[customRoute.indexOf(lot.nextProcess) - 1] : { "quality-hold": "turning", "washing-buffer": "drilling", "gkm-buffer": "deburring", "delivery-ready": "gkm" }[lot.stage];
   const previous = lot.completedSteps.find((step) => step.process === previousProcess);
   if (!previous || !Number.isFinite(previous.end) || !Number.isFinite(occurredAt) || occurredAt < previous.end) throw new Error("Bekleme yaln\u0131z \xF6nceki proses ger\xE7ekten tamamland\u0131ktan sonra kald\u0131r\u0131labilir.");
   if (!confirmed) throw new Error("Proses kontrol\xFCn\xFCn tamamland\u0131\u011F\u0131n\u0131 onaylay\u0131n.");
   if (occurredAt >= wipOperationReadyAt(lot)) throw new Error("Bu \u015Farj\u0131n bekleme s\xFCresi zaten tamamlanm\u0131\u015F.");
   const previousReadyAt = wipOperationReadyAt(lot);
+  const fromStage = lot.stage;
+  if (filterBuffer) lot.stage = "process-queue";
   lot.readyAt = occurredAt;
   delete lot.rolledForwardFrom;
   delete lot.rolledForwardAt;
@@ -8768,11 +8774,11 @@ function releaseWipBuffer(seed, lotId2, occurredAt, confirmed, recordedAt = (/* 
     lotId: lot.id,
     kind: "buffer-released",
     quantity: lot.availableQuantity,
-    fromStage: lot.stage,
+    fromStage,
     toStage: lot.stage,
     occurredAt,
     recordedAt,
-    note: lot.stage === "delivery-ready" ? "Proses kontrol ve paketleme tamamland\u0131 onay\u0131yla teslimat tamponu kald\u0131r\u0131ld\u0131." : "\u0130lgili kontrol / y\u0131kama tamamland\u0131 onay\u0131yla proses tamponu kald\u0131r\u0131ld\u0131.",
+    note: filterBuffer ? "D\u0131\u015F proses beklemesi tamamland\u0131." : fromStage === "delivery-ready" ? "Proses kontrol ve paketleme tamamland\u0131 onay\u0131yla teslimat tamponu kald\u0131r\u0131ld\u0131." : "\u0130lgili kontrol / y\u0131kama tamamland\u0131 onay\u0131yla proses tamponu kald\u0131r\u0131ld\u0131.",
     previousReadyAt
   });
   return lot;
@@ -11414,6 +11420,12 @@ function correctProductionDates(seed, result, input, now, recordedAt) {
 function wipActionSignature(lot) {
   return JSON.stringify([lot.id, lot.updatedAt, lot.stage, lot.availableQuantity, lot.readyAt, lot.rolledForwardFrom, lot.completedSteps]);
 }
+function wipBufferQuestion(lot) {
+  if (lot.stage === "process-buffer" && lot.family === "cubuk-filtre") return "D\u0131\u015F proses beklemesi tamamland\u0131 m\u0131?";
+  if (lot.stage === "quality-hold") return "Proses kontrol tamamland\u0131 m\u0131?";
+  if (lot.stage === "washing-buffer" || lot.stage === "gkm-buffer") return "Y\u0131kama ve proses kontrol tamamland\u0131 m\u0131?";
+  if (lot.stage === "delivery-ready") return "Proses kontrol ve paketleme tamamland\u0131 m\u0131?";
+}
 function assertWipActionSnapshot(seed, input) {
   const lot = seed.wipLots?.find((item) => item.id === input.lotId);
   if (!lot || wipActionSignature(lot) !== input.expectedLot) throw new Error("\u015Earj de\u011Fi\u015Fti. G\xFCncel bilgileri yeniden a\xE7\u0131p onaylay\u0131n.");
@@ -11768,7 +11780,8 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     commitJourneyDelivery(input);
   }
   function releaseJourneyBuffer(input) {
-    assertWipActionSnapshot(seed, input);
+    const selected = assertWipActionSnapshot(seed, input);
+    if (!wipBufferQuestion(selected)) throw new Error("\u015Earj bu i\u015Flem i\xE7in beklemede de\u011Fil.");
     const nextSeed = cloneSeed2(seed);
     const lot = releaseWipBuffer(nextSeed, input.lotId, factoryNowSerial(), input.confirmed);
     commitOperationalChange(
@@ -11946,7 +11959,7 @@ function cancellableRemainders(seed, result) {
   const rows = [];
   for (const machine of seed.machines) {
     const current = machine.currentJob;
-    if (!current.product || current.quantity <= 0) continue;
+    if (!current.product || current.quantity <= 0 || current.sharedCharge) continue;
     const chargeId = current.batchId ?? `current:${machine.id}`;
     rows.push({
       kind: "current",
@@ -11962,7 +11975,7 @@ function cancellableRemainders(seed, result) {
     });
   }
   const open = new Map((seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && isProtectedProductionRemainder(item) && !item.completedAt).map((item) => [item.chargeId, item]));
-  for (const batch of result.batches.filter((item) => item.status === "planned" && open.has(item.id))) {
+  for (const batch of result.batches.filter((item) => item.status === "planned" && !item.sharedCharge && open.has(item.id))) {
     if (seed.machines.some((machine) => machine.currentJob.batchId === batch.id && machine.currentJob.quantity > 0)) continue;
     const interruptions = (seed.productionInterruptions ?? []).filter((item) => item.process === "turning" && item.chargeId === batch.id && !item.completedAt && isProtectedProductionRemainder(item));
     const valid = interruptions.every((item) => Number.isFinite(item.occurredAt) && item.occurredAt > 0 && (item.resumedAt == null || Number.isFinite(item.resumedAt) && item.resumedAt >= item.occurredAt));
