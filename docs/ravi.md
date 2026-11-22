@@ -137,3 +137,15 @@ session, **Ortak plan → Diğer işlemler → Prod’dan güncelle** opens the 
 review as staging and labels the destination **yerel kopya**. An empty copy may
 take its first reviewed snapshot. The current deployed source must serve the
 selected area. The preview and conflict checks run before the local write.
+
+## Çubuk Filtre review and deadlines
+
+**Seçenekleri karşılaştır** includes **Standart planlama**. All four rows use
+the complete route for deadline coverage, including the correct delivery wait.
+**Aylık talep terminleri** shows the existing checkpoints for monthly demand.
+**Gelecek haftadan** appears with a weekly customer source.
+
+**Tavsiyeler ve uyarılar** includes **Hareketsiz şarjlar** and **Pasif atamada
+bekleyen işler** in both production areas. If a downstream placement makes
+good-piece coverage worse at a Çubuk Filtre deadline, **Termin uyarısı** appears
+before apply. A saved Filter draft restores its scenario name on reload.

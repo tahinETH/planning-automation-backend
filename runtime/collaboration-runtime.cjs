@@ -5098,6 +5098,101 @@ function processQueueEntries(seed, jobs, operations) {
   return [...rows.values()].sort((a, b) => Number(b.resumeAfterCurrent) - Number(a.resumeAfterCurrent) || a.queueOrder - b.queueOrder || a.id.localeCompare(b.id));
 }
 
+// lib/weekly-plan-status.ts
+function inputDateSerial(value) {
+  return value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
+}
+function routedQuantityByDate(seed, events, product, serial2) {
+  return deliveryReadyQuantityFromEvents(seed, events, product, serial2);
+}
+function checkpointsForOrder(order) {
+  const byDate = /* @__PURE__ */ new Map();
+  for (const milestone of orderDeliveryMilestones(order)) {
+    if (!milestone.date) continue;
+    byDate.set(milestone.date, Math.max(byDate.get(milestone.date) ?? 0, milestone.quantity));
+  }
+  if (order.dueDate) byDate.set(order.dueDate, Math.max(byDate.get(order.dueDate) ?? 0, order.quantity));
+  let previousQuantity = 0;
+  return [...byDate.entries()].map(([date, quantity]) => ({ date, quantity })).sort((left, right) => left.date.localeCompare(right.date)).map((checkpoint) => {
+    const incrementalQuantity = Math.max(0, checkpoint.quantity - previousQuantity);
+    previousQuantity = Math.max(previousQuantity, checkpoint.quantity);
+    return { ...checkpoint, quantity: incrementalQuantity };
+  });
+}
+function weekLabel(seed, dueDate) {
+  const matchingWeek = seed.customerDemand?.weeks.find((week) => week.weekEnd === dueDate);
+  if (matchingWeek) return `W${String(matchingWeek.isoWeek).padStart(2, "0")}`;
+  const activeStart = seed.customerDemand?.weeks.find((week) => week.id === seed.customerDemand?.activeScope.startWeekId)?.weekStart ?? seed.customerDemand?.weeks[0]?.weekStart;
+  if (activeStart && dueDate < activeStart) return "Devreden";
+  return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(/* @__PURE__ */ new Date(`${dueDate}T00:00:00Z`));
+}
+function excludedPriorBacklogStatus(seed, result, readinessEvents) {
+  const demand = seed.customerDemand;
+  if (!demand || (seed.activePlanRun?.includePriorBacklog ?? true)) return null;
+  const startIndex = demand.weeks.findIndex((week) => week.id === demand.activeScope.startWeekId);
+  const activeWeek = demand.weeks[startIndex];
+  if (!activeWeek) return null;
+  const dueSerial = inputDateSerial(activeWeek.weekStart) - 2;
+  const dueDate = new Date(Date.UTC(1899, 11, 30) + dueSerial * 864e5).toISOString().slice(0, 10);
+  const products = demand.products.map((product) => {
+    const required2 = Math.max(0, startIndex === 0 ? product.priorDemand : product.weeklyDemands[startIndex - 1]?.cumulativeQuantity ?? product.priorDemand);
+    const available = routedQuantityByDate(seed, readinessEvents, product.product, dueSerial);
+    const ready2 = Math.min(required2, available);
+    return { product: product.product.toUpperCase(), required: required2, ready: ready2, shortage: Math.max(0, required2 - ready2) };
+  }).filter((product) => product.required > 0);
+  const required = products.reduce((sum, product) => sum + product.required, 0);
+  if (required <= 0) return null;
+  const ready = products.reduce((sum, product) => sum + product.ready, 0);
+  return {
+    id: "excluded-prior-backlog",
+    label: "Devreden a\xE7\u0131k",
+    dueDate,
+    newDemand: required,
+    required,
+    ready,
+    shortage: Math.max(0, required - ready),
+    riskProductCount: products.filter((product) => product.shortage > 0).length,
+    products,
+    excludedFromPlan: true
+  };
+}
+function buildWeeklyPlanStatus(seed, result, readinessEvents = buildDeliveryReadinessEvents(seed, result)) {
+  const checkpointsByProduct = /* @__PURE__ */ new Map();
+  for (const order of seed.orders.filter((item) => item.quantity > 0)) {
+    const product = order.product.toUpperCase();
+    const current = checkpointsByProduct.get(product) ?? [];
+    checkpointsByProduct.set(product, [...current, ...checkpointsForOrder(order)]);
+  }
+  const dates = [...new Set([...checkpointsByProduct.values()].flatMap((checkpoints) => checkpoints.map((checkpoint) => checkpoint.date)))].filter(Boolean).sort();
+  let previousRequired = 0;
+  const weeklyRows = dates.map((dueDate) => {
+    const dueSerial = inputDateSerial(dueDate);
+    const products = [...checkpointsByProduct.entries()].map(([product, checkpoints]) => {
+      const required2 = checkpoints.filter((checkpoint) => checkpoint.date <= dueDate).reduce((sum, checkpoint) => sum + checkpoint.quantity, 0);
+      const available = routedQuantityByDate(seed, readinessEvents, product, dueSerial);
+      const ready2 = Math.min(required2, available);
+      return { product, required: required2, ready: ready2, shortage: Math.max(0, required2 - ready2) };
+    }).filter((product) => product.required > 0);
+    const required = products.reduce((sum, product) => sum + product.required, 0);
+    const ready = products.reduce((sum, product) => sum + product.ready, 0);
+    const row = {
+      id: dueDate,
+      label: weekLabel(seed, dueDate),
+      dueDate,
+      newDemand: Math.max(0, required - previousRequired),
+      required,
+      ready,
+      shortage: Math.max(0, required - ready),
+      riskProductCount: products.filter((product) => product.shortage > 0).length,
+      products
+    };
+    previousRequired = required;
+    return row;
+  });
+  const excludedPriorBacklog = excludedPriorBacklogStatus(seed, result, readinessEvents);
+  return excludedPriorBacklog ? [excludedPriorBacklog, ...weeklyRows] : weeklyRows;
+}
+
 // lib/process-planning.ts
 function sourceSharedCharge(source) {
   return source.batch?.sharedCharge ?? source.machine?.currentJob.sharedCharge ?? source.lot?.sharedCharge;
@@ -5248,11 +5343,11 @@ function processPlacementOverride(seed, batchId, product, process2, allowInherit
   const machine = seed.machines?.find((item) => `current:${item.id}` === batchId);
   return identities.flatMap((id) => seed.processOperationOverrides?.filter((item) => item.batchId === id && item.process === process2 && (!item.sourceProduct || item.sourceProduct === product) && (!item.sourceCurrentJobKey || machine && currentJobRouteIdentity(machine) === item.sourceCurrentJobKey)) ?? [])[0];
 }
-var inputDateSerial = (value) => value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
+var inputDateSerial2 = (value) => value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
 function sourceDueSerial(seed, source) {
-  const own = source.batch?.demandDueDate ? inputDateSerial(source.batch.demandDueDate) : 0;
+  const own = source.batch?.demandDueDate ? inputDateSerial2(source.batch.demandDueDate) : 0;
   if (own > 0) return own;
-  const dates = seed.orders.filter((order) => order.product.toUpperCase() === source.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => inputDateSerial(order.dueDate)).filter((value) => value > 0);
+  const dates = seed.orders.filter((order) => order.product.toUpperCase() === source.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => inputDateSerial2(order.dueDate)).filter((value) => value > 0);
   return dates.length ? Math.min(...dates) : void 0;
 }
 function estimateDeliveryReadyFromStage(seed, master, source, stage) {
@@ -6025,15 +6120,42 @@ function previewLinkedProcessPlacement(seed, result, baseline, operation, portio
   throw new Error("\u015Earj\u0131n t\xFCm par\xE7alar\u0131 i\xE7in ortak uygun ba\u015Flang\u0131\xE7 bulunamad\u0131. Takvimleri kontrol edin.");
 }
 function placementDeliveryWarnings(seed, result, baseline, plan) {
-  if (seed.productionArea === "cubuk-filtre") return [];
+  if (seed.productionArea === "cubuk-filtre") return filterPlacementDeliveryWarnings(seed, result, baseline, plan);
   const before = new Map(baseline.jobs.map((job) => [job.batchId, job]));
   return plan.jobs.flatMap((job) => {
     const previous = before.get(job.batchId);
     const batch = result.batches.find((item) => item.id === job.batchId);
     const dueDate = batch?.demandDueDate || seed.orders.filter((order) => order.product.toUpperCase() === job.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => order.dueDate).sort()[0];
-    const due = dueDate ? inputDateSerial(dueDate) + 1 : 0;
+    const due = dueDate ? inputDateSerial2(dueDate) + 1 : 0;
     if (!previous || !due || !job.deliveryReadyAt || job.deliveryReadyAt <= due + 1e-8 || job.deliveryReadyAt <= (previous.deliveryReadyAt || 0) + 1e-8) return [];
     return [{ batchId: job.batchId, product: job.product, workOrder: job.workOrder, dueDate, beforeReadyAt: previous.deliveryReadyAt, afterReadyAt: job.deliveryReadyAt, lateDays: Math.ceil(job.deliveryReadyAt - due) }];
+  });
+}
+function filterPlacementDeliveryWarnings(seed, result, baseline, plan) {
+  const readyBefore = new Map(baseline.jobs.map((job) => [job.batchId, job.deliveryReadyAt]));
+  const delayed = plan.jobs.filter((job) => {
+    const previous = readyBefore.get(job.batchId) ?? 0;
+    return previous > 0 && Math.floor(job.deliveryReadyAt) > Math.floor(previous);
+  });
+  if (!delayed.length) return [];
+  const before = buildWeeklyPlanStatus(seed, result, buildDeliveryReadinessEvents(seed, result, baseline));
+  const after = buildWeeklyPlanStatus(seed, result, buildDeliveryReadinessEvents(seed, result, plan));
+  const priorShortage = new Map(before.flatMap((row) => row.products.map((product) => [`${row.dueDate}:${product.product}`, product.shortage])));
+  const worse = after.filter((row) => !row.excludedFromPlan).flatMap((row) => row.products.filter((product) => product.shortage > (priorShortage.get(`${row.dueDate}:${product.product}`) ?? 0)).map((product) => ({ product: product.product, dueDate: row.dueDate, dueDay: inputDateSerial2(row.dueDate) })));
+  return delayed.flatMap((job) => {
+    const beforeReadyAt = readyBefore.get(job.batchId);
+    const afterDay = Math.floor(job.deliveryReadyAt);
+    const due = worse.find((row) => row.product === job.product.toUpperCase() && Math.floor(beforeReadyAt) <= row.dueDay && row.dueDay < afterDay);
+    if (!due) return [];
+    return [{
+      batchId: job.batchId,
+      product: job.product,
+      workOrder: job.workOrder,
+      dueDate: due.dueDate,
+      beforeReadyAt,
+      afterReadyAt: job.deliveryReadyAt,
+      lateDays: afterDay - due.dueDay
+    }];
   });
 }
 function previewProcessQueuePlacement(seed, result, request) {
@@ -7156,7 +7278,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
   const existingByProduct = newProductionBudgetCommitments(seed, frozen);
   const dueSerial = (order) => {
     const firstMilestone = orderDeliveryMilestones(order)[0]?.date;
-    return inputDateSerial2(firstMilestone || order.dueDate) || Number.MAX_SAFE_INTEGER;
+    return inputDateSerial3(firstMilestone || order.dueDate) || Number.MAX_SAFE_INTEGER;
   };
   const wipRank = (order) => currentProducts.has(order.product) ? 0 : 1;
   const ratedMachineIds = (order) => seed.machines.filter((machine) => machine.active && isMachineEligibleForProduct(seed, machine.id, order.product) && (machine.rates[order.product.toUpperCase()] ?? 0) * machine.shiftFactor * machineCapacityFactor(machine) > 0).map((machine) => machine.id);
@@ -7224,7 +7346,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     for (const lot of planningLots.filter((item) => item.order.id === order.id)) lot.targetNewQuantity = targetNewQuantity;
   }
   if (strategy === "optimized" && (seed.customerDemand || seed.dailyCustomerDemand || seed.monthlyCustomerDemand)) {
-    planningLots.sort((left, right) => (inputDateSerial2(left.dueDate) || Number.MAX_SAFE_INTEGER) - (inputDateSerial2(right.dueDate) || Number.MAX_SAFE_INTEGER) || (optimizationGoal === "balanced" || optimizationGoal === "coarse" ? ratedMachineCount(left.order) - ratedMachineCount(right.order) : scarcityRank(left.order) - scarcityRank(right.order)) || wipRank(left.order) - wipRank(right.order) || (optimizationGoal === "coarse" ? orderDiameter(left.order).localeCompare(orderDiameter(right.order), "tr", { numeric: true }) : 0) || (optimizationGoal === "coarse" ? left.order.product.localeCompare(right.order.product) : 0) || left.order.sourceRow - right.order.sourceRow || left.lotIndex - right.lotIndex);
+    planningLots.sort((left, right) => (inputDateSerial3(left.dueDate) || Number.MAX_SAFE_INTEGER) - (inputDateSerial3(right.dueDate) || Number.MAX_SAFE_INTEGER) || (optimizationGoal === "balanced" || optimizationGoal === "coarse" ? ratedMachineCount(left.order) - ratedMachineCount(right.order) : scarcityRank(left.order) - scarcityRank(right.order)) || wipRank(left.order) - wipRank(right.order) || (optimizationGoal === "coarse" ? orderDiameter(left.order).localeCompare(orderDiameter(right.order), "tr", { numeric: true }) : 0) || (optimizationGoal === "coarse" ? left.order.product.localeCompare(right.order.product) : 0) || left.order.sourceRow - right.order.sourceRow || left.lotIndex - right.lotIndex);
   }
   const remainingExclusiveLotsByMachine = /* @__PURE__ */ new Map();
   if (optimizationGoal === "balanced" || optimizationGoal === "coarse") {
@@ -7430,7 +7552,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
           });
           if (optimizationGoal === "coarse" && evaluated.length) {
             let coarseCandidates = evaluated;
-            const due = inputDateSerial2(lot.dueDate);
+            const due = inputDateSerial3(lot.dueDate);
             if (seed.productionArea !== "cubuk-filtre" && due > 0) {
               const onTime = coarseCandidates.filter((item) => Math.floor(item.deliveryReadyAt) <= Math.floor(due));
               if (onTime.length) coarseCandidates = onTime;
@@ -7458,7 +7580,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
             selectedProjectedUtilization = chosen.projectedUtilization;
           } else if (optimizationGoal === "balanced" && evaluated.length) {
             let balancedCandidates = evaluated;
-            const due = inputDateSerial2(lot.dueDate);
+            const due = inputDateSerial3(lot.dueDate);
             if (due > 0) {
               const onTime = balancedCandidates.filter((item) => item.deliveryReadyAt <= due + 1e-6);
               if (onTime.length) balancedCandidates = onTime;
@@ -7605,7 +7727,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     newlyPlannedByOrder.set(order.id, newlyPlanned);
     assignedMachinesByOrder.set(order.id, unique(assignedMachines));
   }
-  const readinessEvents = seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && seed.orders.some((order) => inputDateSerial2(order.dueDate)) ? buildDeliveryReadinessEvents(seed, { batches }) : void 0;
+  const readinessEvents = seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && seed.orders.some((order) => inputDateSerial3(order.dueDate)) ? buildDeliveryReadinessEvents(seed, { batches }) : void 0;
   const resultsInSourceOrder = seed.orders.map((order) => {
     const productCode = order.product.toUpperCase();
     const existingQuantity = existingByProduct.get(productCode) ?? 0;
@@ -7645,7 +7767,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     }
   };
 }
-function inputDateSerial2(value) {
+function inputDateSerial3(value) {
   return value ? (Date.parse(`${value}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 864e5 : 0;
 }
 function orderDeliveryMilestones(order) {
@@ -7693,7 +7815,7 @@ function orderProductionBreakdown(seed, batches, order, readinessEvents) {
   const filterRows = seed.productionArea === "cubuk-filtre" ? filterCommittedSupply(seed, batches).filter((row) => row.product.toUpperCase() === code3) : void 0;
   const existingTotal = filterRows ? filterRows.filter((row) => !row.planned).reduce((sum, row) => sum + row.quantity, 0) : (seed.processStockSettings?.opening ?? []).filter((row) => row.product === code3).reduce((sum, row) => sum + filterSupplyGoodPieces(seed, row.product, row.quantity, row.groupId === "warehouse"), 0) + (seed.customerDemand ? 0 : Math.max(0, seed.openingStock?.[code3] ?? 0)) + semiFinishedProduction(seed).filter((entry) => entry.product.toUpperCase() === code3).reduce((sum, entry) => sum + filterHistoryGoodPieces(seed, entry), 0) + seed.machines.filter((machine) => machine.currentJob.product.toUpperCase() === code3).reduce((sum, machine) => sum + filterSupplyGoodPieces(seed, machine.currentJob.product, machine.currentJob.quantity), 0);
   const plannedTotal = filterRows ? filterRows.filter((row) => row.planned).reduce((sum, row) => sum + row.quantity, 0) : batches.filter((batch) => batch.status === "planned" && batch.product.toUpperCase() === code3).reduce((sum, batch) => sum + filterSupplyGoodPieces(seed, batch.product, batch.quantity), 0);
-  const dueSerial = inputDateSerial2(order.dueDate);
+  const dueSerial = inputDateSerial3(order.dueDate);
   const onTimeTotal = dueSerial ? seed.productionArea === "cubuk-filtre" && seed.activePlanRun?.optimizationGoal === "coarse" && !seed.monthlyCustomerDemand ? productionQuantityByTurningDate(seed, batches, order.product, dueSerial) : productionQuantityByDate(seed, batches, order.product, dueSerial, readinessEvents) : null;
   const productOrders = seed.orders.filter((item) => item.product.toUpperCase() === code3).sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || a.sourceRow - b.sourceRow || a.id.localeCompare(b.id));
   const position = productOrders.findIndex((item) => item.id === order.id);
@@ -7756,7 +7878,7 @@ function previewOrderRevision(seed, currentResult, request, strategy = "v51") {
     ...requestedMilestones,
     ...request.dueDate ? [{ id: "final", quantity: request.quantity, date: request.dueDate }] : []
   ].map((milestone) => {
-    const available = productionQuantityByDate(revisedSeed, nextResult.batches, currentOrder.product, inputDateSerial2(milestone.date));
+    const available = productionQuantityByDate(revisedSeed, nextResult.batches, currentOrder.product, inputDateSerial3(milestone.date));
     return { id: milestone.id, required: milestone.quantity, date: milestone.date, available, feasible: available >= milestone.quantity };
   });
   const primaryCheck = checks.find((check) => !check.feasible) ?? checks[0];
@@ -7793,7 +7915,7 @@ function scenarioResultFromBatches(seed, batches) {
     const code3 = batch.product.toUpperCase();
     machinesByProduct.set(code3, unique([...machinesByProduct.get(code3) ?? [], batch.machineId]));
   }
-  const readinessEvents = seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && seed.orders.some((order) => inputDateSerial2(order.dueDate)) ? buildDeliveryReadinessEvents(seed, { batches }) : void 0;
+  const readinessEvents = seed.productionArea === "cubuk-filtre" && seed.monthlyCustomerDemand && seed.orders.some((order) => inputDateSerial3(order.dueDate)) ? buildDeliveryReadinessEvents(seed, { batches }) : void 0;
   const orders = seed.orders.map((order) => {
     const code3 = order.product.toUpperCase();
     const breakdown = orderProductionBreakdown(seed, batches, order, readinessEvents);
@@ -8057,7 +8179,7 @@ function updateMachineCurrentJob(seed, result, machineId, input, remainingAsOf) 
   const nextResult = result.state === "planned" ? recalculateOperationalScenario({ ...seed, manualBatches: result.batches }, nextSeed, result.batches) : result;
   return { seed: nextSeed, result: nextResult };
 }
-function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial2(factoryDateInput()), options = {}) {
+function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial3(factoryDateInput()), options = {}) {
   if (!Number.isFinite(asOf) || asOf <= 0) throw new Error("Devreden i\u015Fler i\xE7in ge\xE7erli bir ba\u015Flang\u0131\xE7 tarihi se\xE7in.");
   const rollTurning = options.turning ?? true;
   const rollDownstream = options.downstream ?? true;
@@ -8269,7 +8391,7 @@ function updateProductionHistoryStatus(seed, result, entryId, inventoryStatus, a
   if (inventoryStatus === "delivered" && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(actionDate)) {
     throw new Error("Teslim tarihini se\xE7in.");
   }
-  if (inventoryStatus === "delivered" && inputDateSerial2(deliveryDate) < Math.floor(entry.completedAt)) {
+  if (inventoryStatus === "delivered" && inputDateSerial3(deliveryDate) < Math.floor(entry.completedAt)) {
     throw new Error("Teslim tarihi \xFCretimin tamamlanma tarihinden \xF6nce olamaz.");
   }
   if (inventoryStatus === "delivered" && (deliveryDate > factoryDateInput(changedAt) || actionDate.includes("T") && factoryDateTimeToIso(actionDate) > changedAt)) {
@@ -8310,7 +8432,7 @@ function validateProductionActuals(entry, actualQuantity, completedAt) {
   if (!Number.isFinite(completedAt) || completedAt < Math.floor(entry.start)) {
     throw new Error("Tamamlanma tarihi planlanan ba\u015Flang\u0131\xE7tan \xF6nce olamaz.");
   }
-  if (entry.deliveredAt && Math.floor(completedAt) > inputDateSerial2(entry.deliveredAt)) {
+  if (entry.deliveredAt && Math.floor(completedAt) > inputDateSerial3(entry.deliveredAt)) {
     throw new Error("Tamamlanma tarihi teslim tarihinden sonra olamaz.");
   }
 }
@@ -8340,7 +8462,7 @@ function allocateProductionHistoryEntry(seed, result, entryId, input, changedAt 
   if (input.deliveredQuantity > 0) {
     validateFilterShipment(seed, entry.product, input.deliveredQuantity);
     if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(input.deliveryDate)) throw new Error("Teslim tarihini se\xE7in.");
-    if (inputDateSerial2(input.deliveryDate.slice(0, 10)) < Math.floor(input.completedAt)) {
+    if (inputDateSerial3(input.deliveryDate.slice(0, 10)) < Math.floor(input.completedAt)) {
       throw new Error("Teslim tarihi \xFCretimin tamamlanma tarihinden \xF6nce olamaz.");
     }
   }
