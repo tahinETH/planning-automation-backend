@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "runtimeSha256": "63a2fb8a67a718e602766c48fa8b54a8e3fee1dc55da704f2586ef3a4894a2ee",
+  "runtimeSha256": "f6289b59697b2cf2956993107bc58ca983a864352c6f7c8b5fb019e9d4208380",
   "sources": {
     "data/process-master-data.json": "6c2204a4d32ee2e41732831de6d140ba467cada1f289735e9eff578bb12cb756",
     "data/product-setup-families.json": "2858ad1877ec937bc3d75f99e7eecc48494211665dbb4810d9ae8efb69fb155b",
     "data/product-weights.json": "276213afc59d598f9b4639b543a71b24cc4b1fc71c9482075e41295e094bc1d4",
     "lib/actual-date.ts": "50111fd2cbbbc19e366f988a397cd6ff8ab21109cbed011bec1d1e16379e1933",
-    "lib/cubuk-filtre-parameters.ts": "62b22f7cd9f99a05d9e15c134842707e23fbb7be84c52782a826610ff16a7ef9",
+    "lib/cubuk-filtre-parameters.ts": "89a0099c79ab5d05d633f2899ea225e8e52a67430b28d9068b6e4d76d525b291",
     "lib/customer-order-overrides.ts": "53a65be4668936d83a85a7ba896aa9fb0915d71eaabb0ea1b9405022275028fd",
     "lib/daily-demand.ts": "5eea8e9593a6b672ad0f0bb91b09aa2e132e1b9634f63eb76fca76aba3c18181",
     "lib/delivery-calendar.ts": "cde416e23c77e0cbcd295aea496399f93c7af471a55d0cd865edf094d7e81267",
@@ -18,6 +18,8 @@
     "lib/filter-quality-calendar.ts": "b1da6920a9cf0dc035ba33ad2baeed73d051aac07483f93a7424e5365acb0629",
     "lib/flow-settings.ts": "03b0e3861e2a1d23e02664a41cbb821c56678a4364bd7bda5d8044cb3948d0ab",
     "lib/order-entry.ts": "f94244eb65c0216b365fddfcba7a22adc217c5a723ea22c761b53ac05a873907",
+    "lib/parameter-deactivation.ts": "9d48d153f0526c9cc32b215b2524b77bc198fc33a6673554ee942cb556dc2b5f",
+    "lib/parameters.ts": "e1f4b8b454a5508e72632a109edf4da80ce24d2bb90f08110765f80e100c6279",
     "lib/plan-reset.ts": "5db3e3aa6dbf2a3b89b40ecfa0b801b384440c3c2e3dcd1f46f3d063b9a89244",
     "lib/planning-state.ts": "f56e51ba316614e6ba38ceee0e98e4bd9c44ae2498991747a4f4add16b9ec860",
     "lib/planning.ts": "913cf104afaa2e6f872375ea8f9b5c01ad8d25853179f36756c2af49502440a7",
@@ -40,6 +42,6 @@
     "lib/weekly-demand.ts": "88606a237c5b5aec674d7986db7b9b0de68ea6c77553f485b03669fc17b78188",
     "lib/weekly-plan-status.ts": "d149f6b503139aede530f3112242ddeb9f0e5599cc9fcb3882f8a03c6adae55c",
     "lib/wip-ledger.ts": "ddf9d6fe40247667c2a3a716e11cb29cdb86fe876e5ae2dfc60ac4ba74ddf6fe",
-    "scripts/scenario-plan-runtime.ts": "c019cfc35a15f49ed7d449bfa00d5a65c066d3a58cbf6ee6a7317edd34487e05"
+    "scripts/scenario-plan-runtime.ts": "65bb9979a36354c1fbb51a00a0c3e7fcc4c5a79c7db8fca02107f6d7793deaf9"
   }
 }

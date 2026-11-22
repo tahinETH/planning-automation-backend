@@ -422,27 +422,48 @@ def test_t17_runtime_date_outside_excel_range_is_rejected_before_workbook_render
     assert not any("WO-FOUR-STAGES" in values for values in workbook["Torna Planı"].iter_rows(values_only=True))
 
 
-def test_t17_deferred_cf_export_keeps_its_existing_summary_and_backup_shape(monkeypatch):
+def test_cf_b5_scenario_exports_all_eight_stages_from_saved_filter_plan():
     from app.production_area import production_area
-    import app.scenario_plans as plans
-    scenario = scenario_fixture("cf-scenario", "CF saved scenario")
-    scenario["seed"]["productionArea"] = "cubuk-filtre"
-    calls = []
+    saved = full_route_scenario()
+    seed = saved["seed"]
+    seed["productionArea"] = "cubuk-filtre"
+    seed.pop("flowSettings")
+    seed["filterCatalogVersion"] = 3
+    seed["products"][0].update(setupFamily="cubuk-filtre", eligibleMachines=["L-03"], turningSetupMinutes={"L-03": 0})
+    seed["machines"][0].update(id="L-03", name="Synthetic transfer lathe")
+    seed["preferences"][0]["machines"] = ["L-03"]
+    saved["result"]["batches"][0]["machineId"] = "L-03"
+    stages = ["gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"]
+    resources = [{"id": f"TEST-{index}", "name": process, "process": process, "active": True, "defaultShifts": 3,
+                  "availableStart": 46313, "planEnd": 46343, "eligibleProductGroups": ["cubuk-filtre"]} for index, process in enumerate(stages)]
+    master = seed["processMasterData"]
+    master["resources"] = resources
+    master["products"][0].update(family="cubuk-filtre", productGroup="cubuk-filtre", route=["turning", *stages],
+        processes=[{"process": resource["process"], "sequence": i, "waitWorkdaysBefore": 0, "setupKey": "TEST",
+                    "resourcePriority": [resource["id"]], "unitsPerShift": {resource["id"]: 100},
+                    "setupMinutesByResource": {resource["id"]: 0}} for i, resource in enumerate(resources, 1)])
 
-    def forbidden_runtime(*args, **kwargs):
-        calls.append(True)
-        raise AssertionError("Piston readable export must not run on deferred CF")
-
-    monkeypatch.setattr(plans, "_run", forbidden_runtime)
     token = production_area.set("cubuk-filtre")
     try:
-        content = build_data_package("scenarios", [scenario])
+        init_database()
+        store_scenarios([saved])
+        requested = deepcopy(saved)
+        requested["result"]["batches"][0].update(quantity=999, start=99999)
+        content = build_data_package("scenarios", [requested])
     finally:
         production_area.reset(token)
     workbook = load_workbook(BytesIO(content))
-    assert set(workbook.sheetnames) == {"Bilgi", "Senaryolar", "__SelsaVeri"}
-    assert parse_data_package(content, "scenarios") == [scenario]
-    assert not calls
+    names = ["Torna", "GTM", "Çap Taşlama", "Form Taşlama", "Ölçme", "Freze", "Final Kontrol", "Göz Kontrol"]
+    ends = []
+    for name, resource in zip(names, ["L-03", *[row["id"] for row in resources]], strict=True):
+        jobs = [row for row in workbook[f"{name} Planı"].values if "WO-FOUR-STAGES" in row]
+        assert len(jobs) == 1, name
+        assert jobs[0][6:8] == (100, resource)
+        assert isinstance(jobs[0][8], datetime) and isinstance(jobs[0][9], datetime)
+        ends.append(jobs[0][9])
+    assert ends == sorted(ends)
+    assert "Delme Planı" not in workbook.sheetnames
+    assert parse_data_package(content, "scenarios") == [requested]
 
 @pytest.mark.parametrize("family", ["piston", "center-pin"])
 def test_t17_successful_hourly_rules_are_visible_in_typed_plan_export_without_double_wait(family):

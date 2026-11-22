@@ -52,7 +52,14 @@ def _append_rows(sheet, headers: list[str], rows: list[list[Any]]) -> None:
 def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     products = data.get("products", [])
     parameter_sheet = workbook.create_sheet("Ürün Parametreleri")
-    _append_rows(parameter_sheet, ["Ürün", "Ürün Ailesi", "Şarj Büyüklüğü", "Günlük Üretim", "Vardiya Üretimi", "Parametre Üretimi", "Çap", "Kaynak"], [
+    is_filter = data.get("productionArea") == "cubuk-filtre"
+    extra_fields = [
+        ("Müşteri Ünvanı", "customer"), ("Hedef Depo", "targetWarehouse"), ("Min. Sevkiyat", "moq"),
+        ("Sevkiyat Katı", "shipmentMultiple"), ("Ayar Iskartası %", "setupScrapPercent"),
+        ("Genel Iskarta %", "productionScrapPercent"), ("İş emri hazırlığı (dk)", "handlingMinutes"),
+    ] if is_filter else []
+    _append_rows(parameter_sheet, ["Ürün", "Ürün Ailesi", "Şarj Büyüklüğü", "Günlük Üretim", "Vardiya Üretimi", "Parametre Üretimi", "Çap", "Kaynak",
+                                   *[label for label, _ in extra_fields]], [
         [
             item.get("product", ""),
             {"piston": "Piston", "center-pin": "Center pim", "cubuk-filtre": "Çubuk Filtre"}.get(item.get("setupFamily"), "Tanımsız"),
@@ -62,6 +69,7 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
             item.get("parameterDailyRate", 0),
             item.get("diameter", ""),
             item.get("source", ""),
+            *[item.get(key, "") for _, key in extra_fields],
         ]
         for item in products
     ])
@@ -71,8 +79,12 @@ def _parameter_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     for product in products:
         machines = next((rule.get("machines", []) for rule in data.get("preferences", []) if rule.get("key") == product.get("product")), product.get("eligibleMachines", []))
         for index, machine_id in enumerate(machines):
-            rows.append([product.get("product", ""), index + 1, machine_id, machine_rates.get(machine_id, {}).get(str(product.get("product", "")).upper(), "")])
-    _append_rows(priority_sheet, ["Ürün", "Öncelik", "Tezgah", "Günlük Üretim"], rows)
+            row = [product.get("product", ""), index + 1, machine_id, machine_rates.get(machine_id, {}).get(str(product.get("product", "")).upper(), "")]
+            if is_filter:
+                row.append((product.get("turningSetupMinutes") or {}).get(machine_id, ""))
+            rows.append(row)
+    rate_columns = ["Adet / vardiya", "Setup (dk)"] if is_filter else ["Günlük Üretim"]
+    _append_rows(priority_sheet, ["Ürün", "Öncelik", "Tezgah", *rate_columns], rows)
     _process_parameter_sheet(workbook, data.get("processMasterData") or {})
 
 
@@ -162,6 +174,32 @@ def _settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
     ])
 
 
+    if data.get("productionArea") == "cubuk-filtre":
+        _filter_settings_sheets(workbook, data)
+
+
+def _filter_settings_sheets(workbook: Workbook, data: dict[str, Any]) -> None:
+    calendars = workbook.create_sheet("Çubuk Filtre Takvimleri")
+    _append_rows(calendars, ["Kod", "Takvim", "Normal vardiya"], [
+        ["CF-BEKLEME", "Çubuk Filtre bekleme takvimi", data.get("filterWaitShifts", 1)],
+        ["CF-KALITE", "Kalite bekleme", data.get("filterQualityShifts", 1)],
+        ["CF-DEMAND", "Aylık ihtiyaç dağılımı", 2],
+    ])
+    stock = data.get("processStockSettings") or {}
+    groups = {"form-front": "Form Taşlama önünde", "mill-front": "Freze önü",
+              "visual-front": "Isıl İşlem + Göz Kontrolü", "warehouse": "Ambar + BB"}
+    def group(row):
+        key = row.get("groupId", "")
+        return groups.get(key, key)
+
+    _append_rows(workbook.create_sheet("Proses Stok Sınırları"), ["Proses stoku", "Min. adet", "Maks. adet"],
+                 [[group(row), row.get("min"), row.get("max")] for row in stock.get("limits", [])])
+    _append_rows(workbook.create_sheet("Proses Stok Iskartası"), ["Proses stoku", "Ürün", "Iskarta (%)"],
+                 [[group(row), row.get("product"), row.get("percent")] for row in stock.get("scrap", [])])
+    _append_rows(workbook.create_sheet("Proses Başlangıç Stoğu"), ["Proses stoku", "Ürün", "Adet", "Başlangıç günü"],
+                 [[group(row), row.get("product"), row.get("quantity"), stock.get("openingDate", "")] for row in stock.get("opening", [])])
+
+
 def _scenario_sheets(workbook: Workbook, data: Any) -> None:
     scenarios = data if isinstance(data, list) else data.get("scenarios", [])
     sheet = workbook.create_sheet("Senaryolar")
@@ -179,7 +217,10 @@ def _scenario_sheets(workbook: Workbook, data: Any) -> None:
     ])
 
 
-PLAN_SHEETS = (("turning", "Torna Planı"), ("drilling", "Delme Planı"), ("deburring", "Çapak Alma Planı"), ("gkm", "GKM Planı"))
+def _scenario_plan_sheet_names(is_filter: bool) -> list[tuple[str, str]]:
+    from .scenario_plans import scenario_plan_processes
+    return [(process, f"{'Torna' if process == 'turning' else PROCESS_LABELS[process]} Planı")
+            for process in scenario_plan_processes("cubuk-filtre" if is_filter else "torna")]
 PLAN_HEADERS = ["Senaryo ID", "Senaryo adı", "Kayıt tarihi", "Şarj / iş ID", "İş emri", "Tip", "Adet", "Tezgah / iş merkezi",
                 "Başlangıç", "Bitiş", "Hazır olma", "Setup (saat)", "Bekleme kuralı", "Kaynak türü", "Durum", "Not"]
 DATE_FORMAT = "dd.mm.yyyy hh:mm"
@@ -208,7 +249,7 @@ def _plain(value: Any, limit: int = 500) -> Any:
     return str(value)[:limit]
 
 
-def _scenario_plan_sheets(workbook: Workbook, plans: dict[str, Any]) -> None:
+def _scenario_plan_sheets(workbook: Workbook, plans: dict[str, Any], sheet_names: list[tuple[str, str]]) -> None:
     """Readable per-process plans from stored scenarios (server-computed)."""
     scenarios = plans.get("scenarios") or []
 
@@ -240,7 +281,7 @@ def _scenario_plan_sheets(workbook: Workbook, plans: dict[str, Any]) -> None:
             if row[0].row > 1:
                 sheet.row_dimensions[row[0].row].height = max(32, min(180, lines * 15 + 8))
 
-    for key, title in PLAN_SHEETS:
+    for key, title in sheet_names:
         sheet = workbook.create_sheet(title)
         rows: list[list[Any]] = []
         for scenario in scenarios:
@@ -333,8 +374,8 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
         _scenario_sheets(workbook, data)
         from .production_area import production_area
         is_filter = production_area.get() == "cubuk-filtre" or (isinstance(data, list) and any(isinstance(item, dict) and isinstance(item.get("seed"), dict) and item["seed"].get("productionArea") == "cubuk-filtre" for item in data))
-    if scope == "scenarios" and not is_filter:
-        # Çubuk Filtre export is unchanged (deferred scope): no Piston plan sheets.
+    if scope == "scenarios":
+        sheet_names = _scenario_plan_sheet_names(is_filter)
         if plans is None:
             from .database import scenario_record
             from .scenario_plans import scenario_plans
@@ -347,7 +388,6 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
         info.append(["Plan saat dilimi", "Türkiye (fabrika saati); süreler saat; bekleme iş günü veya çalışma saati olarak yazılır"])
         if plans.get("error"):
             info.append(["Plan uyarısı", plans["error"]])
-        # Format only the Piston scenario views; hidden backup and CF stay unchanged.
         summary = workbook["Senaryolar"]
         summary.cell(1, 8, "Senaryo ID")
         summary.cell(1, 8)._style = copy(summary.cell(1, 1)._style)
@@ -378,14 +418,14 @@ def build_data_package(scope: DataPackageScope, data: Any, plans: dict[str, Any]
                 text = str(row[1].value or "") if len(row) > 1 else ""
                 info.row_dimensions[row[0].row].height = max(32, math.ceil(len(text) / 105) * 16 + 10)
         try:
-            _scenario_plan_sheets(workbook, plans)
+            _scenario_plan_sheets(workbook, plans, sheet_names)
         except Exception:
             # Malformed stored data must not fail the export: keep empty sheets
             # with headers and an explicit warning instead of partial rows.
-            for title in [title for _, title in PLAN_SHEETS] + ["Plan Uyarıları"]:
+            for title in [title for _, title in sheet_names] + ["Plan Uyarıları"]:
                 if title in workbook.sheetnames:
                     del workbook[title]
-            _scenario_plan_sheets(workbook, {"scenarios": [], "error": "Plan sayfaları kayıtlı senaryo verisinden oluşturulamadı; plan gösterilmedi."})
+            _scenario_plan_sheets(workbook, {"scenarios": [], "error": "Plan sayfaları kayıtlı senaryo verisinden oluşturulamadı; plan gösterilmedi."}, sheet_names)
 
     payload = json.dumps({"format": FORMAT_NAME, "version": FORMAT_VERSION, "scope": scope, "data": data}, ensure_ascii=False, separators=(",", ":"))
     storage = workbook.create_sheet("__SelsaVeri")

@@ -290,3 +290,23 @@ def test_refresh_preserves_partial_work_deletions_and_updates_clean_inputs():
     assert merge_production_refresh(source, merged, source) == merged
     assert merge_production_refresh(source, None, None) == source
     assert merge_production_refresh(source, local, None)["wipLots"] == local["wipLots"]
+
+
+def test_cf_b5_refresh_takes_monthly_delivery_baselines_with_the_selected_orders():
+    from app.production_merge import merge_production_refresh_reviewed, refresh_groups, resolve_refresh_choices, settings_key_differences
+
+    def snapshot(delivered):
+        return {"productionArea": "cubuk-filtre", "orders": [], "monthlyCustomerDemand": {"handovers": delivered},
+                "filterMonthlyDeliveryBaselines": [{"year": 2026, "handovers": delivered}]}
+
+    source, local, baseline = snapshot(300), snapshot(200), snapshot(100)
+    groups = refresh_groups(source, local, baseline)
+    orders = next(group for group in groups if group["id"] == "orders")
+    assert orders["requiresChoice"]
+    assert orders["summary"]["collections"]["filterMonthlyDeliveryBaselines"] == {"onlyLocal": 0, "onlySource": 0, "different": 1}
+    assert "filterMonthlyDeliveryBaselines" not in settings_key_differences(source, local, baseline)["keptLocal"]
+    for choice, expected in [("keep-local", local), ("use-source", source)]:
+        merged = merge_production_refresh_reviewed(source, local, baseline, resolve_refresh_choices(groups, {"orders": choice}))
+        assert merged["monthlyCustomerDemand"] == expected["monthlyCustomerDemand"]
+        assert merged["filterMonthlyDeliveryBaselines"] == expected["filterMonthlyDeliveryBaselines"]
+    assert local == snapshot(200) and source == snapshot(300)

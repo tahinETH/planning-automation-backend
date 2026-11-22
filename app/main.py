@@ -25,7 +25,7 @@ from .delivery_reports import DeliveryReportError, report_snapshot
 from .models import DeliveryReportRequest, DeliveryReportExportRequest, TurningIdentityResolutionPayload
 from .models import AppUpdateCreate, CalendarEventExportPayload, CommentCreate, CommentUpdate, DataPackagePayload, DeliveryPlanPayload, DemandImportHistoryPayload, FeedbackCreate, FeedbackUpdate, LoginRequest, OverviewExportPayload, PlanningStatePayload, ProductionArchiveExportPayload, RevisionPayload, ScenarioPayload
 from .models import PlanningDeltaPayload
-from .database import planning_transaction_status
+from .database import merge_filter_platform_records, planning_transaction_status
 from .calendar_export import build_calendar_event_workbook
 from .overview_export import build_overview_workbook
 from .order_import import MAX_XLSX_BYTES, OrderImportError, parse_order_xlsx
@@ -45,6 +45,7 @@ async def lifespan(_: FastAPI):
             init_database()
         finally:
             production_area.reset(token)
+        merge_filter_platform_records()
     yield
 
 
@@ -94,7 +95,7 @@ def create_app_update(payload: AppUpdateCreate, _: CurrentUser = Depends(require
     if any(len(bullet) > 500 for bullet in bullets):
         raise HTTPException(status_code=422, detail="Değişiklik maddeleri 500 karakteri geçemez")
     update_id, timestamp = str(uuid.uuid4()), now_iso()
-    with connection() as db:
+    with connection(shared=True) as db:
         db.execute(
             "INSERT INTO app_updates(id,title,bullets_json,created_at,seen_at) VALUES(?,?,?,?,NULL)",
             (update_id, title, json.dumps(bullets, ensure_ascii=False), timestamp),
@@ -104,7 +105,7 @@ def create_app_update(payload: AppUpdateCreate, _: CurrentUser = Depends(require
 
 @app.post("/api/app-updates/{update_id}/seen")
 def mark_app_update_seen(update_id: str, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         record = app_update_record(db, update_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
@@ -121,7 +122,7 @@ def edit_app_update(update_id: str, payload: AppUpdateCreate, _: CurrentUser = D
         raise HTTPException(status_code=422, detail="Başlık ve en az bir değişiklik maddesi gerekli")
     if any(len(bullet) > 500 for bullet in bullets):
         raise HTTPException(status_code=422, detail="Değişiklik maddeleri 500 karakteri geçemez")
-    with connection() as db:
+    with connection(shared=True) as db:
         if app_update_record(db, update_id) is None:
             raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
         db.execute("UPDATE app_updates SET title=?,bullets_json=? WHERE id=?",
@@ -131,7 +132,7 @@ def edit_app_update(update_id: str, payload: AppUpdateCreate, _: CurrentUser = D
 
 @app.delete("/api/app-updates/{update_id}")
 def delete_app_update(update_id: str, _: CurrentUser = Depends(require_admin)):
-    with connection() as db:
+    with connection(shared=True) as db:
         deleted = db.execute("DELETE FROM app_updates WHERE id=?", (update_id,))
         if deleted.rowcount == 0:
             raise HTTPException(status_code=404, detail="Güncelleme bulunamadı")
@@ -149,14 +150,18 @@ def put_orders(payload: list[dict[str, Any]], _: CurrentUser = Depends(current_u
 
 
 @app.post("/api/order-imports/preview")
-async def preview_order_import(file: UploadFile = File(...), monthly: bool = False, _: CurrentUser = Depends(current_user)):
+async def preview_order_import(file: UploadFile = File(...), monthly: bool = False, daily: bool = False, _: CurrentUser = Depends(current_user)):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm") if production_area.get() == "cubuk-filtre" else (".xlsx",)):
         raise HTTPException(status_code=422, detail="Bu üretim alanı için geçerli Excel dosyası seçin.")
     content = await file.read(MAX_XLSX_BYTES + 1)
     try:
-        if monthly and production_area.get() != "cubuk-filtre":
-            raise OrderImportError("Aylık Çubuk Filtre dosyası yalnız kendi alanına uygulanabilir.")
+        if (monthly or daily) and production_area.get() != "cubuk-filtre":
+            raise OrderImportError("Çubuk Filtre dosyası yalnız kendi alanına uygulanabilir.")
+        if monthly and daily:
+            raise OrderImportError("Aylık sipariş veya günlük sevkiyat dosyası seçin.")
         preview = parse_order_xlsx(content, allow_filter_daily=production_area.get() == "cubuk-filtre", allow_filter_monthly=monthly)
+        if daily and preview.get("format") != "filter-daily":
+            raise OrderImportError("Excel dosyasında Sevkiyat Planı sayfası bulunamadı.")
     except OrderImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"fileName": Path(file.filename).name, **preview}
@@ -301,9 +306,8 @@ def export_data_package(payload: DataPackagePayload, user: CurrentUser = Depends
     if payload.scope == "scenarios":
         requested = payload.data if isinstance(payload.data, list) else payload.data.get("scenarios", [])
         records = {item["id"]: collaboration.get_scenario(item["id"], user) for item in requested}
-        if production_area.get() == "torna":
-            from .scenario_plans import scenario_plans
-            plans = scenario_plans(requested, records.get)
+        from .scenario_plans import scenario_plans
+        plans = scenario_plans(requested, records.get)
     content = build_data_package(payload.scope, payload.data, plans=plans)
     filename = f"Selsa_{SCOPE_LABELS[payload.scope]}_{datetime.now().date().isoformat()}.xlsx"
     return StreamingResponse(
@@ -599,7 +603,7 @@ def create_feedback(payload: FeedbackCreate, user: CurrentUser = Depends(current
     from . import request_receipts
     feedback_id, timestamp = str(uuid.uuid4()), now_iso()
     identity = payload.model_dump(exclude={"requestId"})
-    with connection() as db:
+    with connection(shared=True) as db:
         db.execute("BEGIN IMMEDIATE")
         receipt = request_receipts.replay(db, user.id, "feedback", payload.requestId, identity)
         if receipt:
@@ -612,7 +616,7 @@ def create_feedback(payload: FeedbackCreate, user: CurrentUser = Depends(current
 
 @app.patch("/api/feedbacks/{feedback_id}")
 def update_feedback(feedback_id: str, payload: FeedbackUpdate, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         db.execute("BEGIN IMMEDIATE")
         current = require_feedback(db, feedback_id)
         body = payload.body.strip() if payload.body is not None else current["body"]
@@ -628,7 +632,7 @@ def update_feedback(feedback_id: str, payload: FeedbackUpdate, _: CurrentUser = 
 @app.post("/api/feedbacks/{feedback_id}/comments", status_code=201)
 def create_comment(feedback_id: str, payload: CommentCreate, user: CurrentUser = Depends(current_user)):
     comment_id, timestamp = str(uuid.uuid4()), now_iso()
-    with connection() as db:
+    with connection(shared=True) as db:
         require_feedback(db, feedback_id)
         db.execute("INSERT INTO feedback_comments(id,feedback_id,author_id,author_name,body,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                    (comment_id, feedback_id, user.id, user.name, payload.body.strip(), timestamp, timestamp))
@@ -638,7 +642,7 @@ def create_comment(feedback_id: str, payload: CommentCreate, user: CurrentUser =
 
 @app.patch("/api/comments/{comment_id}")
 def update_comment(comment_id: str, payload: CommentUpdate, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         row = db.execute("SELECT feedback_id FROM feedback_comments WHERE id=?", (comment_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Yorum bulunamadı")
@@ -650,7 +654,7 @@ def update_comment(comment_id: str, payload: CommentUpdate, _: CurrentUser = Dep
 
 @app.post("/api/feedbacks/{feedback_id}/attachments", status_code=201)
 async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(...), requestId: str | None = Query(default=None, min_length=1, max_length=128), user: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         require_feedback(db, feedback_id)
     prepared = []
     for upload in files:
@@ -687,7 +691,7 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
         for kind, name, content_type, suffix, content in prepared]}
     written = []
     try:
-        with connection() as db:
+        with connection(shared=True) as db:
             db.execute("BEGIN IMMEDIATE")
             require_feedback(db, feedback_id)
             receipt = request_receipts.replay(db, user.id, "attachments", requestId, identity)
@@ -713,7 +717,7 @@ async def upload_attachments(feedback_id: str, files: list[UploadFile] = File(..
 
 @app.get("/api/attachments/{attachment_id}/content")
 def attachment_content(attachment_id: str, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         row = db.execute("SELECT * FROM feedback_attachments WHERE id=?", (attachment_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Dosya bulunamadı")
@@ -725,7 +729,7 @@ def attachment_content(attachment_id: str, _: CurrentUser = Depends(current_user
 
 @app.delete("/api/attachments/{attachment_id}")
 def delete_attachment(attachment_id: str, _: CurrentUser = Depends(current_user)):
-    with connection() as db:
+    with connection(shared=True) as db:
         row = db.execute("SELECT feedback_id,storage_key FROM feedback_attachments WHERE id=?", (attachment_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Dosya bulunamadı")
