@@ -67,9 +67,14 @@ def production_snapshot(token: str | None) -> dict[str, Any]:
     return {"planningState": state, "scenarios": area_scenarios}
 
 
+def _local_production_sync() -> bool:
+    return settings.app_env.lower() == "test" and settings.auth_test_mode and settings.enable_local_production_sync
+
+
 def production_sync_status_payload() -> dict[str, Any]:
+    local_sync = _local_production_sync()
     enabled = (
-        settings.app_env.lower() == "staging"
+        (settings.app_env.lower() == "staging" or local_sync)
         and bool(settings.production_api_url)
         and bool(settings.production_sync_token)
     )
@@ -77,17 +82,20 @@ def production_sync_status_payload() -> dict[str, Any]:
         "appEnv": settings.app_env.lower(),
         "enabled": enabled,
         "lastSync": production_sync_status(),
+        **({"target": "local"} if local_sync else {}),
     }
 
 
 def _fetch_production_source() -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
-    """Read the production snapshot. Staging only; production never pulls and there is no source write."""
-    if settings.app_env.lower() != "staging":
-        raise HTTPException(status_code=403, detail="Üretimden veri alma yalnızca staging ortamında kullanılabilir.")
+    """Read the production snapshot for staging or an enabled local session."""
+    local_sync = _local_production_sync()
+    if settings.app_env.lower() != "staging" and not local_sync:
+        raise HTTPException(status_code=403, detail="Üretimden veri alma bu ortamda kullanılamıyor.")
     if not settings.production_api_url or not settings.production_sync_token:
-        raise HTTPException(status_code=503, detail="Staging için üretim veri kaynağı yapılandırılmamış.")
+        raise HTTPException(status_code=503, detail="Üretim veri kaynağı yapılandırılmamış." if local_sync else "Staging için üretim veri kaynağı yapılandırılmamış.")
 
     area = production_area.get()
+    unchanged = "Yerel kayıt değiştirilmedi." if local_sync else "staging değiştirilmedi."
     url = f"{settings.production_api_url}/production-snapshot"
     try:
         response = httpx.get(
@@ -97,25 +105,25 @@ def _fetch_production_source() -> tuple[dict[str, Any], str, list[dict[str, Any]
             follow_redirects=False,
         )
     except httpx.RequestError as error:
-        raise HTTPException(status_code=502, detail="Üretim ortamına bağlanılamadı; staging değiştirilmedi.") from error
+        raise HTTPException(status_code=502, detail=f"Üretim ortamına bağlanılamadı. {unchanged}") from error
     if response.status_code != 200:
         if area == "cubuk-filtre" and response.status_code in (400, 404, 409):
-            raise HTTPException(status_code=502, detail="Üretim ortamında Çubuk Filtre anlık görüntüsü henüz aktif değil veya kayıt bulunamadı; staging değiştirilmedi.")
-        raise HTTPException(status_code=502, detail="Üretim verisi okunamadı; staging değiştirilmedi.")
+            raise HTTPException(status_code=502, detail=f"Üretimde Çubuk Filtre verisi alınamıyor. {unchanged}")
+        raise HTTPException(status_code=502, detail=f"Üretim verisi okunamadı. {unchanged}")
     response_area = response.headers.get("X-Production-Area")
     if (area == "cubuk-filtre" and response_area != "cubuk-filtre") or (response_area and response_area != area):
-        raise HTTPException(status_code=502, detail="Üretim ortamı seçili üretim alanını doğrulamadı; staging değiştirilmedi.")
+        raise HTTPException(status_code=502, detail=f"Üretim ortamı seçili üretim alanını doğrulamadı. {unchanged}")
     try:
         payload = response.json()
     except ValueError as error:
-        raise HTTPException(status_code=502, detail="Üretim ortamı geçerli veri döndürmedi; staging değiştirilmedi.") from error
+        raise HTTPException(status_code=502, detail=f"Üretim ortamı geçerli veri döndürmedi. {unchanged}") from error
 
     record = payload.get("planningState") if isinstance(payload, dict) else None
     scenario_records = payload.get("scenarios") if isinstance(payload, dict) else None
     seed = record.get("seed") if isinstance(record, dict) else None
     source_updated_at = record.get("updatedAt") if isinstance(record, dict) else None
     if not _is_planning_seed(seed) or not isinstance(source_updated_at, str) or not source_updated_at or not _is_scenario_list(scenario_records):
-        raise HTTPException(status_code=502, detail="Üretim planlama kaydı eksik; staging değiştirilmedi.")
+        raise HTTPException(status_code=502, detail=f"Üretim planlama kaydı eksik. {unchanged}")
     if seed.get("productionArea", "torna") != area:
         raise HTTPException(status_code=502, detail="Üretimden gelen planlama kaydı seçili üretim alanıyla eşleşmiyor; staging değiştirilmedi.")
     if any(item["seed"].get("productionArea", "torna") != area for item in scenario_records):
@@ -146,7 +154,7 @@ def _preview(seed: dict[str, Any], source_updated_at: str, scenario_records: lis
 
 
 def preview_production_refresh() -> dict[str, Any]:
-    """Read-only comparison of staging with the current production source."""
+    """Read-only comparison of the target with the current production source."""
     return _preview(*_fetch_production_source())
 
 
@@ -158,7 +166,8 @@ def apply_production_refresh(expected: dict[str, Any], choices: dict[str, str] |
     try:
         return replace_planning_state_from_production(seed, source_updated_at, settings.production_api_url, scenario_records, expected, choices)
     except RefreshPreviewStale as error:
-        raise HTTPException(status_code=409, detail={"message": str(error), "preview": _preview(seed, source_updated_at, scenario_records)}) from error
+        message = "Yerel kayıt değişti. Önizlemeyi yenileyip yeniden inceleyin." if _local_production_sync() else str(error)
+        raise HTTPException(status_code=409, detail={"message": message, "preview": _preview(seed, source_updated_at, scenario_records)}) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -176,7 +185,7 @@ def pull_production_state(action: str | None = None, expected: dict[str, Any] | 
         if not isinstance(expected, dict):
             raise HTTPException(status_code=422, detail="Önizleme bilgisi eksik; önce önizlemeyi açın.")
         return apply_production_refresh(expected, choices)
-    if action is not None:
+    if action is not None or _local_production_sync():
         raise HTTPException(status_code=422, detail="Geçersiz yenileme işlemi.")
     seed, source_updated_at, scenario_records = _fetch_production_source()
     preview = _preview(seed, source_updated_at, scenario_records)

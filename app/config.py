@@ -60,6 +60,7 @@ class Settings:
     staging_pull_token: str = os.getenv("STAGING_PULL_TOKEN", "").strip()
     production_api_url: str = os.getenv("PRODUCTION_API_URL", "").strip().rstrip("/")
     production_sync_token: str = os.getenv("PRODUCTION_SYNC_TOKEN", "").strip()
+    enable_local_production_sync: bool = _bool("ENABLE_LOCAL_PRODUCTION_SYNC")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
 

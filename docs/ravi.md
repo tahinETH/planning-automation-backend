@@ -115,3 +115,25 @@ See [conversation storage](https://github.com/tahinETH/planning-automation-front
 
 Update the relevant section of this guide in place when setup, architecture or
 maintenance changes. Keep approved decisions in the combined workspace decision log (`DECISIONS.md`).
+
+## Personal draft sidebar
+
+Open **Kişisel taslak → Kademeli planlama** while stages remain. The sidebar
+shows the last planned process and the next process. **Sonraki prosesi planla**
+and **Tüm prosesi planla** use the existing worker and open the first new Gantt
+tab. Calculation and save status are shown separately.
+
+**Ortak plana dön** is below **Ortak plan yayını** or **Yöneticiyle paylaş**.
+The button waits for the calculation and save. If the shared plan read fails,
+the personal draft stays open. **Senaryolar → Planlarım → Yükle** can reopen the
+saved draft after a successful return.
+
+## Local production refresh
+
+The loopback runner accepts `--production-sync`. It reads the backend's
+`PRODUCTION_API_URL` and `PRODUCTION_SYNC_TOKEN` from its environment or local
+configuration. The token stays in the backend. In the local test administrator
+session, **Ortak plan → Diğer işlemler → Prod’dan güncelle** opens the same
+review as staging and labels the destination **yerel kopya**. An empty copy may
+take its first reviewed snapshot. The current deployed source must serve the
+selected area. The preview and conflict checks run before the local write.

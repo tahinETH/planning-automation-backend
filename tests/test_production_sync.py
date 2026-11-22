@@ -199,6 +199,78 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             _set_setting(name, value)
 
 
+def test_local_refresh_reviews_an_empty_database_and_requires_admin(tmp_path, request):
+    from app.auth import create_test_session
+
+    fixture_settings = {
+        "app_env": "test",
+        "auth_test_mode": True,
+        "enable_local_production_sync": True,
+        "database_path": tmp_path / "local.sqlite",
+        "upload_dir": tmp_path / "uploads",
+        "production_api_url": "https://source.example/api",
+        "production_sync_token": "local-refresh-fixture-token",
+    }
+    original_settings = {key: getattr(settings, key) for key in fixture_settings}
+    for key, value in fixture_settings.items():
+        _set_setting(key, value)
+
+    def restore_settings():
+        for key, value in original_settings.items():
+            _set_setting(key, value)
+
+    request.addfinalizer(restore_settings)
+    source = {"machines": [{"id": "L-01"}], "products": [], "preferences": [],
+              "orders": [], "productionArea": "cubuk-filtre"}
+    response = httpx.Response(
+        200, json={"planningState": {"seed": source, "updatedAt": "2026-11-22T09:00:00Z"}, "scenarios": []},
+        headers={"X-Production-Area": "cubuk-filtre"},
+    )
+    admin = {"Authorization": f"Bearer {create_test_session(settings.admin_password)}", "X-Production-Area": "cubuk-filtre"}
+    operator = {"Authorization": f"Bearer {create_test_session(settings.admin_password, role='user')}", "X-Production-Area": "cubuk-filtre"}
+
+    with TestClient(app) as client, patch("app.production_sync.httpx.get", return_value=response) as source_get:
+        assert client.get("/api/production-sync/status", headers=admin).json() == {
+            "appEnv": "test", "target": "local", "enabled": True, "lastSync": None,
+        }
+        assert client.post("/api/production-sync/pull", headers=operator, json={"action": "preview"}).status_code == 403
+        assert client.post("/api/production-sync/pull", headers=admin).status_code == 422
+        source_get.assert_not_called()
+        preview_response = client.post("/api/production-sync/pull", headers=admin, json={"action": "preview"})
+        assert preview_response.status_code == 200
+        preview = preview_response.json()
+        assert preview["localUpdatedAt"] == "" and preview["localDigest"] is None
+        assert client.get("/api/planning-state", headers=admin).json() is None
+        assert preview["settingsKeys"]["keptLocal"] == []
+        physical = next(group for group in preview["groups"] if group["id"] == "physical")
+        assert physical["defaultChoice"] == "use-source"
+        assert physical["summary"]["collections"]["machines"]["onlySource"] == 1
+
+        request = {
+            "action": "apply",
+            "expected": {key: preview[key] for key in ("sourceDigest", "localDigest", "localUpdatedAt", "baselineDigest")},
+            "choices": {group["id"]: "use-source" for group in preview["groups"]},
+        }
+        applied = client.post("/api/production-sync/pull", headers=admin, json=request)
+        assert applied.status_code == 200
+        assert applied.json()["planningState"]["seed"] == source
+        assert applied.json()["backupId"] is None
+        assert client.get("/api/planning-state", headers=admin).json()["seed"] == source
+        assert client.post("/api/production-sync/pull", headers=admin, json=request).status_code == 409
+        assert client.get("/api/planning-state", headers=admin).json()["seed"] == source
+        source_get.assert_called_with(
+            "https://source.example/api/production-snapshot",
+            headers={"X-Staging-Pull-Token": settings.production_sync_token, "X-Production-Area": "cubuk-filtre"},
+            timeout=20.0, follow_redirects=False,
+        )
+
+        _set_setting("enable_local_production_sync", False)
+        assert client.get("/api/production-sync/status", headers=admin).json()["enabled"] is False
+        count = source_get.call_count
+        assert client.post("/api/production-sync/pull", headers=admin, json={"action": "preview"}).status_code == 403
+        assert source_get.call_count == count
+
+
 def test_refresh_preserves_partial_work_deletions_and_updates_clean_inputs():
     from copy import deepcopy
     base = {"products": [{"product": "A", "rate": 1}], "machines": [{"id": "C1"}],
