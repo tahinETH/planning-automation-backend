@@ -9,7 +9,8 @@ OPERATIONS = {
     "machines", "productionHistory", "wipLots", "wipMovements", "planningEvents",
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
     "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
-    "orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders",
+    "filterInitialStockSetup",
+    "orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan", "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName",
 }
 
 
@@ -44,12 +45,13 @@ REFRESH_GROUPS: dict[str, dict[str, Any]] = {
         "fields": ("machines", "productionHistory", "wipLots", "wipMovements", "productionInterruptions",
                    "productionCancellations", "processCurrentJobs", "manualBatches", "savedBatches",
                    "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
-                   "planNeedsRecalculation", "scenarioProvenance"),
+                   "planNeedsRecalculation", "scenarioProvenance", "filterInitialStockSetup"),
         "choices": ("keep-local", "use-source"),
     },
     "orders": {
         "label": "Siparişler",
-        "fields": ("orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders"),
+        "fields": ("orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan",
+                   "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName"),
         "choices": ("keep-local", "use-source"),
     },
     "annotations": {

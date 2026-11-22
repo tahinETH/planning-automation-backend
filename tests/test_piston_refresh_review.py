@@ -271,20 +271,75 @@ def test_t16_transaction_failure_rolls_back_backup_state_baseline_history_and_sc
     assert database_snapshot() == before
 
 
-@pytest.mark.parametrize("action", ["preview", "apply"])
-def test_t16_piston_refresh_does_not_enable_cf_source_copy(refresh_client, monkeypatch, action):
+def test_cf_production_refresh_forwards_area_isolates_torna_and_rejects_cross_area_payload(refresh_client, monkeypatch):
+    from app.production_area import production_area
     baseline, local, _ = physical_fixture()
     seed_local(local, baseline)
-    before = database_snapshot()
+    torna_before = database_snapshot()
 
-    def forbidden_access(*args, **kwargs):
-        pytest.fail("Deferred CF refresh must not access the production source")
+    cf_source = {
+        "productionArea": "cubuk-filtre",
+        "products": [{"product": "CF-1"}],
+        "preferences": [],
+        "orders": [{"id": "cf-ord-1", "product": "CF-1", "quantity": 16000, "dueDate": "2026-11-30"}],
+        "machines": [{"id": "L-01", "currentJob": None}],
+        "productionHistory": [],
+        "wipLots": [],
+        "wipMovements": [],
+        "processCurrentJobs": [],
+        "productionCancellations": [],
+        "chargeJourneyNotes": [],
+        "manualBatches": [],
+        "savedBatches": [],
+        "monthlyCustomerDemand": {"year": 2026, "rows": [{"product": "CF-1"}]},
+        "filterInitialStockSetup": {"recordedAt": "2026-11-01T08:00:00Z", "rows": []},
+    }
+    cf_headers = {**auth(), "X-Production-Area": "cubuk-filtre"}
 
-    monkeypatch.setattr("app.production_sync.httpx.get", forbidden_access)
-    response = refresh_client.post("/api/production-sync/pull", headers={**auth(), "X-Production-Area": "cubuk-filtre"},
-                                   json={"action": action, "expected": {}, "choices": {}})
-    assert response.status_code == 409
-    assert database_snapshot() == before
+    status_resp = refresh_client.get("/api/production-sync/status", headers=cf_headers)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["enabled"] is True
+
+    # 1) Cross-area guard: if production omits/mismatches X-Production-Area or returns Torna data, reject with 502.
+    def wrong_area_source(url, **kwargs):
+        assert kwargs["headers"]["X-Production-Area"] == "cubuk-filtre"
+        return httpx.Response(200, headers={"X-Production-Area": "torna"}, json={"planningState": {"seed": local, "updatedAt": "2026-11-20T09:00:00Z"}, "scenarios": []}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("app.production_sync.httpx.get", wrong_area_source)
+    rejected = refresh_client.post("/api/production-sync/pull", headers=cf_headers, json={"action": "preview"})
+    assert rejected.status_code == 502
+
+    # 2) Valid cubuk-filtre snapshot: preview & apply refresh cubuk-filtre DB without touching Torna DB.
+    seen_headers = []
+    def valid_cf_source(url, **kwargs):
+        seen_headers.append(kwargs["headers"])
+        return httpx.Response(
+            200,
+            headers={"X-Production-Area": "cubuk-filtre"},
+            json={"planningState": {"seed": cf_source, "updatedAt": "2026-11-20T10:00:00Z"}, "scenarios": []},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr("app.production_sync.httpx.get", valid_cf_source)
+    preview_resp = refresh_client.post("/api/production-sync/pull", headers=cf_headers, json={"action": "preview"})
+    assert preview_resp.status_code == 200, preview_resp.text
+    review = preview_resp.json()
+    apply_resp = refresh_client.post("/api/production-sync/pull", headers=cf_headers, json={
+        "action": "apply",
+        "expected": {key: review[key] for key in ("sourceDigest", "localDigest", "localUpdatedAt", "baselineDigest")},
+        "choices": {},
+    })
+    assert apply_resp.status_code == 200, apply_resp.text
+    assert seen_headers and all(h["X-Production-Area"] == "cubuk-filtre" for h in seen_headers)
+    saved_cf = refresh_client.get("/api/planning-state", headers=cf_headers).json()
+    assert saved_cf["seed"]["productionArea"] == "cubuk-filtre"
+    assert saved_cf["seed"]["monthlyCustomerDemand"] == cf_source["monthlyCustomerDemand"]
+    assert saved_cf["seed"]["filterInitialStockSetup"] == cf_source["filterInitialStockSetup"]
+    assert database_snapshot() == torna_before
+    # Collaboration status is now 200 OK on cubuk-filtre as well.
+    collab = refresh_client.get("/api/collaboration/status", headers=cf_headers)
+    assert collab.status_code == 200
+    assert collab.json()["worldRevision"] == saved_cf["updatedAt"]
 
 
 @pytest.mark.parametrize("bad", ["action", "expected-list", "expected-missing", "choices-list", "choice-object"])

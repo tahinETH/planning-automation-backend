@@ -425,7 +425,11 @@ def production_command(value, user):
             from .planning_delta import apply_delta
             delta = value["command"]["args"][0]["delta"]
             fields = set(delta.get("set", {})) | set(delta.get("arrays", {})) | set(delta.get("remove", []))
-            if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings"}:
+            if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings", "planNeedsRecalculation"}:
+                raise HTTPException(422, "Pasif atama girdileri geçersiz.")
+            if "planNeedsRecalculation" in delta.get("set", {}) and delta["set"]["planNeedsRecalculation"] is not True:
+                raise HTTPException(422, "Pasif atama girdileri geçersiz.")
+            if "planNeedsRecalculation" in delta.get("remove", []):
                 raise HTTPException(422, "Pasif atama girdileri geçersiz.")
             assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), user.is_admin)
         db.execute("INSERT OR IGNORE INTO production_opening VALUES(?,?,?,?,?)", ("default", now_iso(), current["updatedAt"], current["stateHash"], json.dumps(current["seed"])))

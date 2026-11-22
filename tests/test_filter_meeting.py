@@ -113,3 +113,51 @@ def test_cf_mtg14_changed_sibling_queue_rejects_without_any_write(filter_world):
         collab.production_command(request(filter_world, old), USER)
     assert stale.value.status_code == 409
     assert database_contents() == snapshot
+
+
+def test_cf_b1_04_deactivate_parameters_allows_plan_needs_recalculation_true_only(filter_world):
+    admin = CurrentUser('filter-admin', 'Admin', 'admin@example.test', 'admin')
+    seed = copy.deepcopy(db.planning_state()['seed'])
+    # Set up a single queued turning batch on L-01 with no running work on L-01 so we can move it to L-02.
+    product = seed['manualBatches'][0]['product']
+    for machine in seed['machines']:
+        machine['currentJob']['quantity'] = 0
+        machine['currentJob']['product'] = ''
+    batch = copy.deepcopy(seed['manualBatches'][0])
+    batch['machineId'] = 'L-01'
+    batch.pop('sharedCharge', None)
+    seed['manualBatches'] = [batch]
+    seed['planNeedsRecalculation'] = False
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1, stock_planning_version=1, monthly_planning_version=1)
+    world = db.planning_state()
+    expected_basis = state_hash({**world['seed'], 'chargeJourneyNotes': [], 'planningEvents': []})
+    products = copy.deepcopy(world['seed']['products'])
+    for item in products:
+        if item['product'] == product:
+            item['inactiveMachineIds'] = ['L-01']
+    signature = json.dumps([[f"turning:{batch['id']}", 'L-01', batch['quantity'], batch['start'], batch['end'], bool(batch.get('locked'))]], separators=(',', ':'))
+    bad_cmd = {
+        'requestId': 'cf-deact-false',
+        'expectedBasis': expected_basis,
+        'command': {
+            'kind': 'deactivateParameters',
+            'args': [{
+                'targets': [{'target': {'process': 'turning', 'product': product, 'resourceId': 'L-01'}, 'signature': signature}],
+                'decisions': [{'key': f"turning:{batch['id']}", 'kind': 'move', 'targetResourceId': 'L-02'}],
+                'delta': {'set': {'products': products, 'planNeedsRecalculation': False}, 'arrays': {}, 'remove': []},
+            }],
+        },
+    }
+    with pytest.raises(HTTPException) as rejected:
+        collab.production_command(bad_cmd, admin)
+    assert rejected.value.status_code == 422
+
+    good_cmd = copy.deepcopy(bad_cmd)
+    good_cmd['requestId'] = 'cf-deact-true'
+    good_cmd['command']['args'][0]['delta']['set']['planNeedsRecalculation'] = True
+    accepted = collab.production_command(good_cmd, admin)
+    saved = accepted['current']['seed']
+    assert 'L-01' in next(item['inactiveMachineIds'] for item in saved['products'] if item['product'] == product)
+    assert saved['manualBatches'][0]['machineId'] == 'L-02'
+    assert saved['planNeedsRecalculation'] is True

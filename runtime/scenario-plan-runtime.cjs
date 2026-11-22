@@ -5032,7 +5032,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
       }
       return options;
     }).sort((left, right) => left.end - right.end || left.priority - right.priority || left.resource.id.localeCompare(right.resource.id));
-    let parallel = seed.productionArea === "cubuk-filtre" && process2 === "milling" && !currentJob && !override && !consolidatedResource ? allocateSharedQuantity(source.quantity, evaluated.map((option) => {
+    let parallel = seed.productionArea === "cubuk-filtre" && process2 === "milling" && !currentJob && !override && !consolidatedResource && evaluated.length > 1 ? allocateSharedQuantity(source.quantity, evaluated.map((option) => {
       const start = Math.max(readyAt, predecessor?.end ?? readyAt, queueByResource.get(option.resource.id)?.tail ?? readyAt, option.resource.availableStart ?? readyAt);
       const end = option.resource.planEnd ? Math.floor(option.resource.planEnd) + 1 - 1e-6 : start + 366;
       const hoursPerPiece = getSetupSettings(seed).shiftHours / option.unitsPerShift;
@@ -5239,70 +5239,17 @@ function processGapDiagnostics(seed, master, operations) {
   }
   return gaps;
 }
-function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
-  const master = seed.processMasterData ?? { version: 0, source: { kind: "one-time-foundation", files: [], calculatedOnce: "" }, machineCodeStandard: [], products: [], resources: [] };
-  const warnings = validateProcessMasterData(master);
-  const sources = [];
-  for (const lot of (seed.wipLots ?? []).filter((item) => item.availableQuantity > 0 && item.stage !== "delivered" && item.stage !== "scrapped")) {
-    const masterProduct = processMasterDataForProduct(master, lot.product);
-    if (!masterProduct) {
-      warnings.push({ code: "missing-product", product: lot.product, batchId: lot.id, message: `${lot.product} yar\u0131 mam\xFCl\xFC i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
-      continue;
-    }
-    sources.push({
-      id: lot.id,
-      source: "wip",
-      product: lot.product,
-      quantity: lot.availableQuantity,
-      workOrder: lot.workOrder,
-      releaseAt: lot.readyAt,
-      nextProcess: lot.stage === "on-hold" || lot.stage === "unclassified" ? void 0 : lot.nextProcess,
-      lot,
-      masterProduct
-    });
+var stagePlanContexts = /* @__PURE__ */ new WeakMap();
+function finalizeDownstreamProcessPlan(seed, result, ctx, stageResults) {
+  const { master, sources, representedBatchIds, baseOperations, baseWarnings, stageOrder } = ctx;
+  const warnings = [...baseWarnings];
+  const downstream = [];
+  for (const process2 of stageOrder) {
+    const stage = stageResults.get(process2);
+    if (!stage) continue;
+    warnings.push(...stage.warnings);
+    downstream.push(...stage.operations);
   }
-  const representedBatchIds = new Set((seed.wipLots ?? []).map((lot) => lot.sourceBatchId).filter(Boolean));
-  for (const machine of (seed.machines ?? []).filter((item) => item.currentJob.product && item.currentJob.quantity > 0 && item.currentJob.end > 0)) {
-    const product = machine.currentJob.product.trim().toUpperCase();
-    const masterProduct = processMasterDataForProduct(master, product);
-    if (!masterProduct) {
-      warnings.push({ code: "missing-product", product, batchId: `current:${machine.id}`, message: `${product} mevcut torna i\u015Fi i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
-      continue;
-    }
-    sources.push({
-      id: `current:${machine.id}`,
-      source: "current-turning",
-      product,
-      quantity: machine.currentJob.quantity,
-      workOrder: machine.currentJob.workOrder ?? "",
-      releaseAt: machine.currentJob.end,
-      nextProcess: hasActiveProductionInterruption(seed, machine.currentJob.batchId, machine.currentJob.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"),
-      machine,
-      masterProduct
-    });
-  }
-  for (const batch of result.batches.filter((item) => item.status === "planned" && item.quantity > 0 && item.end > 0)) {
-    if (representedBatchIds.has(batch.id)) continue;
-    const masterProduct = processMasterDataForProduct(master, batch.product);
-    if (!masterProduct) {
-      warnings.push({ code: "missing-product", product: batch.product, batchId: batch.id, message: `${batch.product} i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
-      continue;
-    }
-    sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
-  }
-  for (const source of sources) {
-    if (source.masterProduct.family !== "cubuk-filtre") continue;
-    const turningId = source.machine?.id ?? source.batch?.machineId ?? source.lot?.completedSteps.find((s) => s.process === "turning")?.resourceId;
-    const route = effectiveProductRoute(source.masterProduct, turningId);
-    source.masterProduct = { ...source.masterProduct, route, processes: source.masterProduct.processes.filter((p) => route.includes(p.process)) };
-    if (source.source !== "wip" && source.nextProcess) source.nextProcess = route.find((p) => p !== "turning");
-  }
-  const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
-  sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
-  const operationsByKey = /* @__PURE__ */ new Map();
-  const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
-  for (const operation of baseOperations) operationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
-  const downstream = productionProcessOrder(seed).filter((process2) => process2 !== "turning").flatMap((process2) => scheduleStage(seed, master, process2, sources, operationsByKey, warnings, includeInterruptedCandidates));
   const operations = [...baseOperations, ...downstream].sort((left, right) => left.start - right.start || left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.id.localeCompare(right.id));
   const jobs = sources.map((source) => {
     const route = operations.filter((operation) => operation.batchId === source.id).sort((left, right) => left.sequence - right.sequence || Number(right.actual) - Number(left.actual) || left.end - right.end);
@@ -5344,7 +5291,147 @@ function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates =
   const completion = Math.max(0, ...jobs.map((job) => job.completion));
   const deliveryCompletion = Math.max(0, ...jobs.map((job) => job.deliveryReadyAt));
   const gaps = processGapDiagnostics(seed, master, downstream);
-  return { state: operations.length ? "planned" : "empty", operations, jobs, warnings, gaps, completion, deliveryCompletion, queueEntries };
+  const plan = { state: operations.length ? "planned" : "empty", operations, jobs, warnings, gaps, completion, deliveryCompletion, queueEntries };
+  stagePlanContexts.set(plan, { ...ctx, stageResults });
+  return plan;
+}
+var lastDownstreamExecution = null;
+function downstreamBaseInputKey(seed, result) {
+  return JSON.stringify([
+    seed.productionArea,
+    seed.processMasterData,
+    seed.machines,
+    seed.wipLots,
+    seed.processCurrentJobs,
+    seed.productionInterruptions,
+    seed.flowSettings,
+    seed.processWaitSettings,
+    seed.setupSettings,
+    seed.holidays,
+    seed.calendarEvents,
+    seed.orders,
+    result.batches
+  ]);
+}
+function downstreamStageInputKey(seed, process2, fullOrder) {
+  const enabled = seed.plannedThroughProcess === void 0 || fullOrder.indexOf(process2) <= fullOrder.indexOf(seed.plannedThroughProcess);
+  const overrides = (seed.processOperationOverrides ?? []).filter((item) => item.process === process2);
+  return JSON.stringify([enabled, overrides]);
+}
+function buildDownstreamBaseContext(seed, result, includeInterruptedCandidates) {
+  const master = seed.processMasterData ?? { version: 0, source: { kind: "one-time-foundation", files: [], calculatedOnce: "" }, machineCodeStandard: [], products: [], resources: [] };
+  const baseWarnings = validateProcessMasterData(master);
+  const sources = [];
+  for (const lot of (seed.wipLots ?? []).filter((item) => item.availableQuantity > 0 && item.stage !== "delivered" && item.stage !== "scrapped")) {
+    const masterProduct = processMasterDataForProduct(master, lot.product);
+    if (!masterProduct) {
+      baseWarnings.push({ code: "missing-product", product: lot.product, batchId: lot.id, message: `${lot.product} yar\u0131 mam\xFCl\xFC i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
+      continue;
+    }
+    sources.push({
+      id: lot.id,
+      source: "wip",
+      product: lot.product,
+      quantity: lot.availableQuantity,
+      workOrder: lot.workOrder,
+      releaseAt: lot.readyAt,
+      nextProcess: lot.stage === "on-hold" || lot.stage === "unclassified" ? void 0 : lot.nextProcess,
+      lot,
+      masterProduct
+    });
+  }
+  const representedBatchIds = new Set((seed.wipLots ?? []).map((lot) => lot.sourceBatchId).filter(Boolean));
+  for (const machine of (seed.machines ?? []).filter((item) => item.currentJob.product && item.currentJob.quantity > 0 && item.currentJob.end > 0)) {
+    const product = machine.currentJob.product.trim().toUpperCase();
+    const masterProduct = processMasterDataForProduct(master, product);
+    if (!masterProduct) {
+      baseWarnings.push({ code: "missing-product", product, batchId: `current:${machine.id}`, message: `${product} mevcut torna i\u015Fi i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
+      continue;
+    }
+    sources.push({
+      id: `current:${machine.id}`,
+      source: "current-turning",
+      product,
+      quantity: machine.currentJob.quantity,
+      workOrder: machine.currentJob.workOrder ?? "",
+      releaseAt: machine.currentJob.end,
+      nextProcess: hasActiveProductionInterruption(seed, machine.currentJob.batchId, machine.currentJob.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"),
+      machine,
+      masterProduct
+    });
+  }
+  for (const batch of result.batches.filter((item) => item.status === "planned" && item.quantity > 0 && item.end > 0)) {
+    if (representedBatchIds.has(batch.id)) continue;
+    const masterProduct = processMasterDataForProduct(master, batch.product);
+    if (!masterProduct) {
+      baseWarnings.push({ code: "missing-product", product: batch.product, batchId: batch.id, message: `${batch.product} i\xE7in downstream \xFCr\xFCn rotas\u0131 bulunamad\u0131.` });
+      continue;
+    }
+    sources.push({ id: batch.id, source: "turning-plan", product: batch.product, quantity: batch.quantity, workOrder: batch.workOrder ?? "", releaseAt: batch.end, nextProcess: hasActiveProductionInterruption(seed, batch.id, batch.interruptionId) ? void 0 : productProcessRoute(masterProduct).find((process2) => process2 !== "turning"), batch, masterProduct });
+  }
+  for (const source of sources) {
+    if (source.masterProduct.family !== "cubuk-filtre") continue;
+    const turningId = source.machine?.id ?? source.batch?.machineId ?? source.lot?.completedSteps.find((s) => s.process === "turning")?.resourceId;
+    const route = effectiveProductRoute(source.masterProduct, turningId);
+    source.masterProduct = { ...source.masterProduct, route, processes: source.masterProduct.processes.filter((p) => route.includes(p.process)) };
+    if (source.source !== "wip" && source.nextProcess) source.nextProcess = route.find((p) => p !== "turning");
+  }
+  const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
+  sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
+  const baseOperationsByKey = /* @__PURE__ */ new Map();
+  const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
+  for (const operation of baseOperations) baseOperationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
+  const stageOrder = productionProcessOrder(seed).filter((process2) => process2 !== "turning");
+  return { master, sources, representedBatchIds, baseOperations, baseWarnings, baseOperationsByKey, stageOrder, includeInterruptedCandidates };
+}
+function buildDownstreamProcessPlan(seed, result, includeInterruptedCandidates = false) {
+  const baseKey = downstreamBaseInputKey(seed, result);
+  const fullOrder = productionProcessOrder(seed);
+  const canReuseBase = Boolean(
+    lastDownstreamExecution && lastDownstreamExecution.baseKey === baseKey && lastDownstreamExecution.includeInterruptedCandidates === includeInterruptedCandidates
+  );
+  const ctx = canReuseBase ? lastDownstreamExecution.ctx : buildDownstreamBaseContext(seed, result, includeInterruptedCandidates);
+  const stageResults = /* @__PURE__ */ new Map();
+  const stageKeys = /* @__PURE__ */ new Map();
+  let firstChangedIndex = 0;
+  if (canReuseBase) {
+    while (firstChangedIndex < ctx.stageOrder.length) {
+      const process2 = ctx.stageOrder[firstChangedIndex];
+      const key = downstreamStageInputKey(seed, process2, fullOrder);
+      const cached = lastDownstreamExecution.stageResults.get(process2);
+      if (lastDownstreamExecution.stageKeys.get(process2) !== key || !cached) break;
+      stageResults.set(process2, cached);
+      stageKeys.set(process2, key);
+      firstChangedIndex += 1;
+    }
+    if (firstChangedIndex === ctx.stageOrder.length && lastDownstreamExecution.plan) {
+      return lastDownstreamExecution.plan;
+    }
+  }
+  const currentOperationsByKey = new Map(
+    firstChangedIndex === 0 ? ctx.baseOperationsByKey : stageResults.get(ctx.stageOrder[firstChangedIndex - 1]).operationsByKeyAfter
+  );
+  for (let i = firstChangedIndex; i < ctx.stageOrder.length; i += 1) {
+    const process2 = ctx.stageOrder[i];
+    const stageWarnings = [];
+    const stageOps = scheduleStage(seed, ctx.master, process2, ctx.sources, currentOperationsByKey, stageWarnings, includeInterruptedCandidates);
+    stageResults.set(process2, {
+      operations: stageOps,
+      warnings: stageWarnings,
+      operationsByKeyAfter: new Map(currentOperationsByKey)
+    });
+    stageKeys.set(process2, downstreamStageInputKey(seed, process2, fullOrder));
+  }
+  const plan = finalizeDownstreamProcessPlan(seed, result, ctx, stageResults);
+  lastDownstreamExecution = {
+    baseKey,
+    includeInterruptedCandidates,
+    ctx,
+    stageKeys,
+    stageResults,
+    plan
+  };
+  return plan;
 }
 
 // data/product-setup-families.json

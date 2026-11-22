@@ -134,12 +134,71 @@ def test_cf_mi06_duplicate_raw_label_rejects_even_when_values_match():
         parse(rows)
 
 
-@pytest.mark.parametrize('bad', [None, -1, 1.5, 9007199254740992, ('SUM(X1:X2)', None)])
+@pytest.mark.parametrize('bad', [9007199254740992, ('SUM(X1:X2)', None)])
 def test_cf_mi07_invalid_or_unconfirmed_raw_amount_rejects(bad):
     rows = monthly_rows()
     rows[9]['B'] = bad
     with pytest.raises(OrderImportError):
         parse(rows)
+
+
+@pytest.mark.parametrize('zero_like', [None, '', '-', ' - ', '—', '–', 'NULL', 'null', '#N/A', 'geçersiz', -10])
+def test_cf_mi07b_dash_blank_null_and_invalid_values_default_to_zero(zero_like):
+    rows = monthly_rows()
+    rows[9]['B'] = zero_like
+    rows[10]['B'] = 0
+    assert by_product(parse(rows))[C100]['quantities'][0] == 0
+
+
+def test_cf_mi07c_dot_and_comma_formatted_integers_parse_without_bottlenecks():
+    rows = monthly_rows()
+    # Mix Turkish dots, English commas, trailing decimal zeros, and float noise on source rows.
+    rows[9]['B'] = '451.200'
+    rows[10]['B'] = '16,848'
+    rows[9]['C'] = '518.400,00'
+    rows[10]['C'] = '9,828.00'
+    rows[9]['D'] = 499200.0
+    rows[10]['D'] = 21060.0000001
+    products = by_product(parse(rows))
+    # Ocak: ceil((451200+16848)*1.03/15000)*15000 = 495000
+    # Şubat: ceil((518400+9828)*1.03/15000)*15000 = 555000
+    # Mart: ceil((499200+21060)*1.03/15000)*15000 = 540000
+    assert products[C100]['quantities'][:3] == [495000, 555000, 540000]
+
+
+def test_cf_mi28_operational_layout_without_day_row_and_with_410_and_gunluk_adet_imports():
+    # Matches the approved operational Excel layout (no Day row, 410-RBTR at top, Günlük Adet at bottom, custom sheet name).
+    rows = {
+        1: {'A': '2026 YILI'},
+        3: {'A': '2.11.2026', **dict(zip('BCDEFGHIJKLM', MONTHS))},
+        4: {'A': '410-RBTR', **dict(zip('BCDEFGHIJKLM', ['86.400'] * 12))},
+        5: {'A': '501-RBTR', 'B': '451.200', 'C': '518.400', 'D': '499.200', **{c: '-' for c in 'EFGHIJKLM'}},
+        6: {'A': '481-HoP', 'B': '-', 'C': '9.600', 'D': '9.600', **{c: 'NULL' for c in 'EFGHIJKLM'}},
+        7: {'A': '481-CtP/NaP', **{c: '-' for c in 'BCDEFGHIJKLM'}},
+        8: {'A': '003-RBCD', 'B': '16.848', 'C': '9.828', 'D': '21.060', **{c: 0 for c in 'EFGHIJKLM'}},
+        9: {'A': '001-RBCD', 'B': '4.212', 'C': '-', 'D': '4.212', **{c: 0 for c in 'EFGHIJKLM'}},
+        10: {'A': '001-NaP', 'B': '-', 'C': '-', 'D': '1.755', **{c: 0 for c in 'EFGHIJKLM'}},
+        11: {'A': '001-CtP', 'B': '3.510', 'C': '-', 'D': '-', **{c: 0 for c in 'EFGHIJKLM'}},
+        12: {'A': '424-HoP/CtP', 'B': '-', 'C': '-', 'D': '6.000', **{c: 0 for c in 'EFGHIJKLM'}},
+        13: {'A': 'DRS Total', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+        14: {'A': '309-RBTR', 'B': '483.840', 'C': '414.720', 'D': '432.000', **{c: 0 for c in 'EFGHIJKLM'}},
+        15: {'A': '315-BaP', 'B': '34.560', 'C': '17.280', 'D': '34.560', **{c: 0 for c in 'EFGHIJKLM'}},
+        16: {'A': '002-CtP', 'B': '-', 'C': '-', 'D': '32.500', **{c: 0 for c in 'EFGHIJKLM'}},
+        17: {'A': '245-CtP', 'B': '32.500', 'C': '-', 'D': '-', **{c: 0 for c in 'EFGHIJKLM'}},
+        18: {'A': 'C100 - DRS', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+        19: {'A': '002 - DRS', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+        20: {'A': '081 - DRS', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+        21: {'A': 'ÇF Total', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+        22: {'A': 'Günlük Adet', **{c: 0 for c in 'BCDEFGHIJKLM'}},
+    }
+    result = parse_order_xlsx(book([('2026 Plan', rows)]), allow_filter_monthly=True)
+    assert result['year'] == 2026
+    assert result['workingDays'] == [0.0] * 12
+    products = by_product(result)
+    assert products[C100]['quantities'][:3] == [495000, 555000, 540000]
+    assert products[DRS002]['quantities'][:3] == [9000, 0, 7000]
+    assert products[P081]['quantities'][:3] == [0, 11000, 18700]
+    assert products[P309]['quantities'][:3] == [483840, 414720, 432000]
 
 
 def test_cf_mi08_explicit_zero_is_valid_and_formula_cache_is_read_without_execution():
@@ -351,17 +410,22 @@ def test_fb_template01_month_totals_include_each_group_once_and_year_is_first():
     workbook = load_workbook(BytesIO(content))
     sheet = workbook.active
     assert sheet['A1'].value == '2027 YILI'
-    assert sheet['A6'].value is None
-    assert sheet['A17'].value == 'DRS Total'
-    assert sheet['A25'].value == 'ÇF Total'
+    assert sheet['A5'].value == '410-RBTR'
+    assert sheet['A14'].value == 'DRS Total'
+    assert sheet['A19'].value == 'C100 - DRS'
+    assert sheet['A20'].value == '002 - DRS'
+    assert sheet['A21'].value == '081 - DRS'
+    assert sheet['A22'].value == 'ÇF Total'
+    assert sheet['A23'].value == 'Günlük Adet'
     for index in range(2, 14):
         col = get_column_letter(index)
-        assert sheet.cell(17, index).value == f'=SUM({col}9:{col}16)'
-        assert sheet.cell(25, index).value == f'=SUM({col}18:{col}24)'
-        # Independent monthly example: eight DRS sources, four direct products.
-        for row in range(9, 17): sheet.cell(row, index, 100)
-        for row in [18, 22, 23, 24]: sheet.cell(row, index, 10)
-    assert len({sheet['B9'].fill.fgColor.rgb, sheet['B19'].fill.fgColor.rgb, sheet['B17'].fill.fgColor.rgb}) == 3
+        assert sheet.cell(14, index).value == f'=SUM({col}6:{col}13)'
+        assert sheet.cell(22, index).value == f'=SUM({col}15:{col}21)'
+        # Independent monthly example: eight green DRS sources (rows 6-13), four orange direct products (rows 15-18).
+        for row in range(6, 14): sheet.cell(row, index, 100)
+        for row in range(15, 19): sheet.cell(row, index, 10)
+    # Distinct colors: blue (410-RBTR), green (DRS source), orange (direct), grey (derived DRS), dark navy (ÇF Total).
+    assert len({sheet['B5'].fill.fgColor.rgb, sheet['B6'].fill.fgColor.rgb, sheet['B15'].fill.fgColor.rgb, sheet['B19'].fill.fgColor.rgb, sheet['B22'].fill.fgColor.rgb}) == 5
     output = BytesIO(); workbook.save(output)
     result = parse_order_xlsx(output.getvalue(), allow_filter_monthly=True)
     # 800 source pieces; 15,000 + 1,000 + 1,100 derived and 4 x 10 direct.

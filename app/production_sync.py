@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .config import settings
 from .database import RefreshPreviewStale, planning_state, production_refresh_inputs, production_sync_status, replace_planning_state_from_production, scenarios
+from .production_area import production_area
 from .production_merge import refresh_groups, seed_digest, settings_key_differences
 
 
@@ -57,9 +58,13 @@ def production_snapshot(token: str | None) -> dict[str, Any]:
     if not token or not secrets.compare_digest(token, settings.staging_pull_token):
         raise HTTPException(status_code=401, detail="Staging veri aktarım anahtarı geçersiz.")
     state = planning_state()
+    area = production_area.get()
     if state is None or not _is_planning_seed(state.get("seed")):
         raise HTTPException(status_code=404, detail="Üretimde kopyalanacak planlama durumu bulunamadı.")
-    return {"planningState": state, "scenarios": scenarios()}
+    if state["seed"].get("productionArea", "torna") != area:
+        raise HTTPException(status_code=409, detail="Üretimdeki planlama kaydı seçili üretim alanıyla eşleşmiyor.")
+    area_scenarios = [item for item in scenarios() if isinstance(item.get("seed"), dict) and item["seed"].get("productionArea", "torna") == area]
+    return {"planningState": state, "scenarios": area_scenarios}
 
 
 def production_sync_status_payload() -> dict[str, Any]:
@@ -82,18 +87,24 @@ def _fetch_production_source() -> tuple[dict[str, Any], str, list[dict[str, Any]
     if not settings.production_api_url or not settings.production_sync_token:
         raise HTTPException(status_code=503, detail="Staging için üretim veri kaynağı yapılandırılmamış.")
 
+    area = production_area.get()
     url = f"{settings.production_api_url}/production-snapshot"
     try:
         response = httpx.get(
             url,
-            headers={SYNC_HEADER: settings.production_sync_token},
+            headers={SYNC_HEADER: settings.production_sync_token, "X-Production-Area": area},
             timeout=20.0,
             follow_redirects=False,
         )
     except httpx.RequestError as error:
         raise HTTPException(status_code=502, detail="Üretim ortamına bağlanılamadı; staging değiştirilmedi.") from error
     if response.status_code != 200:
+        if area == "cubuk-filtre" and response.status_code in (400, 404, 409):
+            raise HTTPException(status_code=502, detail="Üretim ortamında Çubuk Filtre anlık görüntüsü henüz aktif değil veya kayıt bulunamadı; staging değiştirilmedi.")
         raise HTTPException(status_code=502, detail="Üretim verisi okunamadı; staging değiştirilmedi.")
+    response_area = response.headers.get("X-Production-Area")
+    if (area == "cubuk-filtre" and response_area != "cubuk-filtre") or (response_area and response_area != area):
+        raise HTTPException(status_code=502, detail="Üretim ortamı seçili üretim alanını doğrulamadı; staging değiştirilmedi.")
     try:
         payload = response.json()
     except ValueError as error:
@@ -105,6 +116,10 @@ def _fetch_production_source() -> tuple[dict[str, Any], str, list[dict[str, Any]
     source_updated_at = record.get("updatedAt") if isinstance(record, dict) else None
     if not _is_planning_seed(seed) or not isinstance(source_updated_at, str) or not source_updated_at or not _is_scenario_list(scenario_records):
         raise HTTPException(status_code=502, detail="Üretim planlama kaydı eksik; staging değiştirilmedi.")
+    if seed.get("productionArea", "torna") != area:
+        raise HTTPException(status_code=502, detail="Üretimden gelen planlama kaydı seçili üretim alanıyla eşleşmiyor; staging değiştirilmedi.")
+    if any(item["seed"].get("productionArea", "torna") != area for item in scenario_records):
+        raise HTTPException(status_code=502, detail="Üretimden gelen senaryo kayıtları seçili üretim alanıyla eşleşmiyor; staging değiştirilmedi.")
     return seed, source_updated_at, scenario_records
 
 

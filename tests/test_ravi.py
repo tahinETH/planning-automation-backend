@@ -550,3 +550,11 @@ def test_piston_type_deletion_and_downstream_excel_guidance_uses_visible_control
     assert any("Tipi sil" in value for value in topic["userSources"])
     assert any("Excel indir / Excel yükle" in value for value in topic["userSources"])
     assert "implementationNotes" not in topic and "sources" not in topic
+
+
+def test_role_guidance_keeps_type_request_submission_separate_from_manager_decisions():
+    topic = knowledge.for_model(knowledge.read_topic("role-permissions"))
+
+    assert "Kullanıcı tip kaldırma talebi gönderebilir" in topic["body"]
+    assert "Talep hakkında yalnız yönetici karar verir" in topic["body"]
+    assert "Parametreler → Yönetici talepleri" in topic["userSources"]

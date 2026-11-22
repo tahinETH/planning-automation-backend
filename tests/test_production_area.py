@@ -60,7 +60,7 @@ def test_cf_p02_wrong_area_and_legacy_payload_rejected_before_write(client):
         assert client.post("/api/scenarios", headers=headers(selected), json=payload).status_code == 400
         assert client.get("/api/planning-state", headers=headers(selected)).json() is None
     assert client.get("/api/planning-state", headers=headers("../production")).status_code == 400
-    assert client.post("/api/production-sync/pull", headers=headers("cubuk-filtre")).status_code == 409
+    assert client.post("/api/production-sync/pull", headers=headers("cubuk-filtre")).status_code == 403
     assert client.get("/api/planning-state", headers={"X-Production-Area": "cubuk-filtre"}).status_code == 401
 
 

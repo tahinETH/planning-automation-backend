@@ -861,6 +861,7 @@ def replace_planning_state_from_production(
     seed is kept in production_sync_backup before anything is replaced.
     """
     from .production_merge import merge_production_refresh_reviewed, refresh_groups, resolve_refresh_choices, seed_digest
+    validate_seed_area(seed)
     timestamp = now_iso()
     source_seed = seed
     with connection() as db:

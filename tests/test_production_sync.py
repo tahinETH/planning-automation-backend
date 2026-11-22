@@ -112,7 +112,7 @@ def test_production_to_staging_sync_is_one_way_and_atomic():
             assert upstream_get.call_count == 3
             upstream_get.assert_called_with(
                 "https://api.planning.hfgok.com/api/production-snapshot",
-                headers={"X-Staging-Pull-Token": "shared-read-token"},
+                headers={"X-Staging-Pull-Token": "shared-read-token", "X-Production-Area": "torna"},
                 timeout=20.0,
                 follow_redirects=False,
             )
