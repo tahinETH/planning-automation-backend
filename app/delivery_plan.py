@@ -10,6 +10,8 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Border, Color, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from .production_area import production_area
+
 MAX_PRODUCTS = 200
 # One calendar week can have pre-order actuals, post-order actuals and plan.
 MAX_WEEK_COLUMNS = 53 * 3 + 1
@@ -36,6 +38,14 @@ def _sum_formula(row_index: int, column_indexes: list[int]) -> str:
     if column_indexes == list(range(column_indexes[0], column_indexes[-1] + 1)):
         return f"=SUM({cells[0]}:{cells[-1]})"
     return f"=SUM({','.join(cells)})"
+
+
+def _normalize_family(value: object) -> str:
+    text = str(value or "").strip()
+    upper = text.upper()
+    if upper in {"ÇUBUK FILTRE", "ÇUBUK FİLTRE", "CUBUK FILTRE", "CUBUK-FILTRE"}:
+        return "ÇUBUK FİLTRE"
+    return upper
 
 
 def _text(cell, value: str):
@@ -98,7 +108,10 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
     metadata_fill = PatternFill("solid", fgColor=Color(theme=7, tint=0.7999816888943144))
     value_fill = PatternFill("solid", fgColor=Color(theme=2))
     gray_fill = PatternFill("solid", fgColor=Color(theme=0, tint=-0.1499984740745262))
-    for row in sheet.iter_rows(min_row=1, max_row=total_row + 4, min_col=2, max_col=max(13, last_column)):
+    normalized_families = [_normalize_family(row.get("family")) for row in rows]
+    is_filter_report = production_area.get() == "cubuk-filtre" or any(family == "ÇUBUK FİLTRE" for family in normalized_families)
+    summary_count = 2 if is_filter_report else 3
+    for row in sheet.iter_rows(min_row=1, max_row=total_row + 1 + summary_count, min_col=2, max_col=max(13, last_column)):
         for cell in row:
             cell.font = font
             cell.alignment = Alignment(vertical="center")
@@ -157,7 +170,7 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
         if any(not isinstance(q, int) or isinstance(q, bool) or q < 0 for q in [order_quantity, *quantities]):
             raise DeliveryPlanError(f"{product} için adetler negatif olmayan tam sayı olmalıdır.")
         _text(sheet.cell(row_index, 2), product)
-        _text(sheet.cell(row_index, 3), str(row.get("family") or "").strip().upper())
+        _text(sheet.cell(row_index, 3), _normalize_family(row.get("family")))
         sheet.cell(row_index, 4, order_quantity)
         sheet.cell(row_index, 5, _sum_formula(row_index, post_order_columns))
         sheet.cell(row_index, 6, _sum_formula(row_index, planned_columns))
@@ -181,11 +194,17 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
         cell.font = Font(name="Liberation Sans", size=11, bold=True, color="000000")
         cell.number_format = "#,##0"
     sheet.row_dimensions[total_row].height = 15
-    summaries = [
-        ("Planlanan Toplam Teslimat Adeti", f"=F{total_row}+I{total_row}"),
-        ("Planlanan Toplam Piston Adeti", f'=SUMIF(C7:C{last_data_row},"PISTON",F7:F{last_data_row})+SUMIF(C7:C{last_data_row},"PISTON",I7:I{last_data_row})'),
-        ("Planlanan Toplam Center Pin Adeti", f'=SUMIF(C7:C{last_data_row},"CENTER PIN",F7:F{last_data_row})+SUMIF(C7:C{last_data_row},"CENTER PIN",I7:I{last_data_row})'),
-    ]
+    if is_filter_report:
+        summaries = [
+            ("Planlanan Toplam Teslimat Adeti", f"=F{total_row}+I{total_row}"),
+            ("Planlanan Toplam Çubuk Filtre Adeti", f'=SUMIF(C7:C{last_data_row},"ÇUBUK FİLTRE",F7:F{last_data_row})+SUMIF(C7:C{last_data_row},"ÇUBUK FİLTRE",I7:I{last_data_row})'),
+        ]
+    else:
+        summaries = [
+            ("Planlanan Toplam Teslimat Adeti", f"=F{total_row}+I{total_row}"),
+            ("Planlanan Toplam Piston Adeti", f'=SUMIF(C7:C{last_data_row},"PISTON",F7:F{last_data_row})+SUMIF(C7:C{last_data_row},"PISTON",I7:I{last_data_row})'),
+            ("Planlanan Toplam Center Pin Adeti", f'=SUMIF(C7:C{last_data_row},"CENTER PIN",F7:F{last_data_row})+SUMIF(C7:C{last_data_row},"CENTER PIN",I7:I{last_data_row})'),
+        ]
     for row_index, (label, formula) in enumerate(summaries, total_row + 2):
         sheet.merge_cells(start_row=row_index, start_column=2, end_row=row_index, end_column=5)
         sheet.cell(row_index, 2, label)
@@ -200,7 +219,7 @@ def build_delivery_plan(template_path: Path, payload: dict) -> bytes:
     sheet.conditional_formatting.add(f"G7:G{total_row}", CellIsRule(operator="greaterThan", formula=["0"], fill=PatternFill("solid", fgColor="C6EFCE")))
     sheet.freeze_panes = "B7"
     sheet.auto_filter.ref = f"B6:{last_letter}{last_data_row}"
-    sheet.print_area = f"B1:{get_column_letter(max(13, last_column))}{total_row + 4}"
+    sheet.print_area = f"B1:{get_column_letter(max(13, last_column))}{total_row + 1 + len(summaries)}"
     sheet.print_title_rows = "1:6"
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.fitToWidth = 1

@@ -15,9 +15,8 @@ B = CurrentUser('operator-b', 'B', 'b@example.test', 'user')
 
 
 @pytest.mark.parametrize('protection,label', [
-    ('queue', 'Ortak kuyruk kilidi:'),
     ('route', 'Kayıtlı akış tercihi:'),
-    ('both', 'Ortak kuyruk kilidi ve kayıtlı akış tercihi:'),
+    ('both', 'Kayıtlı akış tercihi:'),
 ])
 @pytest.mark.parametrize('difference', ['missing', 'quantity'])
 def test_draft_pub07_preview_names_protection_and_charge_without_writing(factory, protection, label, difference):
@@ -630,3 +629,141 @@ def test_draft_reset17_optional_history_field_preserves_old_receipt_identity(fac
     with pytest.raises(HTTPException) as changed:
         collab.patch_scenario(saved['id'], {**request, 'resetAction': 'history-restore'}, A)
     assert changed.value.status_code == 409
+
+
+def test_fb_lock03_all_queue_locks_are_atomic_retry_safe_and_plan_neutral(factory):
+    from app.planning_delta import state_hash
+    seed = copy.deepcopy(factory['seed'])
+    seed['manualBatches'] = [dict(id=f'bulk-{i}', machineId=machine, product='R902745116', workOrder=f'BULK-{i}', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=i+1, locked=bool(i), diameter='10', setupHours=0)
+        for i, machine in enumerate(['C-04', 'C-05'])]
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    for locked in [True, False]:
+        before = db.planning_state()
+        request = dict(requestId=f'bulk-{locked}', expectedBasis=state_hash({**before['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+            command=dict(kind='setAllMachineQueueLocks', args=[locked]))
+        saved = collab.production_command(request, B)
+        expected = [{**row, 'locked': locked} for row in before['seed']['manualBatches']]
+        assert saved['current']['seed']['manualBatches'] == expected
+        assert db.planning_state()['seed']['manualBatches'] == expected
+        for field in set(before['seed']) - {'manualBatches', 'planningEvents'}:
+            assert saved['current']['seed'].get(field) == before['seed'].get(field), field
+        assert collab.production_command(request, B)['replayed']
+        with pytest.raises(HTTPException) as error:
+            collab.production_command({**request, 'requestId': f'stale-{locked}'}, B)
+        assert error.value.status_code == 409
+    before = db.planning_state()
+    request = dict(requestId='invalid-bulk', expectedBasis=state_hash({**before['seed'], 'chargeJourneyNotes': [], 'planningEvents': []}),
+        command=dict(kind='setAllMachineQueueLocks', args=['false']))
+    with pytest.raises(HTTPException): collab.production_command(request, B)
+    assert db.planning_state() == before
+    with db.connection() as conn:
+        conn.execute("CREATE TRIGGER fail_bulk_receipt BEFORE INSERT ON production_commands BEGIN SELECT RAISE(ABORT, 'injected bulk failure'); END")
+    with pytest.raises(Exception, match='injected bulk failure'):
+        collab.production_command({**request, 'requestId': 'rollback-bulk', 'command': dict(kind='setAllMachineQueueLocks', args=[True])}, B)
+    assert db.planning_state() == before
+
+@pytest.mark.parametrize('outcome', ['approve', 'conflict', 'rollback'])
+def test_draft_lock08_shared_locks_change_only_on_reviewed_admin_publication(factory, outcome):
+    seed = copy.deepcopy(factory['seed'])
+    batch = dict(id='draft-lock-kept', machineId='C-04', product='R902745116', workOrder='LOCK-08-A', quantity=100,
+        start=46266, end=46267, status='planned', planColumn=13, sequence=1, locked=True, diameter='10', setupHours=0)
+    seed['manualBatches'] = [batch, dict(batch, id='draft-lock-removed', workOrder='LOCK-08-B', planColumn=14, sequence=2)]
+    db.save_planning_state(seed, db.planning_state()['updatedAt'], mode='operational', can_manage_settings=True,
+        flow_settings_version=1, route_placement_version=1, production_split_version=1, process_wait_settings_version=1)
+    world = db.planning_state()
+    proposal = copy.deepcopy(world['seed'])
+    proposal['manualBatches'] = [{**batch, 'locked': False}]
+    proposal['planNeedsRecalculation'] = False
+    saved = collab.save_scenario({**scenario(proposal), 'worldRevision': world['updatedAt']}, B)
+    assert [(row['id'], row['locked']) for row in saved['seed']['manualBatches']] == [('draft-lock-kept', False)]
+    assert db.planning_state() == world
+    saved = collab.share_scenario(saved['id'], saved['revision'], True, B)
+    reloaded = collab.get_scenario(saved['id'], A)
+    assert reloaded['seed']['manualBatches'] == saved['seed']['manualBatches']
+    request = dict(revision=saved['revision'], worldRevision=world['updatedAt'], previousId=None)
+    with pytest.raises(HTTPException) as denied:
+        collab.publication_preview(saved['id'], request, B)
+    assert denied.value.status_code == 403
+    preview = collab.publication_preview(saved['id'], request, A)
+    changes = {row['id']: row for row in preview['changes']}
+    assert changes['draft-lock-kept']['before']['locked'] is True
+    assert changes['draft-lock-kept']['after']['locked'] is False
+    assert changes['draft-lock-removed']['after'] is None
+    assert db.planning_state() == world, 'Neither sharing nor review may unlock shared work.'
+    with pytest.raises(HTTPException) as denied:
+        collab.publish_scenario(saved['id'], preview, B)
+    assert denied.value.status_code == 403
+    if outcome == 'conflict':
+        updated = copy.deepcopy(world['seed'])
+        updated['planNeedsRecalculation'] = not updated.get('planNeedsRecalculation', False)
+        db.save_planning_state(updated, world['updatedAt'], can_manage_settings=True)
+        changed_world = db.planning_state()
+        with pytest.raises(HTTPException) as stale:
+            collab.publish_scenario(saved['id'], preview, A)
+        assert stale.value.status_code == 409
+        assert db.planning_state() == changed_world
+        assert all(row['locked'] for row in changed_world['seed']['manualBatches'])
+        return
+    if outcome == 'rollback':
+        with db.connection() as conn:
+            conn.execute("CREATE TRIGGER reject_lock_publication BEFORE INSERT ON published_plans BEGIN SELECT RAISE(ABORT, 'injected lock approval failure'); END")
+        with pytest.raises(Exception, match='injected lock approval failure'):
+            collab.publish_scenario(saved['id'], preview, A)
+        assert db.planning_state() == world
+        assert collab.collaboration_status()['publicationId'] is None
+        return
+    published = collab.publish_scenario(saved['id'], preview, A)
+    after = db.planning_state()['seed']
+    assert [(row['id'], row['locked']) for row in after['manualBatches']] == [('draft-lock-kept', False)]
+    for field in collab.FACTS:
+        assert after.get(field) == world['seed'].get(field)
+    assert [row['currentJob'] for row in after['machines']] == [row['currentJob'] for row in world['seed']['machines']]
+    assert after['orders'] == world['seed']['orders']
+    assert published['activePublication']['approvedBy']['id'] == A.id
+    assert collab.publish_scenario(saved['id'], preview, A)['replayed'] is True
+
+
+def test_step08_stage_scope_survives_save_reload_and_reviewed_publication(factory):
+    original = db.planning_state()
+    proposal = copy.deepcopy(factory['seed'])
+    proposal['plannedThroughProcess'] = 'drilling'
+    proposal['initialProcessPlanComplete'] = False
+    proposal['planNeedsRecalculation'] = False
+    saved = collab.save_scenario({**scenario(proposal), 'worldRevision': original['updatedAt']}, A)
+    assert saved['seed']['plannedThroughProcess'] == 'drilling'
+    assert collab.get_scenario(saved['id'], A)['seed']['plannedThroughProcess'] == 'drilling'
+    assert db.planning_state() == original
+    preview = collab.publication_preview(saved['id'], dict(revision=saved['revision'], worldRevision=original['updatedAt'], previousId=None), A)
+    collab.publish_scenario(saved['id'], preview, A)
+    published = db.planning_state()['seed']
+    assert published['plannedThroughProcess'] == 'drilling'
+    assert published['initialProcessPlanComplete'] is False
+    for field in collab.FACTS:
+        assert published.get(field) == original['seed'].get(field)
+
+
+def test_step09_invalid_area_stage_rejects_without_any_write(factory):
+    original = db.planning_state()
+    proposal = copy.deepcopy(factory['seed'])
+    proposal['plannedThroughProcess'] = 'gtm'
+    with pytest.raises(HTTPException) as error:
+        collab.save_scenario({**scenario(proposal), 'worldRevision': original['updatedAt']}, A)
+    assert error.value.status_code == 422
+    assert db.planning_state() == original
+    with db.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM published_plans').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('field', ['plannedThroughProcess', 'initialProcessPlanComplete'])
+def test_step13_old_save_cannot_remove_initial_plan_state(factory, field):
+    proposal = copy.deepcopy(factory['seed'])
+    proposal.update(plannedThroughProcess='drilling', initialProcessPlanComplete=False)
+    saved = collab.save_scenario(scenario(proposal), A)
+    old_client = copy.deepcopy(saved)
+    del old_client['seed'][field]
+    with pytest.raises(HTTPException) as error:
+        collab.save_scenario(old_client, A)
+    assert error.value.status_code == 422
+    assert collab.get_scenario(saved['id'], A) == saved

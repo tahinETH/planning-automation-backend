@@ -52,8 +52,6 @@ class ProductionAreaMiddleware:
         area = headers.get(b"x-production-area", b"torna").decode("latin1")
         if not area_available(area):
             return await JSONResponse({"detail": "Üretim alanı bu ortamda kullanılamıyor."}, status_code=400)(scope, receive, send)
-        if area == "cubuk-filtre" and scope["path"].startswith(("/api/production-sync", "/api/production-snapshot")):
-            return await JSONResponse({"detail": "Çubuk Filtre için üretimden veri kopyalama tanımlı değil."}, status_code=409)(scope, receive, send)
         token = production_area.set(area)
         try:
             from .handover import generation

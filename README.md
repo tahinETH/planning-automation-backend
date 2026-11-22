@@ -118,7 +118,7 @@ sudo systemctl restart planning-automation-backend-staging
 
 ## Ravi
 
-Ravi setup, tools, source-map maintenance and validation: [workspace guide](../docs/ravi.md).
+Ravi setup, tools, source-map maintenance and validation: [Ravi guide](docs/ravi.md).
 
 ## Production areas (local/staging)
 

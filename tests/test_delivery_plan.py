@@ -189,3 +189,25 @@ def test_filter_product_group_is_written_from_payload_without_changing_shipments
     assert sheet["E7"].value == "=SUM(M7,P7)"
     assert sheet["F7"].value == "=SUM(O7,Q7)"
     assert sheet["G7"].value == "=E7+F7-D7"
+    assert sheet["B52"].value == "Planlanan Toplam Teslimat Adeti"
+    assert sheet["F52"].value == "=F50+I50"
+    assert sheet["B53"].value == "Planlanan Toplam Çubuk Filtre Adeti"
+    assert sheet["F53"].value == '=SUMIF(C7:C49,"ÇUBUK FİLTRE",F7:F49)+SUMIF(C7:C49,"ÇUBUK FİLTRE",I7:I49)'
+    assert sheet["B54"].value is None
+    assert sheet.print_area.endswith("53")
+
+
+def test_empty_cubuk_filtre_delivery_plan_uses_filter_summary_row():
+    from app.production_area import production_area
+
+    template = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
+    payload = corrected_payload()
+    payload["rows"] = []
+    token = production_area.set("cubuk-filtre")
+    try:
+        sheet = load_workbook(BytesIO(build_delivery_plan(template, payload)), data_only=False)["Teslimat Planı"]
+    finally:
+        production_area.reset(token)
+    assert sheet["B52"].value == "Planlanan Toplam Teslimat Adeti"
+    assert sheet["B53"].value == "Planlanan Toplam Çubuk Filtre Adeti"
+    assert sheet["B54"].value is None

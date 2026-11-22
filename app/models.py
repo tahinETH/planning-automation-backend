@@ -261,7 +261,7 @@ class OverviewExportPayload(BaseModel):
 
 class CalendarEventExportRow(BaseModel):
     eventType: Literal["maintenance", "overtime", "shift-change"]
-    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual", "filter-wait"]
+    process: Literal["turning", "drilling", "deburring", "gkm", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual", "filter-wait", "filter-quality", "filter-demand"]
     workCenterId: str = Field(min_length=1, max_length=40)
     workCenterName: str = Field(default="", max_length=160)
     name: str = Field(default="", max_length=300)

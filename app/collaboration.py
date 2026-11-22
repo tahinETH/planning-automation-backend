@@ -142,7 +142,20 @@ def validate_reset_transition(previous, seed, reset_action=None):
         raise HTTPException(422, "Planı Temizle bilgisi bu kayıt isteğinde eksik. Kayıtlı taslak korundu. Sayfayı yenileyin ve taslağı yeniden açın. Temizleme işlemini geri almak için Geri al kullanın.")
 
 
+def validate_process_plan_scope(previous, seed, reset_action=None):
+    if previous and "initialProcessPlanComplete" in previous["seed"] and "initialProcessPlanComplete" not in seed and reset_action != "history-restore":
+        raise HTTPException(422, "İlk plan durumu bu kayıt isteğinde eksik. Sayfayı yenileyin ve taslağı yeniden açın.")
+    if "initialProcessPlanComplete" in seed and type(seed["initialProcessPlanComplete"]) is not bool:
+        raise HTTPException(422, "İlk plan durumu geçersiz.")
+    stages = ["turning", "gtm", "diameter-grinding", "form-grinding", "measuring", "milling", "final-inspection", "filter-visual"] if seed.get("productionArea") == "cubuk-filtre" else ["turning", "drilling", "deburring", "gkm"]
+    if "plannedThroughProcess" in seed and seed["plannedThroughProcess"] not in stages:
+        raise HTTPException(422, "Kayıtlı planlama prosesi bu üretim alanına ait değil.")
+    if previous and "plannedThroughProcess" in previous["seed"] and "plannedThroughProcess" not in seed and reset_action != "history-restore":
+        raise HTTPException(422, "Planlama prosesi bu kayıt isteğinde eksik. Sayfayı yenileyin ve taslağı yeniden açın.")
+
+
 def _save(db, value, user, previous=None, source=None, *, reset_action=None):
+    validate_process_plan_scope(previous, value["seed"], reset_action)
     validate_reset_transition(previous, value["seed"], reset_action)
     timestamp = now_iso()
     revision = previous["revision"] + 1 if previous else 1
@@ -412,7 +425,11 @@ def production_command(value, user):
             from .planning_delta import apply_delta
             delta = value["command"]["args"][0]["delta"]
             fields = set(delta.get("set", {})) | set(delta.get("arrays", {})) | set(delta.get("remove", []))
-            if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings"}:
+            if fields - {"products", "preferences", "restrictions", "machines", "processMasterData", "productWeights", "rawMaterialSettings", "planNeedsRecalculation"}:
+                raise HTTPException(422, "Pasif atama girdileri geçersiz.")
+            if "planNeedsRecalculation" in delta.get("set", {}) and delta["set"]["planNeedsRecalculation"] is not True:
+                raise HTTPException(422, "Pasif atama girdileri geçersiz.")
+            if "planNeedsRecalculation" in delta.get("remove", []):
                 raise HTTPException(422, "Pasif atama girdileri geçersiz.")
             assert_shared_inputs_only(current["seed"], apply_delta(current["seed"], delta), user.is_admin)
         db.execute("INSERT OR IGNORE INTO production_opening VALUES(?,?,?,?,?)", ("default", now_iso(), current["updatedAt"], current["stateHash"], json.dumps(current["seed"])))
@@ -448,7 +465,7 @@ def production_command(value, user):
         return {"current": _world_reply(saved, value.get("responseMode")), "requestId": value["requestId"], "appliedRevision": saved["updatedAt"], "replayed": False}
 
 
-PLAN_NEUTRAL_COMMANDS = {"saveJourneyNote", "setMachineQueueLock"}
+PLAN_NEUTRAL_COMMANDS = {"saveJourneyNote", "setMachineQueueLock", "setAllMachineQueueLocks"}
 
 
 def _only_plan_neutral_since(db, start, end):

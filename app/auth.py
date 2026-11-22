@@ -19,6 +19,7 @@ bearer = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
 TEST_ISSUER = "selsa-planlama-test"
 TEST_AUDIENCE = "selsa-planlama-frontend"
+CLERK_JWT_LEEWAY_SECONDS = 5
 AppRole = Literal["admin", "user"]
 
 
@@ -70,6 +71,7 @@ def _decode_clerk_token(token: str) -> dict[str, Any]:
             key,
             algorithms=["RS256"],
             issuer=settings.clerk_issuer,
+            leeway=CLERK_JWT_LEEWAY_SECONDS,
             options={"verify_aud": False, "require": ["exp", "iat", "iss", "sub"]},
         )
     except (jwt.PyJWTError, ValueError) as exc:

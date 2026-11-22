@@ -18,7 +18,7 @@ def _recovered_turning_batches(seed):
         if item.get("chargeId") in known and item.get("process") == "turning" and item.get("producedQuantity") != 0 and item.get("turningBatch") and not item.get("completedAt"):
             latest[item["chargeId"]] = item
     for identity, item in latest.items():
-        if any(m.get("currentJob", {}).get("batchId") == identity and m["currentJob"].get("quantity", 0) > 0 for m in seed.get("machines", [])):
+        if any((m.get("currentJob") or {}).get("batchId") == identity and (m.get("currentJob") or {}).get("quantity", 0) > 0 for m in seed.get("machines", [])):
             continue
         matching = next((b for b in original if b.get("id") == identity and b.get("interruptionId") == item["id"] and b.get("quantity") == item["remainingQuantity"]), None)
         batches.append(matching or item["turningBatch"])
@@ -48,7 +48,7 @@ def inspect_turning_queue(seed, batches=None):
     batches = seed.get("manualBatches", []) if batches is None else batches
     records = []
     for machine in seed.get("machines", []):
-        job = machine.get("currentJob", {})
+        job = machine.get("currentJob") or {}
         if job.get("quantity", 0) > 0:
             records.append(dict(kind="current", id=machine["id"], chargeId=job.get("batchId"), machineId=machine["id"], product=job.get("product", ""), workOrder=job.get("workOrder", ""), quantity=job.get("originalQuantity", job.get("quantity"))))
     for row in seed.get("productionHistory", []):

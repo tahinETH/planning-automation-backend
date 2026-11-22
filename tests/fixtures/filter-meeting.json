@@ -1,0 +1,1031 @@
+{
+  "seed": {
+    "productionArea": "cubuk-filtre",
+    "filterCatalogVersion": 3,
+    "source": "230-Çubuk_Filtre_Uretim_Planlama_Veri_Toplama (2).xlsx",
+    "schemaVersion": 20,
+    "machineCatalogVersion": 1,
+    "products": [
+      {
+        "product": "F.00V.C15.100",
+        "setupFamily": "cubuk-filtre",
+        "customer": "290-DRS",
+        "targetWarehouse": "290-Drs",
+        "shipmentMultiple": 0,
+        "setupScrapPercent": 0.6,
+        "productionScrapPercent": 1.8,
+        "turningSetupMinutes": {
+          "L-01": 0,
+          "L-02": 0
+        },
+        "handlingMinutes": 0,
+        "generalMachine": "L-01",
+        "eligibleMachines": [
+          "L-01",
+          "L-02"
+        ],
+        "alternativeMachines": [
+          "L-01",
+          "L-02"
+        ],
+        "batchSize": 10000,
+        "moq": 1,
+        "diameter": "Ø4,50",
+        "shiftRate": 3373,
+        "dailyRate": 10119,
+        "parameterDailyRate": 10119,
+        "source": "01_URUNLER / 04_OPERASYON ROTASI"
+      }
+    ],
+    "machines": [
+      {
+        "id": "L-01",
+        "name": "TRANSFER MAKİNESİ SELSA / A KANALI",
+        "active": true,
+        "availableStart": 46335,
+        "operationalAvailableStart": 46335,
+        "planEnd": 60000,
+        "note": "",
+        "shiftFactor": 1,
+        "capacityFactor": 1,
+        "finishOffset": 0,
+        "rates": {
+          "F.00V.C15.100": 1000
+        },
+        "currentJob": {
+          "batchId": "scenario-1",
+          "sharedCharge": {
+            "id": "scenario-1",
+            "quantity": 10000
+          },
+          "workOrder": "REVIEW",
+          "product": "F.00V.C15.100",
+          "quantity": 500,
+          "originalQuantity": 500,
+          "remainingQuantity": 500,
+          "start": 46335,
+          "end": 46336,
+          "dailyRate": 1000,
+          "diameter": "4,50"
+        }
+      },
+      {
+        "id": "L-02",
+        "name": "TRANSFER MAKİNESİ SELSA / B KANALI",
+        "active": true,
+        "availableStart": 46335,
+        "operationalAvailableStart": 46335,
+        "planEnd": 60000,
+        "note": "",
+        "shiftFactor": 1,
+        "capacityFactor": 1,
+        "finishOffset": 0,
+        "rates": {
+          "F.00V.C15.100": 2000
+        },
+        "currentJob": {
+          "workOrder": "",
+          "product": "",
+          "quantity": 0,
+          "remainingQuantity": 0,
+          "originalQuantity": 0,
+          "start": 0,
+          "end": 0,
+          "dailyRate": 0,
+          "diameter": ""
+        }
+      }
+    ],
+    "processMasterData": {
+      "version": 1,
+      "source": {
+        "kind": "one-time-foundation",
+        "files": [
+          "230-Çubuk_Filtre_Uretim_Planlama_Veri_Toplama (2).xlsx"
+        ],
+        "calculatedOnce": "2026-09-30"
+      },
+      "machineCodeStandard": [],
+      "resources": [
+        {
+          "id": "L-01",
+          "sourceProgramId": "L-01",
+          "erpWorkCenterCode": "01-12-02-007",
+          "name": "TRANSFER MAKİNESİ SELSA / A KANALI",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "L-02",
+          "sourceProgramId": "L-02",
+          "erpWorkCenterCode": "01-12-02-007",
+          "name": "TRANSFER MAKİNESİ SELSA / B KANALI",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "L-03",
+          "sourceProgramId": "L-03",
+          "erpWorkCenterCode": "01-12-02-004",
+          "name": "1-TOBRE OTOMAT",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "L-04",
+          "sourceProgramId": "L-04",
+          "erpWorkCenterCode": "01-12-02-005",
+          "name": "2-TOBRE OTOMAT",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "L-05",
+          "sourceProgramId": "L-05",
+          "erpWorkCenterCode": "01-12-02-003",
+          "name": "HAHN-KOLB OTOMAT",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "L-06",
+          "sourceProgramId": "L-06",
+          "erpWorkCenterCode": "01-12-02-006",
+          "name": "HAHNKOLB GAUTHIER",
+          "operationCode": "L",
+          "operationName": "TORNA",
+          "process": "turning",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "GTM-01",
+          "sourceProgramId": "GTM-01",
+          "erpWorkCenterCode": "01-12-03-007",
+          "name": "ALIN FREZELEME SELSA / Arka Grup",
+          "operationCode": "GTM",
+          "operationName": "GTM",
+          "process": "gtm",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "GTM-02",
+          "sourceProgramId": "GTM-02",
+          "erpWorkCenterCode": "01-12-03-007",
+          "name": "ALIN FREZELEME SELSA / Ön Grup",
+          "operationCode": "GTM",
+          "operationName": "GTM",
+          "process": "gtm",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CG-01",
+          "sourceProgramId": "CG-01",
+          "erpWorkCenterCode": "01-12-06-001",
+          "name": "MAGNAGHI BRUGH K.TAŞ.",
+          "operationCode": "CG",
+          "operationName": "ÇAP TAŞLAMA",
+          "process": "diameter-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CG-02",
+          "sourceProgramId": "CG-02",
+          "erpWorkCenterCode": "01-12-06-002",
+          "name": "MAGNAGHI BR. K.TAŞ.",
+          "operationCode": "CG",
+          "operationName": "ÇAP TAŞLAMA",
+          "process": "diameter-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FG-01",
+          "sourceProgramId": "FG-01",
+          "erpWorkCenterCode": "01-12-06-003",
+          "name": "1-AGATHON TAŞLAMA",
+          "operationCode": "FG",
+          "operationName": "FORM TAŞLAMA",
+          "process": "form-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FG-02",
+          "sourceProgramId": "FG-02",
+          "erpWorkCenterCode": "01-12-06-004",
+          "name": "2-AGATHON TAŞLAMA",
+          "operationCode": "FG",
+          "operationName": "FORM TAŞLAMA",
+          "process": "form-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FG-03",
+          "sourceProgramId": "FG-03",
+          "erpWorkCenterCode": "01-12-06-005",
+          "name": "3-AGATHON TAŞLAMA",
+          "operationCode": "FG",
+          "operationName": "FORM TAŞLAMA",
+          "process": "form-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FG-04",
+          "sourceProgramId": "FG-04",
+          "erpWorkCenterCode": "01-12-06-006",
+          "name": "4-AGATHON TAŞLAMA",
+          "operationCode": "FG",
+          "operationName": "FORM TAŞLAMA",
+          "process": "form-grinding",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "ME-01",
+          "sourceProgramId": "ME-01",
+          "erpWorkCenterCode": "01-12-24-001",
+          "name": "ÇAP ÖLÇME-1 SELSA",
+          "operationCode": "ME",
+          "operationName": "ÖLÇME",
+          "process": "measuring",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "ME-02",
+          "sourceProgramId": "ME-02",
+          "erpWorkCenterCode": "01-12-24-002",
+          "name": "ÇAP ÖLÇME-2 SELSA",
+          "operationCode": "ME",
+          "operationName": "ÖLÇME",
+          "process": "measuring",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-01",
+          "sourceProgramId": "M-01",
+          "erpWorkCenterCode": "01-12-03-005",
+          "name": "1-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-02",
+          "sourceProgramId": "M-02",
+          "erpWorkCenterCode": "01-12-03-006",
+          "name": "2-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-03",
+          "sourceProgramId": "M-03",
+          "erpWorkCenterCode": "01-12-03-008",
+          "name": "3-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-04",
+          "sourceProgramId": "M-04",
+          "erpWorkCenterCode": "01-12-03-009",
+          "name": "4-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-05",
+          "sourceProgramId": "M-05",
+          "erpWorkCenterCode": "01-12-03-010",
+          "name": "5-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-06",
+          "sourceProgramId": "M-06",
+          "erpWorkCenterCode": "01-12-03-012",
+          "name": "6-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-07",
+          "sourceProgramId": "M-07",
+          "erpWorkCenterCode": "01-12-03-013",
+          "name": "7-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "M-08",
+          "sourceProgramId": "M-08",
+          "erpWorkCenterCode": "01-12-03-014",
+          "name": "8-KANAL FREZE SELSA",
+          "operationCode": "M",
+          "operationName": "FREZE",
+          "process": "milling",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FI-01",
+          "sourceProgramId": "FI-01",
+          "erpWorkCenterCode": "01-12-24-010",
+          "name": "1-FİNAL KONTROL MAKİNESİ SELSA",
+          "operationCode": "FI",
+          "operationName": "FİNAL KONTROL",
+          "process": "final-inspection",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "FI-02",
+          "sourceProgramId": "FI-02",
+          "erpWorkCenterCode": "01-12-24-011",
+          "name": "2-FİNAL KONTROL MAKİNESİ SELSA",
+          "operationCode": "FI",
+          "operationName": "FİNAL KONTROL",
+          "process": "final-inspection",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CFV-01",
+          "sourceProgramId": "CFV-01",
+          "erpWorkCenterCode": "01-12-16-001",
+          "name": "Ç.F-1 TEKNOSKOP",
+          "operationCode": "CFV",
+          "operationName": "GÖZ KONTROL",
+          "process": "filter-visual",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CFV-02",
+          "sourceProgramId": "CFV-02",
+          "erpWorkCenterCode": "01-12-16-002",
+          "name": "Ç.F-2 TEKNOSKOP",
+          "operationCode": "CFV",
+          "operationName": "GÖZ KONTROL",
+          "process": "filter-visual",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CFV-03",
+          "sourceProgramId": "CFV-03",
+          "erpWorkCenterCode": "01-12-16-003",
+          "name": "Ç.F-3 TEKNOSKOP",
+          "operationCode": "CFV",
+          "operationName": "GÖZ KONTROL",
+          "process": "filter-visual",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        },
+        {
+          "id": "CFV-04",
+          "sourceProgramId": "CFV-04",
+          "erpWorkCenterCode": "01-12-16-004",
+          "name": "Ç.F-4 TEKNOSKOP",
+          "operationCode": "CFV",
+          "operationName": "GÖZ KONTROL",
+          "process": "filter-visual",
+          "active": true,
+          "defaultShifts": 1,
+          "eligibleProductGroups": [
+            "cubuk-filtre"
+          ]
+        }
+      ],
+      "products": [
+        {
+          "product": "F.00V.C15.100",
+          "family": "cubuk-filtre",
+          "productGroup": "cubuk-filtre",
+          "route": [
+            "turning",
+            "gtm",
+            "diameter-grinding",
+            "form-grinding",
+            "measuring",
+            "milling",
+            "final-inspection",
+            "filter-visual"
+          ],
+          "processes": [
+            {
+              "process": "gtm",
+              "sequence": 2,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "GTM-01",
+                "GTM-02"
+              ],
+              "unitsPerShift": {
+                "GTM-01": 5810,
+                "GTM-02": 5810
+              },
+              "setupMinutesByResource": {
+                "GTM-01": 90,
+                "GTM-02": 90
+              },
+              "handlingMinutes": 30
+            },
+            {
+              "process": "diameter-grinding",
+              "sequence": 3,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "CG-01",
+                "CG-02"
+              ],
+              "unitsPerShift": {
+                "CG-01": 17640,
+                "CG-02": 17640
+              },
+              "setupMinutesByResource": {
+                "CG-01": 60,
+                "CG-02": 60
+              },
+              "handlingMinutes": 30
+            },
+            {
+              "process": "form-grinding",
+              "sequence": 4,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "FG-01",
+                "FG-02",
+                "FG-03",
+                "FG-04"
+              ],
+              "unitsPerShift": {
+                "FG-01": 4200,
+                "FG-02": 4200,
+                "FG-03": 4200,
+                "FG-04": 4200
+              },
+              "setupMinutesByResource": {
+                "FG-01": 240,
+                "FG-02": 240,
+                "FG-03": 240,
+                "FG-04": 240
+              },
+              "handlingMinutes": 30
+            },
+            {
+              "process": "measuring",
+              "sequence": 5,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "ME-01",
+                "ME-02"
+              ],
+              "unitsPerShift": {
+                "ME-01": 9313,
+                "ME-02": 9313
+              },
+              "setupMinutesByResource": {
+                "ME-01": 120,
+                "ME-02": 120
+              },
+              "handlingMinutes": 30
+            },
+            {
+              "process": "milling",
+              "sequence": 6,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "M-01",
+                "M-02",
+                "M-03",
+                "M-04",
+                "M-05",
+                "M-06",
+                "M-07",
+                "M-08"
+              ],
+              "unitsPerShift": {
+                "M-01": 1901,
+                "M-02": 1901,
+                "M-03": 1901,
+                "M-04": 1743,
+                "M-05": 1743,
+                "M-06": 1743,
+                "M-07": 1549,
+                "M-08": 1608
+              },
+              "setupMinutesByResource": {
+                "M-01": 120,
+                "M-02": 120,
+                "M-03": 120,
+                "M-04": 120,
+                "M-05": 120,
+                "M-06": 120,
+                "M-07": 120,
+                "M-08": 120
+              },
+              "handlingMinutes": 30,
+              "finishGapMinutes": 120
+            },
+            {
+              "process": "final-inspection",
+              "sequence": 9,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "FI-01",
+                "FI-02"
+              ],
+              "unitsPerShift": {
+                "FI-01": 6989,
+                "FI-02": 6989
+              },
+              "setupMinutesByResource": {
+                "FI-01": 360,
+                "FI-02": 360
+              },
+              "handlingMinutes": 30,
+              "leadStages": [
+                {
+                  "label": "Isıl İşlem",
+                  "days": 3,
+                  "calendarMode": "workdays"
+                },
+                {
+                  "label": "Fosfat Kaplama / ortak Yıkama hattı",
+                  "days": 0.5,
+                  "calendarMode": "workhours"
+                }
+              ]
+            },
+            {
+              "process": "filter-visual",
+              "sequence": 10,
+              "waitWorkdaysBefore": 0,
+              "setupKey": "F.00V.C15.100",
+              "resourcePriority": [
+                "CFV-01",
+                "CFV-02",
+                "CFV-03",
+                "CFV-04"
+              ],
+              "unitsPerShift": {
+                "CFV-01": 6300,
+                "CFV-02": 6300,
+                "CFV-03": 6300,
+                "CFV-04": 6300
+              },
+              "setupMinutesByResource": {
+                "CFV-01": 30,
+                "CFV-02": 30,
+                "CFV-03": 30,
+                "CFV-04": 30
+              },
+              "handlingMinutes": 30,
+              "finishGapMinutes": 180
+            }
+          ]
+        }
+      ]
+    },
+    "orders": [
+      {
+        "id": "synthetic-review-order",
+        "product": "F.00V.C15.100",
+        "quantity": 10000,
+        "dueDate": "2026-12-31"
+      }
+    ],
+    "orderCatalog": [
+      "F.00V.C15.100",
+      "F.00V.P01.309",
+      "F.00V.C15.002",
+      "2.433.084.081",
+      "F.00V.P01.315",
+      "F.00Z.S00.002",
+      "2.433.084.245",
+      "2.433.084.061",
+      "2.433.084.187",
+      "2.433.084.243",
+      "F.00V.P01.301",
+      "F.00Z.F20.001",
+      "2.433.084.003",
+      "2.433.084.231",
+      "2.433.084.022"
+    ],
+    "orderCatalogName": "230-Çubuk Filtre",
+    "preferences": [
+      {
+        "key": "F.00V.C15.100",
+        "machines": [
+          "L-01",
+          "L-02"
+        ],
+        "ruleType": "Öncelik",
+        "description": "Operasyon rotası kaynak sırası",
+        "source": "04_OPERASYON ROTASI"
+      }
+    ],
+    "restrictions": [],
+    "holidays": [],
+    "calendarEvents": [],
+    "savedBatches": [],
+    "manualBatches": [
+      {
+        "id": "scenario-2",
+        "sequence": 2,
+        "sharedCharge": {
+          "id": "scenario-1",
+          "quantity": 10000
+        },
+        "product": "F.00V.C15.100",
+        "orderQuantity": 10000,
+        "quantity": 500,
+        "machineId": "L-02",
+        "diameter": "4,50",
+        "batchSize": 10000,
+        "dailyRate": 1000,
+        "availableStart": 46335,
+        "planEnd": 60000,
+        "reason": "Ortak şarj",
+        "explanation": "10000 adetlik ortak şarjın 5000 adedi. Kapasiteye göre yakın bitiş hedefi; toplam miktar korunur.",
+        "planColumn": 13,
+        "existingQuantity": 0,
+        "start": 46335,
+        "end": 46339.333333,
+        "status": "planned",
+        "setupHours": 0,
+        "setupType": "different-diameter",
+        "runHours": 40,
+        "demandDueDate": "2026-12-31",
+        "demandCheckpointId": "order-total"
+      }
+    ],
+    "productionHistory": [
+      {
+        "id": "synthetic-output",
+        "sourceBatchId": "synthetic-completed-portion",
+        "sharedCharge": {
+          "id": "scenario-1",
+          "quantity": 10000
+        },
+        "machineId": "L-01",
+        "machineName": "L-01",
+        "workOrder": "REVIEW",
+        "product": "F.00V.C15.100",
+        "originalQuantity": 9000,
+        "completedQuantity": 9000,
+        "start": 46334,
+        "plannedEnd": 46335,
+        "completedAt": 46335,
+        "archivedAt": "2026-11-09T00:00:00Z",
+        "statusChangedAt": "2026-11-09T00:00:00Z",
+        "process": "turning",
+        "inventoryStatus": "semi-finished"
+      }
+    ],
+    "wipLots": [
+      {
+        "sharedCharge": {
+          "id": "scenario-1",
+          "quantity": 10000
+        },
+        "id": "wip-synthetic-output",
+        "sourceHistoryEntryId": "synthetic-output",
+        "sourceBatchId": "synthetic-completed-portion",
+        "workOrder": "REVIEW",
+        "product": "F.00V.C15.100",
+        "family": "cubuk-filtre",
+        "originalQuantity": 9000,
+        "availableQuantity": 9000,
+        "deliveredQuantity": 0,
+        "scrappedQuantity": 0,
+        "stage": "process-queue",
+        "nextProcess": "diameter-grinding",
+        "readyAt": 46335,
+        "completedSteps": [
+          {
+            "process": "turning",
+            "resourceId": "L-01",
+            "resourceName": "L-01",
+            "start": 46334,
+            "end": 46335,
+            "plannedStart": 46334,
+            "plannedEnd": 46335,
+            "quantity": 9000,
+            "recordedAt": "2026-11-09T00:00:00Z"
+          }
+        ],
+        "createdAt": "2026-11-09T00:00:00Z",
+        "updatedAt": "2026-11-09T00:00:00Z"
+      }
+    ],
+    "wipMovements": [
+      {
+        "lotId": "wip-synthetic-output",
+        "kind": "created",
+        "quantity": 9000,
+        "toStage": "process-queue",
+        "occurredAt": 46335,
+        "recordedAt": "2026-11-09T00:00:00Z",
+        "note": "Torna tamamlanmasından otomatik yarı mamül kaydı",
+        "id": "wip-move-20261109000000-1"
+      }
+    ],
+    "processCurrentJobs": [],
+    "processOperationOverrides": [],
+    "productionInterruptions": [],
+    "setupSettings": {
+      "model": "product-family",
+      "shiftHours": 8,
+      "sameDiameterHours": 1,
+      "differentDiameterHours": 3,
+      "sameFamilyDifferentDiameterHours": 2,
+      "crossFamilyHours": 5
+    },
+    "openingStock": {},
+    "rawMaterialSettings": {
+      "scrapPercent": 2.4,
+      "stockDate": "",
+      "stocks": []
+    },
+    "productWeights": [
+      {
+        "product": "F.00V.C15.100",
+        "productName": "FİLTRO BASTAO",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 3.33,
+        "sourceRow": 6
+      },
+      {
+        "product": "F.00V.P01.309",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130002",
+        "materialName": "[11SMBP30+C ( 1.07148 )] [Ø4mm] [3000mm] [DINEN 10",
+        "grams": 2.46,
+        "sourceRow": 7
+      },
+      {
+        "product": "F.00V.C15.002",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130004",
+        "materialName": "[11SMBP30 ( 1.0718 )] [Ø5,5mm] [3000mm] [DINEN 102",
+        "grams": 5.72,
+        "sourceRow": 8
+      },
+      {
+        "product": "2.433.084.081",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 3.35,
+        "sourceRow": 9
+      },
+      {
+        "product": "F.00V.P01.315",
+        "productName": "EDGE TYPE FILTER-ÇUBUK FİLTRE",
+        "materialCode": "Z130002",
+        "materialName": "[11SMBP30+C ( 1.07148 )] [Ø4mm] [3000mm] [DINEN 10",
+        "grams": 2.48,
+        "sourceRow": 10
+      },
+      {
+        "product": "F.00Z.S00.002",
+        "productName": "FİLTRO BASTAO",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 2.78,
+        "sourceRow": 11
+      },
+      {
+        "product": "2.433.084.245",
+        "productName": "FİLTRO BASTAO",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 3.22,
+        "sourceRow": 12
+      },
+      {
+        "product": "2.433.084.061",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 4.39,
+        "sourceRow": 13
+      },
+      {
+        "product": "2.433.084.187",
+        "productName": "FİLTRO BASTAO",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 2.89,
+        "sourceRow": 14
+      },
+      {
+        "product": "2.433.084.243",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 3.33,
+        "sourceRow": 15
+      },
+      {
+        "product": "F.00V.P01.301",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 3.33,
+        "sourceRow": 16
+      },
+      {
+        "product": "F.00Z.F20.001",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 4.39,
+        "sourceRow": 17
+      },
+      {
+        "product": "2.433.084.003",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130004",
+        "materialName": "[11SMBP30 ( 1.0718 )] [Ø5,5mm] [3000mm] [DINEN 102",
+        "grams": 3.64,
+        "sourceRow": 18
+      },
+      {
+        "product": "2.433.084.231",
+        "productName": "ÇUBUK FİLTRE",
+        "materialCode": "Z130003",
+        "materialName": "[11SMBP30 +C ( 1.07148 )] [Ø4,5mm] [3000mm] [DINEN",
+        "grams": 2.89,
+        "sourceRow": 19
+      },
+      {
+        "product": "2.433.084.022",
+        "productName": "FİLTRO BASTAO",
+        "materialCode": "Z130004",
+        "materialName": "[11SMBP30 ( 1.0718 )] [Ø5,5mm] [3000mm] [DINEN 102",
+        "grams": 6.13,
+        "sourceRow": 20
+      }
+    ],
+    "activePlanningScope": {
+      "startPeriod": "2026-11",
+      "endPeriod": "2026-11"
+    },
+    "planNeedsRecalculation": false
+  },
+  "command": {
+    "kind": "saveCurrentJob",
+    "args": [
+      "L-01",
+      {
+        "product": "F.00V.C15.100",
+        "workOrder": "REVIEW",
+        "originalQuantity": 500,
+        "remainingQuantity": 500,
+        "start": 46335
+      },
+      46335
+    ]
+  }
+}

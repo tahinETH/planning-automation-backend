@@ -8,8 +8,9 @@ OPERATIONS = {
     "productionInterruptions", "productionCancellations", "scenarioProvenance",
     "machines", "productionHistory", "wipLots", "wipMovements", "planningEvents",
     "processCurrentJobs", "chargeJourneyNotes", "manualBatches", "savedBatches",
-    "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
-    "orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders",
+    "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence", "planNeedsRecalculation",
+    "filterInitialStockSetup",
+    "orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan", "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName",
 }
 
 
@@ -43,13 +44,14 @@ REFRESH_GROUPS: dict[str, dict[str, Any]] = {
         "label": "Üretim kayıtları ve plan",
         "fields": ("machines", "productionHistory", "wipLots", "wipMovements", "productionInterruptions",
                    "productionCancellations", "processCurrentJobs", "manualBatches", "savedBatches",
-                   "processOperationOverrides", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
-                   "planNeedsRecalculation", "scenarioProvenance"),
+                   "processOperationOverrides", "plannedThroughProcess", "initialProcessPlanComplete", "activePlanRun", "lastAutomaticPlan", "planRunSequence",
+                   "planNeedsRecalculation", "scenarioProvenance", "filterInitialStockSetup"),
         "choices": ("keep-local", "use-source"),
     },
     "orders": {
         "label": "Siparişler",
-        "fields": ("orders", "customerDemand", "customerOrderOverrides", "orderImport", "orderImportGrossOrders"),
+        "fields": ("orders", "customerDemand", "dailyCustomerDemand", "monthlyCustomerDemand", "filterMonthlyPlan",
+                   "customerOrderOverrides", "orderImport", "orderImportGrossOrders", "orderCatalog", "orderCatalogName"),
         "choices": ("keep-local", "use-source"),
     },
     "annotations": {
@@ -110,10 +112,12 @@ def refresh_groups(source: dict[str, Any], local: dict[str, Any] | None, baselin
     for group_id, group in REFRESH_GROUPS.items():
         fields = group["fields"]
         source_values = _group_values(source, fields)
-        local_values = _group_values(local, fields) if local is not None else source_values
+        local_values = _group_values(local or {}, fields)
         base_values = _group_values(baseline, fields) if baseline is not None else None
         if local_values == source_values:
             status, default = "same", "use-source"
+        elif local is None:
+            status, default = "source-changed", "use-source"
         elif base_values is None:
             status, default = "no-baseline", None
         elif local_values == base_values:
@@ -130,7 +134,8 @@ def refresh_groups(source: dict[str, Any], local: dict[str, Any] | None, baselin
 
 def settings_key_differences(source: dict[str, Any], local: dict[str, Any] | None, baseline: dict[str, Any] | None) -> dict[str, list[str]]:
     """Ungrouped (parameter/setting) keys: a locally changed key stays local, as before."""
-    local = local or {}
+    if local is None:
+        return {"keptLocal": [], "fromSource": sorted(source.keys() - GROUPED_FIELDS), "bothChanged": []}
     base = baseline or {}
     keys = sorted((source.keys() | local.keys()) - GROUPED_FIELDS)
     local_changed = [key for key in keys if local.get(key, _MISSING) != (base if baseline is not None else source).get(key, _MISSING)]
