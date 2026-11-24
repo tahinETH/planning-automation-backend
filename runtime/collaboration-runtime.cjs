@@ -7492,19 +7492,36 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
   fixedBatches = reconcileTurningQueue(seed, withInterruptedBatches(seed, fixedBatches));
   const frozen = fixedBatches.filter((batch) => batch.status === "planned").map((batch) => ({ ...batch, explanation: `Dondurulmu\u015F plan: ${batch.machineId} \xFCzerindeki s\u0131ra korunuyor.` }));
   for (const batch of frozen.sort((a, b) => a.planColumn - b.planColumn || a.sequence - b.sequence)) states.get(batch.machineId)?.scheduled.push(batch);
+  const lastProduct = (state) => state.scheduled.at(-1)?.product ?? state.currentJob.product;
+  const lastDiameter = (state) => normalizedDiameter(state.scheduled.at(-1)?.diameter ?? state.currentJob.diameter);
   const reusableHistory = semiFinishedProduction(seed);
   const currentProducts = new Set([...seed.machines.map((machine) => machine.currentJob.product), ...reusableHistory.map((entry) => entry.product), ...frozen.map((batch) => batch.product)].filter((code3) => isProductCode(code3, seed)));
+  const activeMachineProducts = new Set(
+    [...states.values()].filter((state) => state.active).map((state) => lastProduct(state)).filter((code3) => isProductCode(code3, seed)).map((code3) => code3.toUpperCase())
+  );
   const existingByProduct = newProductionBudgetCommitments(seed, frozen);
   const dueSerial = (order) => {
     const firstMilestone = orderDeliveryMilestones(order)[0]?.date;
     return inputDateSerial3(firstMilestone || order.dueDate) || Number.MAX_SAFE_INTEGER;
   };
+  const earliestDueByProduct = /* @__PURE__ */ new Map();
+  let latestOrderDueDate = "";
+  for (const order of seed.orders) {
+    const key = order.product.toUpperCase();
+    const due = dueSerial(order);
+    const current = earliestDueByProduct.get(key);
+    if (current === void 0 || due < current) earliestDueByProduct.set(key, due);
+    if (order.dueDate && (!latestOrderDueDate || order.dueDate > latestOrderDueDate)) latestOrderDueDate = order.dueDate;
+  }
+  const productEarliestDueSerial = (order) => earliestDueByProduct.get(order.product.toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+  const standardScopeDueDate = seed.activePlanRun?.scope.endDate || latestOrderDueDate;
+  const activeMachineRank = (order) => activeMachineProducts.has(order.product.toUpperCase()) ? 0 : 1;
   const wipRank = (order) => currentProducts.has(order.product) ? 0 : 1;
   const ratedMachineIds = (order) => seed.machines.filter((machine) => machine.active && isMachineEligibleForProduct(seed, machine.id, order.product) && (machine.rates[order.product.toUpperCase()] ?? 0) * machine.shiftFactor * machineCapacityFactor(machine) > 0).map((machine) => machine.id);
   const ratedMachineCount = (order) => ratedMachineIds(order).length;
   const scarcityRank = (order) => ratedMachineCount(order) <= 2 ? 0 : 1;
   const orderDiameter = (order) => normalizedDiameter(products.get(order.product.toUpperCase())?.diameter ?? "");
-  const orderedOrders = strategy === "optimized" ? [...seed.orders].sort((a, b) => optimizationGoal === "coarse" ? (seed.productionArea === "cubuk-filtre" ? 0 : dueSerial(a) - dueSerial(b)) || ratedMachineCount(a) - ratedMachineCount(b) || wipRank(a) - wipRank(b) || orderDiameter(a).localeCompare(orderDiameter(b), "tr", { numeric: true }) || a.product.localeCompare(b.product) || a.sourceRow - b.sourceRow : dueSerial(a) - dueSerial(b) || scarcityRank(a) - scarcityRank(b) || wipRank(a) - wipRank(b) || a.sourceRow - b.sourceRow) : [
+  const orderedOrders = strategy === "optimized" ? [...seed.orders].sort((a, b) => optimizationGoal === "standard" ? activeMachineRank(a) - activeMachineRank(b) || productEarliestDueSerial(a) - productEarliestDueSerial(b) || ratedMachineCount(a) - ratedMachineCount(b) || wipRank(a) - wipRank(b) || orderDiameter(a).localeCompare(orderDiameter(b), "tr", { numeric: true }) || a.product.localeCompare(b.product) || dueSerial(a) - dueSerial(b) || a.sourceRow - b.sourceRow : optimizationGoal === "coarse" ? (seed.productionArea === "cubuk-filtre" ? 0 : dueSerial(a) - dueSerial(b)) || ratedMachineCount(a) - ratedMachineCount(b) || wipRank(a) - wipRank(b) || orderDiameter(a).localeCompare(orderDiameter(b), "tr", { numeric: true }) || a.product.localeCompare(b.product) || a.sourceRow - b.sourceRow : dueSerial(a) - dueSerial(b) || scarcityRank(a) - scarcityRank(b) || wipRank(a) - wipRank(b) || a.sourceRow - b.sourceRow) : [
     ...seed.orders.filter((order) => currentProducts.has(order.product)),
     ...seed.orders.filter((order) => !currentProducts.has(order.product))
   ];
@@ -7526,7 +7543,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     const cumulativeTarget = Math.max(priorTarget, productionTargetForShortage(filterInputForShortage(seed, productCode, Math.max(0, priorDemand + order.quantity - existingQuantity)), batchSize, shortageExtraChargePolicyForSeed(seed)));
     const targetNewQuantity = cumulativeTarget - priorTarget;
     targetByProduct.set(productCode, cumulativeTarget);
-    if (strategy !== "optimized" || !seed.customerDemand && !seed.dailyCustomerDemand && !seed.monthlyCustomerDemand) {
+    if (strategy !== "optimized" || optimizationGoal === "standard" || !seed.customerDemand && !seed.dailyCustomerDemand && !seed.monthlyCustomerDemand) {
       planningLots.push({ order, quantity: targetNewQuantity, targetNewQuantity, dueDate: order.dueDate, checkpointId: "order-total", lotIndex: 0 });
       continue;
     }
@@ -7564,11 +7581,11 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     }
     for (const lot of planningLots.filter((item) => item.order.id === order.id)) lot.targetNewQuantity = targetNewQuantity;
   }
-  if (strategy === "optimized" && (seed.customerDemand || seed.dailyCustomerDemand || seed.monthlyCustomerDemand)) {
+  if (strategy === "optimized" && optimizationGoal !== "standard" && (seed.customerDemand || seed.dailyCustomerDemand || seed.monthlyCustomerDemand)) {
     planningLots.sort((left, right) => (inputDateSerial3(left.dueDate) || Number.MAX_SAFE_INTEGER) - (inputDateSerial3(right.dueDate) || Number.MAX_SAFE_INTEGER) || (optimizationGoal === "balanced" || optimizationGoal === "coarse" ? ratedMachineCount(left.order) - ratedMachineCount(right.order) : scarcityRank(left.order) - scarcityRank(right.order)) || wipRank(left.order) - wipRank(right.order) || (optimizationGoal === "coarse" ? orderDiameter(left.order).localeCompare(orderDiameter(right.order), "tr", { numeric: true }) : 0) || (optimizationGoal === "coarse" ? left.order.product.localeCompare(right.order.product) : 0) || left.order.sourceRow - right.order.sourceRow || left.lotIndex - right.lotIndex);
   }
   const remainingExclusiveLotsByMachine = /* @__PURE__ */ new Map();
-  if (optimizationGoal === "balanced" || optimizationGoal === "coarse") {
+  if (optimizationGoal === "balanced" || optimizationGoal === "coarse" || optimizationGoal === "standard") {
     for (const lot of planningLots) {
       const product = products.get(lot.order.product.toUpperCase());
       const machineIds = ratedMachineIds(lot.order);
@@ -7599,8 +7616,6 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
     reservedBatchIds.add(id);
     return { id, sequence: sequence++, ...seed.productionArea === "cubuk-filtre" && seed.activePlanRun?.chargeIdNamespace ? { workOrder: `ID-${sequence - 1}-${seed.activePlanRun.chargeIdNamespace}` } : {} };
   };
-  const lastProduct = (state) => state.scheduled.at(-1)?.product ?? state.currentJob.product;
-  const lastDiameter = (state) => normalizedDiameter(state.scheduled.at(-1)?.diameter ?? state.currentJob.diameter);
   const planningCapacityByMachine = new Map([...states.values()].map((state) => [
     state.id,
     machineCapacityHoursBetween(seed, state, state.availableStart, Math.floor(state.planEnd) + 1)
@@ -7769,7 +7784,38 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
             const projectedUtilization = capacityHours > 0 ? (committedHours(candidate) + slot.setupHours + slot.runHours) / capacityHours : Number.POSITIVE_INFINITY;
             return [{ candidate, bucket, slot, queueLength: candidate.scheduled.length, projectedUtilization, deliveryReadyAt: turningDeliveryReadyAt(slot.end) }];
           });
-          if (optimizationGoal === "coarse" && evaluated.length) {
+          if (optimizationGoal === "standard" && evaluated.length) {
+            let standardCandidates = evaluated;
+            const due = inputDateSerial3(standardScopeDueDate || lot.dueDate);
+            if (seed.productionArea !== "cubuk-filtre" && due > 0) {
+              const onTime = standardCandidates.filter((item) => Math.floor(item.deliveryReadyAt) <= Math.floor(due));
+              if (onTime.length) standardCandidates = onTime;
+              else {
+                const earliestDelivery = Math.min(...standardCandidates.map((item) => item.deliveryReadyAt));
+                standardCandidates = standardCandidates.filter((item) => item.deliveryReadyAt <= earliestDelivery + 1e-6);
+              }
+            }
+            const sameProductCandidates = standardCandidates.filter((item) => item.slot.setupType === "same-product" || lastProduct(item.candidate).trim().toUpperCase() === productCode);
+            if (sameProductCandidates.length) {
+              standardCandidates = sameProductCandidates;
+            } else if (standardCandidates.length > 1) {
+              const withoutExclusivePressure = standardCandidates.filter((item) => (remainingExclusiveLotsByMachine.get(item.candidate.id) ?? 0) === 0);
+              if (withoutExclusivePressure.length) standardCandidates = withoutExclusivePressure;
+            }
+            standardCandidates.sort((left, right) => setupTypeRank(left.slot.setupType) - setupTypeRank(right.slot.setupType) || left.slot.setupHours - right.slot.setupHours || left.projectedUtilization - right.projectedUtilization || left.slot.end - right.slot.end || left.bucket - right.bucket || left.candidate.id.localeCompare(right.candidate.id));
+            const chosen = standardCandidates[0];
+            selected = chosen.candidate;
+            selectedStart = chosen.slot.start;
+            selectedEnd = chosen.slot.end;
+            selectedRate = chosen.slot.rate;
+            selectedSetupHours = chosen.slot.setupHours;
+            selectedSetupType = chosen.slot.setupType;
+            selectedSetupLabel = chosen.slot.setupLabel;
+            selectedRunHours = chosen.slot.runHours;
+            selectedPriority = chosen.bucket;
+            selectedQueueLength = chosen.queueLength;
+            selectedProjectedUtilization = chosen.projectedUtilization;
+          } else if (optimizationGoal === "coarse" && evaluated.length) {
             let coarseCandidates = evaluated;
             const due = inputDateSerial3(lot.dueDate);
             if (seed.productionArea !== "cubuk-filtre" && due > 0) {
@@ -7894,9 +7940,9 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
           const previousDiameter = lastDiameter(selected);
           let explanation = `${selected.id} uygun ve \u015Farj tezgah\u0131n m\xFCsaitlik penceresi i\xE7inde tamamlan\u0131yor.`;
           if (strategy === "optimized" && special) {
-            explanation = optimizationGoal === "all-compatible" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda en k\u0131sa kuyru\u011Fa sahip tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "balanced" ? `${selected.id}, tezgah \xF6nceli\u011Fi, kampanya uyumu ve kapasite dengesi birlikte de\u011Ferlendirilerek se\xE7ildi. Tahmini y\xFCk %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "coarse" ? `${selected.id}, haftal\u0131k termini koruyarak ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131n\u0131 s\xFCrd\xFCrmek ve setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "minimum-setup" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda setup s\xFCresi en d\xFC\u015F\xFCk tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "earliest-finish" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda bu \u015Farj\u0131 en erken tamamlayan tezgah (${formatExcelDate(selectedEnd)}). ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : `${selected.id}, s\u0131ral\u0131 tezgah kampanyas\u0131ndaki kapasitesi yeterli ilk tezgah: ${special.machines.join(" \u2192 ")}. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.`;
+            explanation = optimizationGoal === "all-compatible" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda en k\u0131sa kuyru\u011Fa sahip tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "balanced" ? `${selected.id}, tezgah \xF6nceli\u011Fi, kampanya uyumu ve kapasite dengesi birlikte de\u011Ferlendirilerek se\xE7ildi. Tahmini y\xFCk %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "standard" ? `${selected.id}, se\xE7ili tarih aral\u0131\u011F\u0131ndaki ayn\u0131 tip \u015Farjlar\u0131 arka arkaya ba\u011Flayarak setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "coarse" ? `${selected.id}, haftal\u0131k termini koruyarak ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131n\u0131 s\xFCrd\xFCrmek ve setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "minimum-setup" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda setup s\xFCresi en d\xFC\u015F\xFCk tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "earliest-finish" ? `${selected.id}, s\u0131ral\u0131 uygun tezgahlar aras\u0131nda bu \u015Farj\u0131 en erken tamamlayan tezgah (${formatExcelDate(selectedEnd)}). ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : `${selected.id}, s\u0131ral\u0131 tezgah kampanyas\u0131ndaki kapasitesi yeterli ilk tezgah: ${special.machines.join(" \u2192 ")}. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.`;
           } else if (strategy === "optimized") {
-            explanation = optimizationGoal === "all-compatible" ? `${selected.id}, uygun tezgahlar aras\u0131nda en k\u0131sa kuyru\u011Fa sahip tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "balanced" ? `${selected.id}, ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131 ile uygun tezgahlar\u0131n kapasite y\xFCk\xFC birlikte de\u011Ferlendirilerek se\xE7ildi. Tahmini y\xFCk %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "coarse" ? `${selected.id}, haftal\u0131k termini koruyarak ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131n\u0131 s\xFCrd\xFCrmek ve setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "minimum-setup" ? `${selected.id}, uygun tezgahlar aras\u0131nda setup s\xFCresi en d\xFC\u015F\xFCk tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : `${selected.id} setup dahil bu \u015Farj\u0131 en erken tamamlayan tezgah (${formatExcelDate(selectedEnd)}). ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.`;
+            explanation = optimizationGoal === "all-compatible" ? `${selected.id}, uygun tezgahlar aras\u0131nda en k\u0131sa kuyru\u011Fa sahip tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "balanced" ? `${selected.id}, ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131 ile uygun tezgahlar\u0131n kapasite y\xFCk\xFC birlikte de\u011Ferlendirilerek se\xE7ildi. Tahmini y\xFCk %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "standard" ? `${selected.id}, se\xE7ili tarih aral\u0131\u011F\u0131ndaki ayn\u0131 tip \u015Farjlar\u0131 arka arkaya ba\u011Flayarak setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "coarse" ? `${selected.id}, haftal\u0131k termini koruyarak ayn\u0131 \xFCr\xFCn/\xE7ap kampanyas\u0131n\u0131 s\xFCrd\xFCrmek ve setup'\u0131 azaltmak i\xE7in se\xE7ildi. Tahmini pencere y\xFCk\xFC %${(selectedProjectedUtilization * 100).toFixed(1)}; ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : optimizationGoal === "minimum-setup" ? `${selected.id}, uygun tezgahlar aras\u0131nda setup s\xFCresi en d\xFC\u015F\xFCk tezgah. ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.` : `${selected.id} setup dahil bu \u015Farj\u0131 en erken tamamlayan tezgah (${formatExcelDate(selectedEnd)}). ${selectedSetupLabel}: ${selectedSetupHours.toFixed(1)} saat; \xFCretim: ${selectedRunHours.toFixed(1)} saat.`;
           } else if (special) explanation = `${selected.id}, \xE7al\u0131\u015Fma kitab\u0131ndaki s\u0131raya g\xF6re m\xFCsait ilk tezgah: ${special.machines.join(" \u2192 ")}.`;
           else if (previousProduct.toUpperCase() === productCode) explanation = `${selected.id} kuyru\u011Funun sonundaki ayn\u0131 \xFCr\xFCne devam ediyor.`;
           else if (previousDiameter === normalizedDiameter(product.diameter)) explanation = `${selected.id} ayn\u0131 hammadde \xE7ap\u0131 kampanyas\u0131na devam ediyor.`;
@@ -7933,7 +7979,7 @@ function runScenario(seed, fixedBatches, strategy, optimizationGoal) {
         remaining -= lotQuantity;
       }
     }
-    if (optimizationGoal === "balanced" || optimizationGoal === "coarse") {
+    if (optimizationGoal === "balanced" || optimizationGoal === "coarse" || optimizationGoal === "standard") {
       const product2 = products.get(productCode);
       const exclusiveMachineIds = ratedMachineIds(order);
       if (product2 && exclusiveMachineIds.length === 1 && lot.quantity > 0) {
