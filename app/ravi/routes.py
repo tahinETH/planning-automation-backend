@@ -5,6 +5,7 @@ from ..auth import CurrentUser, current_user
 from ..config import settings
 from . import knowledge
 from .models import ChatRequest
+from .provider_stream import ravi_configured
 from .service import chat, stream_chat
 
 router = APIRouter(prefix="/api/ravi", tags=["Ravi"])
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/api/ravi", tags=["Ravi"])
 
 @router.get("/status")
 def status(user: CurrentUser = Depends(current_user)):
-    return {"configured": bool(settings.deepseek_api_key), "model": settings.deepseek_model,
+    return {"configured": ravi_configured(), "model": settings.deepseek_model,
             "knowledgeVersion": knowledge.version(), "navigation": knowledge.navigation_targets(user.is_admin)}
 
 
@@ -23,7 +24,7 @@ async def post_chat(payload: ChatRequest, user: CurrentUser = Depends(current_us
 
 @router.post("/chat/stream")
 async def post_chat_stream(payload: ChatRequest, user: CurrentUser = Depends(current_user)):
-    if not settings.deepseek_api_key:
-        raise HTTPException(status_code=503, detail="Ravi henüz yapılandırılmamış. Yöneticiniz backend DeepSeek anahtarını eklemeli.")
+    if not ravi_configured():
+        raise HTTPException(status_code=503, detail="Ravi henüz yapılandırılmamış. Yöneticiniz backend DeepSeek veya OpenRouter anahtarını eklemeli.")
     return StreamingResponse(stream_chat(payload, user), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})

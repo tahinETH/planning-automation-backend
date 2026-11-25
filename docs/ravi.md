@@ -8,6 +8,9 @@ through the app's normal controls.
 ## Setup and operation
 
 - Set `DEEPSEEK_API_KEY` in the backend environment and restart the backend.
+  Optionally set `OPEN_ROUTER_API_KEY` (or `OPENROUTER_API_KEY`) as a fallback
+  provider routed through OpenRouter (`deepseek/deepseek-v4-flash`) whenever
+  `DEEPSEEK_API_KEY` is unset or returns an HTTP/billing error (such as `402`).
   `DEEPSEEK_MODEL` is optional. The application default is `deepseek-v4-flash`.
 - Ravi uses the app's existing Clerk session and frontend API configuration.
   Keep the provider key on the backend. See the
@@ -37,14 +40,21 @@ See the [routes](../app/ravi/routes.py),
 
 The backend sends a topic index and up to three relevant topics with each
 question. Visible save-recovery and workspace controls can determine which
-topics appear first. Retrieval uses text matching. The model receives
+topics appear first. Retrieval uses text matching and boosts `app-navigation`
+and matching topics for short/informal Turkish navigation cues (such as `git`,
+`aç`, `yer`, `nerede`, `götür`, `sekme`, `düğme`, `buton`, `ekran`, `alan`,
+`ayar`, `tatil`, `bakım`), while keeping unmatched queries empty. The model receives
 `id`, `title`, `body` and `userSources` from each selected topic. Keep code
 references in `sources` and `implementationNotes`. This Markdown guide is for
 maintainers. The backend loads its runtime explanations from the JSON catalog.
 See [topic retrieval](../app/ravi/knowledge.py).
 
 Use the exact Turkish UI label or verified Excel sheet and column name in the
-answer. Give the unit, date range, inputs and exclusions needed to explain the
+answer. Responses are brief-first by default: 1–3 short sentences or up to 3 short
+bullets for ordinary and navigation questions, and a concise source/formula/unit/rule
+summary (2–4 short lines or bullets) for calculation questions, expanding into full
+step-by-step walkthroughs or illustrative examples when requested (for example via
+**Detaylı açıkla**). Give the unit, date range, inputs and exclusions needed to explain the
 result. Use `weekly-demand` for the **3. Overview (confirmed)** import and
 `delivery-export-numbers` for **Teslimat Planı** columns. The app reads the
 workbook's calculated balances. Ravi reads imported records. Give workbook
@@ -55,7 +65,8 @@ Label illustrative figures as examples.
 
 - `useRaviScreenContext` supplies visible filters, dialogs, selections and
   calculations. Register this data while its screen or dialog is open.
-  Keep the current view, previous view and entry view distinct.
+  Keep the current view, previous view and entry view distinct. Live screen
+  context badges in the chat panel reflect the active screen state.
 - Browser calculations can include unsaved edits. Server inspection reads a
   timestamped shared snapshot for the selected production area. If the plan is
   stale or a save is pending, explain which source each value comes from.
@@ -65,8 +76,29 @@ Label illustrative figures as examples.
   Keep them outside the authority and instruction checks.
 - Tools search and read topics, inspect packaged source, read bounded fields
   from the shared snapshot and propose registered navigation targets.
+  The expanded navigation registry covers screens, focus targets and panels:
+  Planlama tools (**Planı Çalıştır**, **Plan tavsiyeleri**, **Tezgah dolulukları**),
+  Siparişler tools (**Excel geçmişi**, **Tip ekle**, and Çubuk Filtre's **Aylık ihtiyaç**
+  and **Başlangıç stoklarını uzlaştır**), admin-only Ayarlar sub-tabs (**Stok ayarları**,
+  **Setup ayarları** [Torna], **Resmi tatiller**, **Bakımlar**, **Mesai ve vardiya**),
+  Genel Bakış (**Saha planı indir**), **Uygulama güncellemeleri**, and the `guide`
+  (**Sayfa rehberi**) and `tour` (**Tanıtımı başlat**) panels.
   The backend and frontend check target access by role and area.
-  The user must select a button to open its target. All chat tools are read-only.
+  Navigation is strictly click-only: the user must select the **"Beni oraya götür"**
+  button to open its target (`executed: False`). Production area switching
+  (`Piston` ↔ `Çubuk Filtre`) is never automatic; when a user asks for a feature in
+  the other area, Ravi states the active area, reminds them to verify their workspace
+  save status, and offers the manual **Sol panel → Üretim alanı** (`production-area`)
+  target. When a control or section only appears conditionally (such as recovery
+  actions on error/conflict in **Plan çalışma alanı**, **Başlangıç stoklarını
+  uzlaştır** when opening-stock data is loaded, or **Otomatik planla karşılaştır**
+  under **Planlama → Planlama araçları** only when a saved automatic-plan snapshot
+  exists, manual edits were made, and `Değişiklik var` (`dirty`) is inactive),
+  Ravi names the host screen and button, explicitly states the condition under
+  which it becomes visible, and offers the navigation button to the host
+  screen/card. All chat tools are read-only. If the provider emits raw DSML
+  tool-call markup in text, `service.py` parses and executes valid invocations and
+  strips DSML tags before sending `done`.
 
 See the [screen context](https://github.com/tahinETH/planning-automation-frontend/blob/staging/features/ravi/context.tsx),
 [tool definitions](../app/ravi/tools.py) and
@@ -75,6 +107,11 @@ See the [screen context](https://github.com/tahinETH/planning-automation-fronten
 ## Conversations
 
 **Konuşmalar** opens the history. **Yeni konuşma** starts a separate chat.
+The chat header and message controls also include **Durdur** (stops an in-flight
+stream without saving an incomplete answer), **Geniş görünüm** (toggles a wider
+panel layout), **Önceki ekrana dön** (returns to the previous screen after
+clicking a navigation card), and **Detaylı açıkla** (requests a fuller breakdown
+of a brief answer).
 The browser stores text, drafts and registered action IDs in localStorage
 under the authenticated user ID. The service receives only the selected chat's
 recent history and fresh screen context. The request history is limited to
