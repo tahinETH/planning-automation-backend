@@ -123,10 +123,29 @@ def validate_filter_monthly_state(seed):
             labels.append(label_key(item['label']))
         if sorted(labels)!=sorted(expected_labels): fail()
         if key in RULES:
-            _,factor,unit,output=RULES[key]
-            expected_quantities=[((sum(item['quantities'][m] for item in inputs)*factor+100*unit-1)//(100*unit))*output for m in range(12)]
-        else: expected_quantities=inputs[0]['quantities']
-        if row['quantities']!=expected_quantities: fail()
+            _, factor, unit, output = RULES[key]
+            custom_formula = row.get('formula')
+            if custom_formula is not None:
+                if (not isinstance(custom_formula, dict)
+                        or not set(custom_formula) == {'percent', 'unit', 'output'}
+                        or not integer(custom_formula.get('percent')) or not 1 <= custom_formula['percent'] <= 1000
+                        or not integer(custom_formula.get('unit')) or custom_formula['unit'] < 1
+                        or not integer(custom_formula.get('output')) or custom_formula['output'] < 1):
+                    fail()
+                factor = custom_formula['percent']
+                unit = custom_formula['unit']
+                output = custom_formula['output']
+            overrides = row.get('manualOverrides')
+            if overrides is not None:
+                if not isinstance(overrides, list) or len(overrides) != 12 or any(v is not None and not integer(v) for v in overrides):
+                    fail()
+            formula_quantities = [((sum(item['quantities'][m] for item in inputs) * factor + 100 * unit - 1) // (100 * unit)) * output for m in range(12)]
+            expected_quantities = [overrides[m] if overrides is not None and overrides[m] is not None else formula_quantities[m] for m in range(12)]
+        else:
+            if row.get('formula') is not None or row.get('manualOverrides') is not None:
+                fail()
+            expected_quantities = inputs[0]['quantities']
+        if row['quantities'] != expected_quantities: fail()
     if data.get('sourceKind') not in (None,'manual','upload'): fail()
     originals=data.get('originalRows')
     if originals is not None:

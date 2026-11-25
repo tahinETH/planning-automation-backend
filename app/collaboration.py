@@ -563,6 +563,7 @@ def collaboration_status(base_world_revision=None):
 def assert_shared_inputs_only(current, candidate, is_admin):
     if not is_admin:
         allowed = {"orders", "products", "preferences", "machines", "processMasterData", "calendarEvents",
+            "processStockSettings",
             "customerDemand", "dailyCustomerDemand", "filterMonthlyPlan", "monthlyCustomerDemand", "orderImport",
             "orderImportGrossOrders", "customerOrderOverrides", "orderCatalog", "orderCatalogName",
             "planNeedsRecalculation", "lastAutomaticPlan", "planRunSequence"}

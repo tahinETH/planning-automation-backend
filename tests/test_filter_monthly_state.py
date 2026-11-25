@@ -394,3 +394,32 @@ def test_cf_ms26_durable_yearly_handover_corrections_validate_without_active_ord
         forged=deepcopy(saved['seed']);forged['filterMonthlyDeliveryBaselines'][0]['handovers'][0]['quantity']=-1
         with pytest.raises(ValueError):validate_stock_planning(forged)
     finally:production_area.reset(token)
+
+
+def test_cf_ms27_formula_and_manual_overrides_validate_and_reject_invalid():
+    seed = monthly_seed()
+    c100 = seed['monthlyCustomerDemand']['rows'][0]
+    # monthly_seed inputs sum to 15000 -> ceil(15000 * 105 / 100 / 15000) * 16000 = 32000, plus manual override 16400 in month 9
+    c100['formula'] = {'percent': 105, 'unit': 15000, 'output': 16000}
+    c100['manualOverrides'] = [None] * 12
+    c100['manualOverrides'][9] = 16400
+    c100['quantities'] = [32000] * 12
+    c100['quantities'][9] = 16400
+    before = deepcopy(seed)
+    validate_stock_planning(seed)
+    assert seed == before
+
+    for mutate in [
+        lambda r: r.update(formula={'percent': 0, 'unit': 15000, 'output': 16000}),
+        lambda r: r.update(formula={'percent': 105, 'unit': 0, 'output': 16000}),
+        lambda r: r.update(formula={'percent': 105, 'unit': 15000, 'output': 0}),
+        lambda r: r.update(manualOverrides=[None] * 11),
+        lambda r: r['manualOverrides'].__setitem__(9, -1),
+        lambda r: r['quantities'].__setitem__(0, 99999),  # forged without manualOverride
+    ]:
+        bad = deepcopy(seed)
+        mutate(bad['monthlyCustomerDemand']['rows'][0])
+        snap = deepcopy(bad)
+        with pytest.raises(ValueError):
+            validate_stock_planning(bad)
+        assert bad == snap

@@ -182,3 +182,24 @@ def test_role_tip_unused_materialless_type_deletion_requires_admin(workspace, me
     response = write(workspace, removed, "admin", method)
     assert response.status_code == 200, response.text
     assert all(row["product"] != "UNUSED-ROLE-TIP" for row in db.planning_state()["seed"]["products"])
+
+
+@pytest.mark.parametrize("method", ["put", "patch"])
+def test_role06_planner_can_save_process_stock_settings_while_admin_fields_stay_blocked(workspace, method):
+    original = db.planning_state()
+    seed = copy.deepcopy(original["seed"])
+    seed["processStockSettings"] = {
+        "version": 1,
+        "limits": [
+            {"groupId": "turning-end", "min": 7372, "max": 20412},
+            {"groupId": "drilling-end", "min": 5671, "max": 11340},
+            {"groupId": "visual-front", "min": 5671, "max": 14742},
+            {"groupId": "warehouse", "min": 56702, "max": 113402},
+        ],
+        "scrap": [],
+        "openingDate": "2026-11-25",
+        "opening": [{"groupId": "turning-end", "product": seed["products"][0]["product"], "quantity": 500}],
+    }
+    response = write(workspace, seed, "user", method)
+    assert response.status_code == 200, response.text
+    assert db.planning_state()["seed"]["processStockSettings"]["opening"][0]["quantity"] == 500

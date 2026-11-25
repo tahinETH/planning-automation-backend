@@ -4382,6 +4382,62 @@ function filterRequiredInput(product, good) {
   if (!integer(result)) throw new Error("Gerekli giri\u015F adedi g\xFCvenli s\u0131n\u0131r\u0131 a\u015F\u0131yor.");
   return result;
 }
+var FILTER_MONTHLY_RULES = [
+  { product: "F.00V.C15.100", label: "C100-DRS", inputs: ["501-RBTR", "003-RBCD"], percent: 103, unit: 15e3, output: 15e3 },
+  { product: "F.00V.C15.002", label: "002-DRS", inputs: ["001-RBCD", "001-NaP", "001-CtP"], percent: 104, unit: 1e3, output: 1e3 },
+  { product: "2.433.084.081", label: "081-DRS", inputs: ["481-HoP", "481-CtP/NaP", "424-HoP/CtP"], percent: 104, unit: 1e3, output: 1100 }
+];
+function defaultFilterMonthlyFormula(product) {
+  const rule = FILTER_MONTHLY_RULES.find((item) => item.product === product);
+  return rule ? { percent: rule.percent, unit: rule.unit, output: rule.output } : void 0;
+}
+function formatFilterMonthlyRule(formula) {
+  return `ceil(sum \xD7 ${formula.percent}/100 \xF7 ${formula.unit}) \xD7 ${formula.output}`;
+}
+function computeFilterMonthlyFormulaQuantities(row) {
+  const defaultRule = defaultFilterMonthlyFormula(row.product);
+  if (row.inputs.some((input) => input.quantities.length !== 12 || input.quantities.some((n) => !integer(n)))) {
+    throw new Error("Kaynak adet tam say\u0131 ve s\u0131f\u0131r veya daha b\xFCy\xFCk olmal\u0131d\u0131r.");
+  }
+  if (!defaultRule) return [...row.inputs[0].quantities];
+  const formula = row.formula ?? defaultRule;
+  if (!integer(formula.percent) || formula.percent < 1 || formula.percent > 1e3 || !integer(formula.unit) || formula.unit < 1 || !integer(formula.output) || formula.output < 1) {
+    throw new Error("Form\xFCl parametreleri ge\xE7ersiz: katsay\u0131 %1\u20131000, b\xF6len ve \xE7arpan pozitif tam say\u0131 olmal\u0131d\u0131r.");
+  }
+  const quantities = Array.from({ length: 12 }, (_, month) => {
+    const total = row.inputs.reduce((sum, input) => sum + BigInt(input.quantities[month]), BigInt(0));
+    return Number((total * BigInt(formula.percent) + BigInt(100 * formula.unit - 1)) / BigInt(100 * formula.unit) * BigInt(formula.output));
+  });
+  if (quantities.some((n) => !integer(n))) throw new Error("Hesaplanan adet g\xFCvenli s\u0131n\u0131r\u0131 a\u015F\u0131yor.");
+  return quantities;
+}
+function recalculateFilterMonthlyRows(rows) {
+  return rows.map((row) => {
+    const defaultRule = defaultFilterMonthlyFormula(row.product);
+    const formulaQuantities = computeFilterMonthlyFormulaQuantities(row);
+    if (!defaultRule) return { ...row, quantities: formulaQuantities };
+    const overrides = row.manualOverrides;
+    if (overrides !== void 0) {
+      if (!Array.isArray(overrides) || overrides.length !== 12 || overrides.some((value) => value !== null && !integer(value))) {
+        throw new Error("Elle girilen ayl\u0131k adet tam say\u0131 ve s\u0131f\u0131r veya daha b\xFCy\xFCk olmal\u0131d\u0131r.");
+      }
+    }
+    const effectiveFormula = row.formula ?? defaultRule;
+    const isDefaultFormula = effectiveFormula.percent === defaultRule.percent && effectiveFormula.unit === defaultRule.unit && effectiveFormula.output === defaultRule.output;
+    const hasOverride = Boolean(overrides?.some((value) => value !== null));
+    const quantities = formulaQuantities.map((value, month) => overrides?.[month] != null ? overrides[month] : value);
+    const nextRow = {
+      ...row,
+      rule: formatFilterMonthlyRule(effectiveFormula),
+      quantities
+    };
+    if (isDefaultFormula) delete nextRow.formula;
+    else nextRow.formula = { ...effectiveFormula };
+    if (hasOverride) nextRow.manualOverrides = [...overrides];
+    else delete nextRow.manualOverrides;
+    return nextRow;
+  });
+}
 function filterDeliveryBaselineFor(seed, year) {
   return seed.filterMonthlyDeliveryBaselines?.find((item) => item.year === year) ?? (seed.monthlyCustomerDemand?.year === year ? seed.monthlyCustomerDemand.deliveryBaseline : void 0) ?? (seed.filterInitialStockSetup?.deliveryBaseline?.year === year ? seed.filterInitialStockSetup.deliveryBaseline : void 0);
 }
@@ -4399,6 +4455,12 @@ function buildFilterMonthlyOrders(seed, data) {
   if (!Array.isArray(data.handovers) || data.handovers.length > 720 || !Array.isArray(data.exceptions) || data.exceptions.length > 1e3) throw new Error("Teslimat veya tarihli ihtiya\xE7 listesi ge\xE7ersiz.");
   const products = new Set(data.rows.map((r) => r.product));
   if (products.size !== data.rows.length) throw new Error("Ayl\u0131k \xFCr\xFCn tekrarl\u0131.");
+  for (const row of data.rows) {
+    if (row.formula !== void 0 || row.manualOverrides !== void 0) {
+      if (!defaultFilterMonthlyFormula(row.product)) throw new Error("Form\xFCl veya elle adet yaln\u0131z DRS hesaplanan sat\u0131rlarda kullan\u0131labilir.");
+      recalculateFilterMonthlyRows([row]);
+    }
+  }
   const handovers = /* @__PURE__ */ new Map();
   for (const h of data.handovers) {
     const key = `${h.product}:${h.month}`;
@@ -8300,11 +8362,13 @@ function recalculateManualBatches(seed, sourceBatches, options = { allowPlanEndO
       if (dailyRate <= 0) throw new Error(`${context}: \xFCretim h\u0131z\u0131 tan\u0131ml\u0131 de\u011Fil.`);
       const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter, machine.id);
       const runHours = machineRunHours(seed, machine, batch.product, batch.quantity);
-      const timeline = addMachineCapacityHours(seed, machine, Math.max(
+      const requestedStart = Math.max(
         previousEnd,
+        Number.isFinite(batch.earliestStart) ? batch.earliestStart : 0,
         seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? batch.backwardNotBefore : 0,
         Number.isFinite(batch.linkedStart) ? batch.linkedStart : 0
-      ), setup.hours + runHours);
+      );
+      const timeline = addMachineCapacityHours(seed, machine, requestedStart, setup.hours + runHours);
       const start = timeline.start;
       const end = timeline.end;
       if (start < machine.availableStart - 1e-8) {
@@ -12693,7 +12757,11 @@ try {
     next.processOperationOverrides = mergePublishedOverrides(draft, seed);
     const merged = next;
     const rebased = rebaseScenarioPlan(merged, scenarioResultFromBatches(merged, merged.manualBatches ?? []));
-    if (rebased.overflows.length) throw Error("Plan penceresini a\u015Fan i\u015Fler var. Yay\u0131nlamadan \xF6nce plan\u0131 inceleyin.");
+    if (rebased.overflows.length) {
+      const preview = rebased.overflows.slice(0, 3).map((item) => `${item.machineId} \xB7 ${item.product}`).join(", ");
+      const extra = rebased.overflows.length > 3 ? ` (+${rebased.overflows.length - 3} i\u015F daha)` : "";
+      throw Error(`Plan penceresini a\u015Fan ${rebased.overflows.length} i\u015F var (${preview}${extra}). Yay\u0131nlamadan \xF6nce Tezgahlar ekran\u0131nda Plan biti\u015Fi tarihini uzat\u0131n veya kuyru\u011Fu d\xFCzenleyin.`);
+    }
     merged.manualBatches = rebased.result.batches;
     const published = structuredClone(seed);
     for (const field of personalProposalFields) {

@@ -1829,11 +1829,13 @@ function recalculateManualBatches(seed, sourceBatches, options = { allowPlanEndO
       if (dailyRate <= 0) throw new Error(`${context}: \xFCretim h\u0131z\u0131 tan\u0131ml\u0131 de\u011Fil.`);
       const setup = calculateSetup(seed, previousProduct, previousDiameter, batch.product, product.diameter, machine.id);
       const runHours = machineRunHours(seed, machine, batch.product, batch.quantity);
-      const timeline = addMachineCapacityHours(seed, machine, Math.max(
+      const requestedStart = Math.max(
         previousEnd,
+        Number.isFinite(batch.earliestStart) ? batch.earliestStart : 0,
         seed.monthlyCustomerDemand && Number.isFinite(batch.backwardNotBefore) ? batch.backwardNotBefore : 0,
         Number.isFinite(batch.linkedStart) ? batch.linkedStart : 0
-      ), setup.hours + runHours);
+      );
+      const timeline = addMachineCapacityHours(seed, machine, requestedStart, setup.hours + runHours);
       const start = timeline.start;
       const end = timeline.end;
       if (start < machine.availableStart - 1e-8) {

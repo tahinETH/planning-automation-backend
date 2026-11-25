@@ -471,7 +471,7 @@ class ProtectedSettingsChange(RuntimeError):
     pass
 
 
-PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "processStockSettings", "filterWaitShifts", "filterQualityShifts")
+PROTECTED_SETTINGS_FIELDS = ("processWaitSettings", "holidays", "calendarEvents", "setupSettings", "productWeights", "rawMaterialSettings", "flowSettings", "filterWaitShifts", "filterQualityShifts")
 
 
 def protected_settings_changed(incoming: dict[str, Any], current: dict[str, Any] | None) -> bool:
