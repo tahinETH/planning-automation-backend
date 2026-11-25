@@ -30,13 +30,41 @@ def normalize(value: str) -> str:
     return "".join(char for char in unicodedata.normalize("NFKD", value.lower().replace("ı", "i")) if not unicodedata.combining(char))
 
 
+_NAV_EXACT_TOKENS = {
+    "ac", "acar", "acarim", "acayim", "acmak", "acilir", "aciyorum", "acabilir", "acabilirim",
+    "yer", "yeri", "yerde", "yere", "nerde",
+    "gidelim", "gideyim", "giderim", "gidebilir", "gidebilirim",
+}
+_NAV_PREFIXES = (
+    "git", "nered", "nerey", "gotur", "sekme", "dugme",
+    "buton", "ekran", "alan", "ayar", "tatil", "bakim",
+)
+
+
+def _nav_cue_stems(tokens: list[str]) -> set[str]:
+    stems: set[str] = set()
+    for token in tokens:
+        if token in _NAV_EXACT_TOKENS:
+            stems.add(token)
+        else:
+            for prefix in _NAV_PREFIXES:
+                if token.startswith(prefix):
+                    stems.add(prefix)
+                    break
+    return stems
+
+
 def search_topics(query: str, limit: int = 5) -> list[dict]:
-    words = set(re.findall(r"\w{3,}", normalize(query)))
+    tokens = re.findall(r"\w+", normalize(query))
+    nav_stems = _nav_cue_stems(tokens)
+    words = {token for token in tokens if len(token) >= 3} | {stem for stem in nav_stems if len(stem) >= 3}
     ranked = []
     for topic in catalog()["topics"]:
         heading = normalize(" ".join([topic["id"], topic["title"], *topic["aliases"]]))
         body = normalize(topic["body"])
         score = sum(4 * (word in heading) + (word in body) for word in words)
+        if topic["id"] == "app-navigation" and nav_stems:
+            score += 4 + min(len(nav_stems), 3) * 2
         if score:
             ranked.append((score, topic))
     return [topic for _, topic in sorted(ranked, key=lambda pair: -pair[0])[:limit]]
