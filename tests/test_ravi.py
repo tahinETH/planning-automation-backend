@@ -817,3 +817,86 @@ def test_openrouter_fallback_when_deepseek_missing_or_payment_required(client, m
         "https://openrouter.ai/api/v1/chat/completions",
     ]
     assert [target[0] for target in provider_stream.provider_targets()] == ["openrouter"]
+
+
+def test_ravi_diagnoses_live_schedule_station_gap_and_dirty_state(client, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    provider_stream.reset_provider_fallback()
+    seen_payloads = []
+
+    async def fake_post(_self, url, *, json=None, headers=None, **_kwargs):
+        seen_payloads.append(json)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "Tarayıcıdaki taslağa göre D-01 tezgahındaki 28–30 Kasım boşluğunun nedeni "
+                                "önceki Torna (C-04) çıkışının 30 Kasım 08:00’de hazır olması ve 29 Kasım Pazar "
+                                "gününün tatil (0 vardiya) görünmesidir."
+                            ),
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    payload = {
+        "message": "Ayın 29'unda D-01 delmede bir boşluk var. Bunun sebebi nedir?",
+        "context": {
+            "view": "planning",
+            "capturedAt": "2026-11-25T10:00:00Z",
+            "navigation": {"currentView": "planning", "productionArea": "torna"},
+            "planning": {
+                "dirty": True,
+                "source": {"kind": "manual"},
+                "liveSchedule": {
+                    "source": "browser-unsaved-or-dirty",
+                    "downstreamGaps": {
+                        "D-01": [
+                            {
+                                "id": "D-01:gap:29-kas",
+                                "process": "Delme",
+                                "resourceId": "D-01",
+                                "code": "upstream-not-ready",
+                                "message": "Önceki operasyon hazır olmadığı için D-01 boşta bekliyor.",
+                                "startDate": "28 Kas 2026 08:00",
+                                "endDate": "30 Kas 2026 08:00",
+                                "durationHours": 48,
+                                "calendarNotes": ["29 Kas 2026: Pazar tatil (0 vardiya)"],
+                                "before": {"product": "R902745145", "workOrder": "20400010", "endDate": "28 Kas 2026 08:00"},
+                                "after": {
+                                    "product": "R902745146",
+                                    "workOrder": "20400011",
+                                    "readyAtDate": "30 Kas 2026 08:00",
+                                    "predecessorProcess": "Torna",
+                                    "predecessorMachineId": "C-04",
+                                    "predecessorEndDate": "30 Kas 2026 08:00",
+                                },
+                            }
+                        ]
+                    },
+                    "downstreamResources": {"D-01": {"process": "Delme", "operationCount": 2, "gapCount": 1}},
+                    "turningMachines": {"C-04": {"active": True, "plannedCount": 2}},
+                },
+            },
+            "screens": {"plan-board": {"selectedProcess": "drilling"}},
+        },
+    }
+    response = client.post("/api/ravi/chat", json=payload)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "D-01" in data["answer"]
+    assert "30 Kasım" in data["answer"]
+    assert seen_payloads, "Provider isteği gönderilmedi."
+    provider_text = json.dumps(seen_payloads[0], ensure_ascii=False)
+    assert "liveSchedule" in provider_text
+    assert "29 Kas 2026: Pazar tatil (0 vardiya)" in provider_text
+    assert "browser-unsaved-or-dirty" in provider_text
+    assert "downstreamGaps" in service.SYSTEM_PROMPT
+    assert "liveSchedule" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"] or "canlı plan çizelgesi" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"]

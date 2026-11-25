@@ -104,6 +104,14 @@ Yetki yalnız sunucunun verdiği authenticatedRole alanından gelir. Plan dirty 
 sonucun güncel olmadığını söyle. Sync offline/conflict/saving ise sunucu snapshot'ı
 aynı olmayabilir. Sunucu kayıtlarını tarayıcının kaydedilmemiş değerleriymiş gibi anlatma.
 Sipariş miktarı, torna bitişi, teslimata hazır miktar ve gerçekleşen sevkiyatı ayırt et.
+Planlama Gantt’ı veya Tezgahlar’da belirli bir gün/istasyondaki boşluk (ör. ayın 29’unda
+D-01 Delme boşluğu) ya da gecikme sorulduğunda önce tarayıcı bağlamındaki
+planning.liveSchedule (downstreamGaps, downstreamResources, turningMachines) ile varsa
+screens.plan-board.processBoard veya screens.machines.resourceSchedule ve sunucudaki
+calendar/wip kayıtlarını incele: önceki/sonraki işin saatini, hazır olma (readyAtDate)
+zamanını, önceki proses tezgâhını ve bekleme kuralını (ya da Pazar/tatil/bakım/vardiya
+duruşunu) net Türkçe etiketlerle açıkla; JSON alan adı yazma. liveSchedule yoksa bunu
+tahmin etmeden belirt.
 
 Plan çalışma alanı sorularında mevcut kartın görünen durumunu ve düğmesini esas al.
 Önce kısa bir açıklama ve en fazla üç adım ver. Kayıt onaylanmadı, işlemin kesin

@@ -65,6 +65,14 @@ Label illustrative figures as examples.
 
 - `useRaviScreenContext` supplies visible filters, dialogs, selections and
   calculations. Register this data while its screen or dialog is open.
+  `RaviContextProvider` also accepts a lazy `getPlanningDetails` callback invoked
+  only when Ravi reads browser context: `PlanningApplication` supplies
+  `planning.liveSchedule` via `buildRaviScheduleDigest` (bounded `<= 21,000`
+  chars of `downstreamGaps` with `before`/`after`/predecessor timing and calendar
+  pauses, `downstreamResources`, and `turningMachines`), while `PlanBoard` and
+  `MachinesView` expose memoized active-process gaps (`processBoard` /
+  `resourceSchedule`) so Ravi can diagnose Gantt/machine gaps without requiring
+  the user to click a specific bar first.
   Keep the current view, previous view and entry view distinct. Live screen
   context badges in the chat panel reflect the active screen state.
 - Browser calculations can include unsaved edits. Server inspection reads a
