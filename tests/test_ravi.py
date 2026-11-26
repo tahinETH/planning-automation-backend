@@ -15,7 +15,7 @@ import pytest
 from app.auth import CurrentUser, current_user
 from app.config import settings
 from app.main import app
-from app.ravi import knowledge, service
+from app.ravi import knowledge, provider_stream, service
 from app.ravi.models import ChatRequest
 from app.ravi.tools import Inspect, ToolSession, inspect_state
 
@@ -23,6 +23,8 @@ from app.ravi.tools import Inspect, ToolSession, inspect_state
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "test-provider-secret")
+    monkeypatch.setitem(settings.__dict__, "openrouter_api_key", "")
+    provider_stream.reset_provider_fallback()
     monkeypatch.setattr(service, "planning_state", lambda: {"seed": {"orders": [{"id": "r1", "product": "R01", "quantity": 120}]}, "updatedAt": "2026-09-06T10:00:00Z"})
     app.dependency_overrides[current_user] = lambda: CurrentUser("ravi-test-user", "Test", "", "user")
     service._active.clear()
@@ -31,6 +33,7 @@ def client(monkeypatch):
     app.dependency_overrides.pop(current_user, None)
     service._active.clear()
     service._recent.clear()
+    provider_stream.reset_provider_fallback()
 
 
 def request(message="Teslimat planını nereden indiririm?"):
@@ -558,3 +561,342 @@ def test_role_guidance_keeps_type_request_submission_separate_from_manager_decis
     assert "Kullanıcı tip kaldırma talebi gönderebilir" in topic["body"]
     assert "Talep hakkında yalnız yönetici karar verir" in topic["body"]
     assert "Parametreler → Yönetici talepleri" in topic["userSources"]
+
+
+def test_system_prompt_enforces_brief_first_and_manual_area_switch():
+    prompt = service.SYSTEM_PROMPT
+    assert "1–3 kısa cümle" in prompt
+    assert "3 kısa madde" in prompt
+    assert "detaylı anlat" in prompt
+    assert "Beni oraya götür" in prompt
+    assert "asla otomatik" in prompt
+    assert "productionAreaLabel" in prompt
+    assert "Sol panel → Üretim alanı" in prompt
+    assert 'target_id="production-area"' in prompt
+
+
+def test_expanded_navigation_targets_enforce_roles_areas_and_click_only():
+    from app.production_area import production_area
+
+    shared_targets = [
+        "plan-run",
+        "plan-advice",
+        "capacity-drawer",
+        "order-import-history",
+        "new-order-type",
+        "overview-export",
+        "app-updates",
+        "page-guide",
+        "product-tour",
+    ]
+    admin_shared_targets = [
+        "settings-stocks",
+        "settings-holidays",
+        "settings-maintenance",
+        "settings-shifts",
+    ]
+    filter_only_targets = [
+        "filter-monthly-orders",
+        "filter-stock-reconciliation",
+    ]
+    torna_admin_targets = ["settings-setup"]
+
+    for area in ("torna", "cubuk-filtre"):
+        token = production_area.set(area)
+        try:
+            user_session = ToolSession(None, False)
+            admin_session = ToolSession(None, True)
+
+            for target_id in shared_targets:
+                res_user = user_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                res_admin = admin_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                assert res_user["proposed"]["id"] == target_id and res_user["executed"] is False
+                assert res_admin["proposed"]["id"] == target_id and res_admin["executed"] is False
+
+            for target_id in admin_shared_targets:
+                assert "error" in user_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                res_admin = admin_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                assert res_admin["proposed"]["id"] == target_id and res_admin["executed"] is False
+
+            for target_id in filter_only_targets:
+                res_user = user_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                res_admin = admin_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                if area == "cubuk-filtre":
+                    assert res_user["proposed"]["id"] == target_id and res_user["executed"] is False
+                    assert res_admin["proposed"]["id"] == target_id and res_admin["executed"] is False
+                else:
+                    assert "error" in res_user
+                    assert "error" in res_admin
+
+            for target_id in torna_admin_targets:
+                assert "error" in user_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                res_admin = admin_session.execute("propose_navigation", json.dumps({"target_id": target_id}))
+                if area == "torna":
+                    assert res_admin["proposed"]["id"] == target_id and res_admin["executed"] is False
+                else:
+                    assert "error" in res_admin
+        finally:
+            production_area.reset(token)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "git",
+        "aç",
+        "yer",
+        "nerede",
+        "götür",
+        "sekme",
+        "düğme",
+        "buton",
+        "ekran",
+        "alan",
+        "ayar",
+        "tatil",
+        "bakım",
+        "ayarları aç",
+        "resmi tatiller nerede",
+        "bakımlar nerede",
+    ],
+)
+def test_short_and_informal_turkish_navigation_queries_retrieve_app_navigation(query):
+    results = knowledge.search_topics(query)
+    assert "app-navigation" in [topic["id"] for topic in results[:3]]
+    assert knowledge.relevant_topics("xyzzy", "planning", {}) == []
+
+
+def test_system_prompt_and_topics_explain_conditional_and_error_only_buttons():
+    prompt = service.SYSTEM_PROMPT
+    assert "yalnızca ilgili hata, çakışma veya koşul ortaya çıktığında göründüğünü" in prompt
+    assert 'target_id="planning-workspace"' in prompt
+    for topic_id in ("app-navigation", "ravi-assistant", "save-recovery"):
+        body = knowledge.for_model(knowledge.read_topic(topic_id))["body"]
+        assert "hata" in body and "çakışma" in body
+        assert "Güncel kaydı kontrol et" in body
+
+
+def test_tool_round_provisional_content_is_cleared_from_provider_history_after_answer_reset(client, monkeypatch):
+    calls = []
+
+    async def completion(_client, messages, allow_tools):
+        calls.append(copy.deepcopy(messages))
+        if len(calls) == 1:
+            return {
+                "role": "assistant",
+                "content": "Geçici yarım metin",
+                "reasoning_content": "private-reasoning",
+                "tool_calls": [tool("propose_navigation", {"target_id": "planning-workspace"}, "call-1")],
+            }
+        return {"role": "assistant", "content": "Sol panel → Plan çalışma alanı altından kontrol edin."}
+
+    monkeypatch.setattr(service, "provider_completion", completion)
+    response = client.post("/api/ravi/chat", json=request("Kayıt çakışması nerede çözülür?"))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["answer"] == "Sol panel → Plan çalışma alanı altından kontrol edin."
+    assert data["actions"][0]["id"] == "planning-workspace"
+    assert '"productionAreaLabel": "Piston"' in calls[0][0]["content"]
+    assert calls[1][-2]["content"] is None
+    assert calls[1][-2]["reasoning_content"] == "private-reasoning"
+
+
+def test_dsml_tool_call_fallback_and_automatic_comparison_guidance(client, monkeypatch):
+    calls = []
+
+    async def completion(_client, messages, allow_tools):
+        calls.append(copy.deepcopy(messages))
+        if len(calls) == 1:
+            return {
+                "role": "assistant",
+                "content": '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="propose_navigation">\n<｜｜DSML｜｜ parameter name="target_id" string="true">planning</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>',
+            }
+        return {
+            "role": "assistant",
+            "content": "Planlama → Planlama araçları altındaki **Otomatik planla karşılaştır** düğmesi yalnızca otomatik plan kaydı varken manuel değişiklik yapıldığında ve yeniden hesaplama beklemezken görünür.\n\n<｜｜DSML｜｜ calls>",
+        }
+
+    monkeypatch.setattr(service, "provider_completion", completion)
+    response = client.post("/api/ravi/chat", json=request("Otomatik planla karşılaştır düğmesi nerede, neden göremiyorum?"))
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["actions"][0]["id"] == "planning"
+    assert "propose_navigation" in data["toolsUsed"]
+    assert "DSML" not in data["answer"]
+    assert "Otomatik planla karşılaştır" in data["answer"]
+    app_nav = knowledge.for_model(knowledge.read_topic("app-navigation"))["body"]
+    assert "Otomatik planla karşılaştır" in app_nav
+
+
+def test_openrouter_fallback_when_deepseek_missing_or_payment_required(client, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    assert provider_stream.openrouter_model("deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
+    assert provider_stream.openrouter_model("deepseek/deepseek-v4-pro") == "deepseek/deepseek-v4-pro"
+
+    seen_post = []
+    seen_stream = []
+
+    async def fake_post(_self, url, *, json=None, headers=None, **_kwargs):
+        seen_post.append((url, (json or {}).get("model"), (headers or {}).get("Authorization")))
+        req = httpx.Request("POST", url)
+        if "api.deepseek.com" in url:
+            return httpx.Response(402, json={"error": {"message": "Insufficient Balance"}}, request=req)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "OpenRouter yanıtı.", "reasoning": "gizli"}}]},
+            request=req,
+        )
+
+    @asynccontextmanager
+    async def fake_stream(_self, _method, url, *, json=None, headers=None, **_kwargs):
+        seen_stream.append((url, (json or {}).get("model"), (headers or {}).get("Authorization")))
+        req = httpx.Request("POST", url)
+
+        class _Resp:
+            def raise_for_status(self):
+                if "api.deepseek.com" in url:
+                    raise httpx.HTTPStatusError("Payment Required", request=req, response=httpx.Response(402, request=req))
+
+            async def aiter_lines(self):
+                lines = [
+                    'data: {"choices":[{"delta":{"content":"OpenRouter akış yanıtı."}}]}',
+                    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+                    "data: [DONE]",
+                ]
+                for item in lines:
+                    yield item
+
+        yield _Resp()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "stream", fake_stream)
+
+    # 1. DeepSeek unset -> OpenRouter handles status, chat, and stream directly
+    monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "")
+    monkeypatch.setitem(settings.__dict__, "openrouter_api_key", "test-openrouter-secret")
+    provider_stream.reset_provider_fallback()
+
+    status = client.get("/api/ravi/status")
+    assert status.status_code == 200
+    assert status.json()["configured"] is True
+
+    chat_res = client.post("/api/ravi/chat", json=request("Merhaba"))
+    assert chat_res.status_code == 200, chat_res.text
+    assert chat_res.json()["answer"] == "OpenRouter yanıtı."
+    assert "test-openrouter-secret" not in chat_res.text
+    assert "gizli" not in chat_res.text
+
+    stream_res = client.post("/api/ravi/chat/stream", json=request("Merhaba"))
+    assert stream_res.status_code == 200, stream_res.text
+    assert "OpenRouter akış yanıtı." in stream_res.text
+    assert "test-openrouter-secret" not in stream_res.text
+    assert seen_post[-1] == ("https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4-flash", "Bearer test-openrouter-secret")
+    assert seen_stream[-1] == ("https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-v4-flash", "Bearer test-openrouter-secret")
+
+    # 2. DeepSeek raises 402 -> provider_completion & provider_stream fall back to OpenRouter and remember exhaustion
+    seen_post.clear()
+    seen_stream.clear()
+    monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "exhausted-ds-key")
+    provider_stream.reset_provider_fallback()
+
+    fallback_chat = client.post("/api/ravi/chat", json=request("Test fallback chat"))
+    assert fallback_chat.status_code == 200, fallback_chat.text
+    assert [entry[0] for entry in seen_post] == [
+        "https://api.deepseek.com/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
+    ]
+    assert [target[0] for target in provider_stream.provider_targets()] == ["openrouter"]
+
+    provider_stream.reset_provider_fallback()
+    fallback_stream = client.post("/api/ravi/chat/stream", json=request("Test fallback stream"))
+    assert fallback_stream.status_code == 200, fallback_stream.text
+    assert "OpenRouter akış yanıtı." in fallback_stream.text
+    assert [entry[0] for entry in seen_stream] == [
+        "https://api.deepseek.com/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
+    ]
+    assert [target[0] for target in provider_stream.provider_targets()] == ["openrouter"]
+
+
+def test_ravi_diagnoses_live_schedule_station_gap_and_dirty_state(client, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    provider_stream.reset_provider_fallback()
+    seen_payloads = []
+
+    async def fake_post(_self, url, *, json=None, headers=None, **_kwargs):
+        seen_payloads.append(json)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "Tarayıcıdaki taslağa göre D-01 tezgahındaki 28–30 Kasım boşluğunun nedeni "
+                                "önceki Torna (C-04) çıkışının 30 Kasım 08:00’de hazır olması ve 29 Kasım Pazar "
+                                "gününün tatil (0 vardiya) görünmesidir."
+                            ),
+                        }
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    payload = {
+        "message": "Ayın 29'unda D-01 delmede bir boşluk var. Bunun sebebi nedir?",
+        "context": {
+            "view": "planning",
+            "capturedAt": "2026-11-25T10:00:00Z",
+            "navigation": {"currentView": "planning", "productionArea": "torna"},
+            "planning": {
+                "dirty": True,
+                "source": {"kind": "manual"},
+                "liveSchedule": {
+                    "source": "browser-unsaved-or-dirty",
+                    "downstreamGaps": {
+                        "D-01": [
+                            {
+                                "id": "D-01:gap:29-kas",
+                                "process": "Delme",
+                                "resourceId": "D-01",
+                                "code": "upstream-not-ready",
+                                "message": "Önceki operasyon hazır olmadığı için D-01 boşta bekliyor.",
+                                "startDate": "28 Kas 2026 08:00",
+                                "endDate": "30 Kas 2026 08:00",
+                                "durationHours": 48,
+                                "calendarNotes": ["29 Kas 2026: Pazar tatil (0 vardiya)"],
+                                "before": {"product": "R902745145", "workOrder": "20400010", "endDate": "28 Kas 2026 08:00"},
+                                "after": {
+                                    "product": "R902745146",
+                                    "workOrder": "20400011",
+                                    "readyAtDate": "30 Kas 2026 08:00",
+                                    "predecessorProcess": "Torna",
+                                    "predecessorMachineId": "C-04",
+                                    "predecessorEndDate": "30 Kas 2026 08:00",
+                                },
+                            }
+                        ]
+                    },
+                    "downstreamResources": {"D-01": {"process": "Delme", "operationCount": 2, "gapCount": 1}},
+                    "turningMachines": {"C-04": {"active": True, "plannedCount": 2}},
+                },
+            },
+            "screens": {"plan-board": {"selectedProcess": "drilling"}},
+        },
+    }
+    response = client.post("/api/ravi/chat", json=payload)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "D-01" in data["answer"]
+    assert "30 Kasım" in data["answer"]
+    assert seen_payloads, "Provider isteği gönderilmedi."
+    provider_text = json.dumps(seen_payloads[0], ensure_ascii=False)
+    assert "liveSchedule" in provider_text
+    assert "29 Kas 2026: Pazar tatil (0 vardiya)" in provider_text
+    assert "browser-unsaved-or-dirty" in provider_text
+    assert "downstreamGaps" in service.SYSTEM_PROMPT
+    assert "liveSchedule" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"] or "canlı plan çizelgesi" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"]

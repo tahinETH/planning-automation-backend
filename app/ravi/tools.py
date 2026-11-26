@@ -212,7 +212,7 @@ class ToolSession:
                 if target is None:
                     raise ValueError("Hedef yok veya bu kullanıcı için erişilebilir değil")
                 self.actions[target["id"]] = target
-                return {"proposed": target, "executed": False, "instruction": "Kullanıcı bu düğmeye basarsa hedef açılır."}
+                return {"proposed": target, "executed": False, "instruction": "Kullanıcı bu düğmeye basarsa hedef açılır. Şimdi kullanıcıya tam yanıtını yaz."}
         except (ValueError, ValidationError):
             return {"error": "Geçersiz araç isteği. Şemayı ve izin verilen hedefleri kontrol ederek düzelt."}
         return {"error": "Araç sonucu bulunamadı"}

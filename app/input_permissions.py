@@ -11,7 +11,7 @@ class InputPermissionError(ValueError):
 
 ADMIN_FIELDS = (
     "setupSettings", "processWaitSettings", "flowSettings", "productWeights",
-    "rawMaterialSettings", "processStockSettings", "filterWaitShifts", "filterQualityShifts",
+    "rawMaterialSettings", "filterWaitShifts", "filterQualityShifts",
     "openingStock", "filterInitialStockSetup", "filterMonthlyDeliveryBaselines",
 )
 PRODUCT_FIELDS = {

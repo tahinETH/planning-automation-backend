@@ -63,6 +63,7 @@ class Settings:
     enable_local_production_sync: bool = _bool("ENABLE_LOCAL_PRODUCTION_SYNC")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
+    openrouter_api_key: str = (os.getenv("OPEN_ROUTER_API_KEY", "").strip() or os.getenv("OPENROUTER_API_KEY", "").strip())
 
 
 settings = Settings()
