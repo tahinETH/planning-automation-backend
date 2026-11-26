@@ -57,7 +57,8 @@ class ProductionAreaMiddleware:
             from .handover import generation
             current_generation = generation()
             receipt_read = scope["path"].startswith(("/api/collaboration/requests/", "/api/planning-state/transactions/"))
-            if current_generation and (scope["method"] not in {"GET", "HEAD", "OPTIONS"} or receipt_read) and headers.get(b"x-planning-generation", b"").decode("latin1") != current_generation:
+            cpm_collector_route = scope["path"].startswith("/api/cpm/collector/")
+            if not cpm_collector_route and current_generation and (scope["method"] not in {"GET", "HEAD", "OPTIONS"} or receipt_read) and headers.get(b"x-planning-generation", b"").decode("latin1") != current_generation:
                 return await JSONResponse({"detail": {"code": "handover-generation", "message": "Üretim başlangıcı değişti. Bekleyen eski isteği göndermeyin; güncel veriyi yeniden yükleyin."}}, status_code=409)(scope, receive, send)
             async def send_scoped(message):
                 if message["type"] == "http.response.start":

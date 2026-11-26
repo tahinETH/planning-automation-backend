@@ -24,6 +24,7 @@ htmlcov/
 
 # Local data
 data/*.sqlite*
+data/cpm-source/
 data/uploads*/
 !data/uploads/.gitkeep
 
