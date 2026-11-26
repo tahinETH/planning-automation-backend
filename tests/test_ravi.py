@@ -900,3 +900,99 @@ def test_ravi_diagnoses_live_schedule_station_gap_and_dirty_state(client, monkey
     assert "browser-unsaved-or-dirty" in provider_text
     assert "downstreamGaps" in service.SYSTEM_PROMPT
     assert "liveSchedule" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"] or "canlı plan çizelgesi" in knowledge.for_model(knowledge.read_topic("ravi-assistant"))["body"]
+
+
+def test_provider_requests_omit_max_tokens_and_disable_openrouter_reasoning(monkeypatch):
+    seen_bodies = []
+
+    async def exercise():
+        async def handle(req: httpx.Request):
+            body = json.loads(req.content)
+            seen_bodies.append((str(req.url), body))
+            if body.get("stream"):
+                payload = (
+                    "data:\n\n"
+                    'data: {"choices":[{"delta":{"reasoning":["ignored"],"content":"Tam yanıt."}}]}\n\n'
+                    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+                    "data: [DONE]\n\n"
+                )
+                return httpx.Response(200, text=payload)
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "Tam yanıt."}}]})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "ds-secret")
+            monkeypatch.setitem(settings.__dict__, "openrouter_api_key", "")
+            provider_stream.reset_provider_fallback()
+            assert (await service.provider_completion(http, [], True))["content"] == "Tam yanıt."
+            ds_events = [ev async for ev in provider_stream.provider_stream(http, [], True)]
+            assert ds_events[-1]["message"]["content"] == "Tam yanıt."
+
+            monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "")
+            monkeypatch.setitem(settings.__dict__, "openrouter_api_key", "or-secret")
+            provider_stream.reset_provider_fallback()
+            assert (await service.provider_completion(http, [], True))["content"] == "Tam yanıt."
+            or_events = [ev async for ev in provider_stream.provider_stream(http, [], True)]
+            assert or_events[-1]["message"]["content"] == "Tam yanıt."
+
+    asyncio.run(exercise())
+    assert len(seen_bodies) == 4
+    for url, body in seen_bodies:
+        assert "max_tokens" not in body
+        if "openrouter.ai" in url:
+            assert body.get("reasoning") == {"enabled": False}
+            assert "thinking" not in body
+        else:
+            assert body.get("thinking") == {"type": "disabled"}
+            assert "reasoning" not in body
+
+
+def test_ravi_response_cap_surfaces_explicit_error_and_logs_metadata_without_leaking(client, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setitem(settings.__dict__, "deepseek_api_key", "")
+    monkeypatch.setitem(settings.__dict__, "openrouter_api_key", "super-secret-or-key")
+    provider_stream.reset_provider_fallback()
+
+    orig_async_client = httpx.AsyncClient
+    secret_prompt = "gizli-kullanici-sorusu-999"
+
+    def run_stream_with(sse_payload: str):
+        async def handle(_req: httpx.Request):
+            return httpx.Response(200, text=sse_payload)
+
+        def mock_client(*_args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handle)
+            return orig_async_client(**kwargs)
+
+        monkeypatch.setattr(service.httpx, "AsyncClient", mock_client)
+        return client.post("/api/ravi/chat/stream", json=request(secret_prompt))
+
+    caplog.set_level(logging.WARNING)
+
+    # 1. Provider hits finish_reason="length"
+    res_len = run_stream_with(
+        'data: {"choices":[{"delta":{"content":"Yarım cevap"}}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+    assert res_len.status_code == 200
+    assert "response cap reached" in res_len.text
+    assert "yanıt sınırına ulaştı" in res_len.text
+
+    # 2. Provider exceeds Ravi's 12,000-character output cap
+    res_cap = run_stream_with(
+        'data: {"choices":[{"delta":{"content":"' + ("a" * 12001) + '"}}]}\n\n'
+    )
+    assert res_cap.status_code == 200
+    assert "response cap reached" in res_cap.text
+    assert "yanıt sınırına ulaştı" in res_cap.text
+
+    messages = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "incomplete finish_reason" in messages
+    assert "finish=length" in messages
+    assert "exceeded output cap" in messages
+    assert "Ravi chat hit response cap" in messages
+    assert "provider=openrouter" in messages
+    assert "super-secret-or-key" not in messages
+    assert secret_prompt not in messages
+    assert "Yarım cevap" not in messages

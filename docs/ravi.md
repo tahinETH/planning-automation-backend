@@ -12,6 +12,14 @@ through the app's normal controls.
   provider routed through OpenRouter (`deepseek/deepseek-v4-flash`) whenever
   `DEEPSEEK_API_KEY` is unset or returns an HTTP/billing error (such as `402`).
   `DEEPSEEK_MODEL` is optional. The application default is `deepseek-v4-flash`.
+  Provider requests omit `max_tokens` (leaving output length to the provider
+  default while keeping Ravi's bounded 12,000-character answer limit). Direct
+  DeepSeek requests pass `thinking: {"type": "disabled"}`, while OpenRouter
+  requests pass `reasoning: {"enabled": false}` so OpenRouter does not silently
+  run hidden reasoning tokens. Empty SSE `data:` frames are skipped, hitting a
+  provider length or response size cap surfaces an explicit `response cap reached`
+  error to the user, and provider failures/timeouts emit metadata-only server
+  warnings without logging prompts, responses or credentials.
 - Ravi uses the app's existing Clerk session and frontend API configuration.
   Keep the provider key on the backend. See the
   [example environment](../.env.example) and
