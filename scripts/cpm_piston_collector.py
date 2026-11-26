@@ -111,6 +111,10 @@ def _connect_pinned_tds(
     if observed_pin != expected_pin:
         raise RuntimeError("Onaylı SQL sertifika parmak izi uyuşmuyor.")
 
+    prev_env = {
+        key: os.environ.get(key)
+        for key in ("OPENSSL_CONF", "SSL_CERT_FILE", "SSL_CERT_DIR")
+    }
     os.environ["OPENSSL_CONF"] = str(openssl_conf)
     os.environ["SSL_CERT_FILE"] = str(cert_path)
     os.environ["SSL_CERT_DIR"] = str(empty_ca_dir)
@@ -168,6 +172,11 @@ def _connect_pinned_tds(
         return conn
     finally:
         tls.create_context, tls.validate_host = old_ctx, old_host
+        for key, prev_val in prev_env.items():
+            if prev_val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prev_val
 
 
 def _query(conn, sql: str, params: tuple | None = None) -> list[tuple]:
