@@ -104,7 +104,12 @@ def for_model(topic: dict) -> dict:
 
 
 def navigation_targets(is_admin: bool) -> list[dict]:
-    return [target for target in catalog()["navigation"] if (is_admin or not target.get("adminOnly")) and (not target.get("productionArea") or target["productionArea"] == production_area.get())]
+    area = production_area.get()
+    return [
+        ({**target, "label": "Üretim talebini yükle"} if target["id"] == "order-import" and area == "cubuk-filtre" else target)
+        for target in catalog()["navigation"]
+        if (is_admin or not target.get("adminOnly")) and (not target.get("productionArea") or target["productionArea"] == area)
+    ]
 
 
 def search_source(query: str) -> list[dict]:

@@ -200,3 +200,53 @@ def test_cnc_plus_three_filter_scope_rejects_before_report_computation(saved, cl
     assert response.json()['detail'] == 'CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.'
     assert response.headers['x-production-area'] == 'cubuk-filtre'
     assert json.dumps(state, sort_keys=True) == before
+
+
+def test_personal_draft_delivery_preview_and_export_use_composed_draft_and_enforce_revisions(saved, client):
+    from datetime import date, timedelta
+    from app import collaboration
+    from app.auth import CurrentUser
+
+    state, scope = saved
+    today = date.fromisoformat(scope["startDate"])
+    serial = (today - date(1899, 12, 30)).days
+    draft_seed = json.loads(json.dumps(state["seed"]))
+    draft_seed["manualBatches"] = [{
+        "id": "draft-only-batch", "sequence": 1, "product": "PART-A", "machineId": "C-01", "quantity": 100,
+        "orderQuantity": 100, "start": serial - 4, "end": serial - 3 + 0.5, "status": "planned", "diameter": "20",
+        "batchSize": 100, "dailyRate": 100, "availableStart": serial - 4, "planEnd": serial + 7, "setupHours": 0, "runHours": 12,
+    }]
+    owner = CurrentUser(id="test-admin", name="Test Yöneticisi", email="admin@example.com", role="admin")
+    scenario = collaboration.save_scenario({
+        "id": "draft-delivery-test", "name": "Kişisel Teslimat Taslağı", "notes": "",
+        "worldRevision": state["updatedAt"], "seed": draft_seed, "result": {"state": "planned", "batches": draft_seed["manualBatches"], "summary": {}},
+    }, owner)
+    wide_scope = {"startDate": scope["startDate"], "endDate": (today + timedelta(days=7)).isoformat()}
+    req = {
+        "expectedRevision": state["updatedAt"],
+        "scenarioId": scenario["id"],
+        "scenarioRevision": scenario["revision"],
+        **wide_scope,
+    }
+    preview = client.post("/api/delivery-plan/cnc-plus-three/preview", json=req)
+    assert preview.status_code == 200, preview.text
+    snap = preview.json()
+    assert snap["scenarioId"] == scenario["id"]
+    assert snap["scenarioRevision"] == scenario["revision"]
+    assert snap["report"]["remaining"] == 100
+    assert snap["report"]["total"] == 180
+
+    # Shared world (without draft batch) has 0 remaining, proving draft was composed
+    shared_preview = client.post("/api/delivery-plan/cnc-plus-three/preview", json={"expectedRevision": state["updatedAt"], **wide_scope})
+    assert shared_preview.status_code == 200
+    assert shared_preview.json()["report"]["remaining"] == 0
+
+    exported = client.post("/api/delivery-plan/cnc-plus-three/export", json={**req, "digest": snap["digest"], "calculationDate": snap["calculationDate"]})
+    assert exported.status_code == 200, exported.text
+    assert "Teslimat_Plani_Taslak_CNC_3_Gun_" in exported.headers["Content-Disposition"]
+    workbook = load_workbook(BytesIO(exported.content))
+    assert "Kişisel taslak" in workbook["Rapor doğrulaması"]["B6"].value
+
+    # Stale scenario revision returns 409; partial pair returns 422
+    assert client.post("/api/delivery-plan/cnc-plus-three/preview", json={**req, "scenarioRevision": scenario["revision"] + 1}).status_code == 409
+    assert client.post("/api/delivery-plan/cnc-plus-three/preview", json={"expectedRevision": state["updatedAt"], "scenarioId": scenario["id"], **wide_scope}).status_code == 422

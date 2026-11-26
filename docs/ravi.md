@@ -229,7 +229,14 @@ calendar shifts and product settings. The hidden payload is the restore
 source. **Senaryolar → Seçilenleri indir** uses authorized saved records
 and gives Filter all eight process sheets.
 
-**Günlük Sevkiyat Planı yükle** and **Müşteri Excel’ini yükle** are separate
+**Günlük Sevkiyat Planı yükle** and **Üretim talebini yükle** (Piston retains **Müşteri Excel’ini yükle**) are separate
 controls in Filter. The selected source is applied after review. Ravi offers
 area-specific suggestions and navigation. Both areas share feedback and app
 updates. Plan and scenario data remain scoped to the selected area.
+
+## Personal draft WIP moves, over-planned completions & bulk reset (2026-11-26)
+
+- In **Kişisel taslak**, only currently running downstream jobs (`Mevcut üretim`) stay locked to shared production; queued WIP (`Yarı mamül`) machine transfers, queue edits and automatic resets persist through save, reload and publication.
+- **Siparişler → İçe / dışa aktar → Teslimat planını indir** (and Piston's **CNC + 3 gün**) also works in **Kişisel taslak** via server-verified composition of the saved draft with shared live facts (`Kişisel taslak` badge and `Taslak` filename).
+- **Fiili tamamlanan adet** on Torna and downstream completion flows can exceed planned/available quantity; any quantity different from planned/available asks for explicit **Evet / Hayır** confirmation.
+- **Tüm prosesleri otomatik plana döndür** (in downstream **Planlama** tabs and **Tezgahlar → Tezgah işlemleri**) clears manual overrides across all downstream processes in one undoable step without touching Torna or active running jobs.
