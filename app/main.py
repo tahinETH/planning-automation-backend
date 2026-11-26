@@ -192,32 +192,54 @@ def post_order_import_history(payload: DemandImportHistoryPayload, user: Current
 
 
 @app.post("/api/delivery-plan/preview")
-def preview_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = Depends(current_user)):
+def preview_delivery_plan(payload: DeliveryReportRequest, user: CurrentUser = Depends(current_user)):
     try:
-        return report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate})
+        return report_snapshot(
+            payload.expectedRevision,
+            {"startDate": payload.startDate, "endDate": payload.endDate},
+            scenario_id=payload.scenarioId,
+            scenario_revision=payload.scenarioRevision,
+            user=user,
+        )
     except DeliveryReportError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
 @app.post("/api/delivery-plan/export")
-def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = Depends(current_user)):
+def export_delivery_plan(payload: DeliveryReportExportRequest, user: CurrentUser = Depends(current_user)):
     template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     try:
-        snapshot = report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate}, payload.calculationDate)
+        snapshot = report_snapshot(
+            payload.expectedRevision,
+            {"startDate": payload.startDate, "endDate": payload.endDate},
+            payload.calculationDate,
+            scenario_id=payload.scenarioId,
+            scenario_revision=payload.scenarioRevision,
+            user=user,
+        )
         if snapshot["digest"] != payload.digest:
             raise DeliveryReportError("Teslimat önizlemesi değişti. Yeniden inceleyin.", 409)
         if not snapshot["report"]["complete"]:
             raise DeliveryReportError("Teslim tarihi belirlenemeyen işler var. Tam teslimat planı indirilemez.")
-        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}})
+        verification = {key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}
+        if snapshot.get("scenarioId"):
+            verification["basis"] = f"Kişisel taslak: {snapshot.get('scenarioName') or snapshot['scenarioId']} (sürüm {snapshot['scenarioRevision']})"
+        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": verification})
         # A file is certified against this accepted revision, never claimed live forever.
         current = planning_state()
         if not current or current["updatedAt"] != payload.expectedRevision:
             raise DeliveryReportError("Dosya hazırlanırken plan değişti. Önizlemeyi yenileyin.", 409)
+        if payload.scenarioId is not None:
+            from .collaboration import get_scenario
+            latest_scenario = get_scenario(payload.scenarioId, user)
+            if latest_scenario.get("revision") != payload.scenarioRevision:
+                raise DeliveryReportError("Dosya hazırlanırken kişisel taslak değişti. Önizlemeyi yenileyin.", 409)
     except DeliveryReportError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
     except DeliveryPlanError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    filename = f"Teslimat_Plani_{payload.startDate}_{payload.endDate}.xlsx"
+    prefix = "Teslimat_Plani_Taslak_" if payload.scenarioId else "Teslimat_Plani_"
+    filename = f"{prefix}{payload.startDate}_{payload.endDate}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -226,36 +248,58 @@ def export_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = 
 
 
 @app.post("/api/delivery-plan/cnc-plus-three/preview")
-def preview_cnc_delivery_plan(payload: DeliveryReportRequest, _: CurrentUser = Depends(current_user)):
+def preview_cnc_delivery_plan(payload: DeliveryReportRequest, user: CurrentUser = Depends(current_user)):
     if production_area.get() != "torna":
         raise HTTPException(status_code=422, detail="CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.")
     try:
-        return report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"})
+        return report_snapshot(
+            payload.expectedRevision,
+            {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"},
+            scenario_id=payload.scenarioId,
+            scenario_revision=payload.scenarioRevision,
+            user=user,
+        )
     except DeliveryReportError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
 @app.post("/api/delivery-plan/cnc-plus-three/export")
-def export_cnc_delivery_plan(payload: DeliveryReportExportRequest, _: CurrentUser = Depends(current_user)):
+def export_cnc_delivery_plan(payload: DeliveryReportExportRequest, user: CurrentUser = Depends(current_user)):
     if production_area.get() != "torna":
         raise HTTPException(status_code=422, detail="CNC + 3 gün raporu yalnız Piston üretim alanında kullanılabilir.")
     template_path = Path(__file__).resolve().parents[1] / "teslimat_plani.xlsx"
     try:
-        snapshot = report_snapshot(payload.expectedRevision, {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"}, payload.calculationDate)
+        snapshot = report_snapshot(
+            payload.expectedRevision,
+            {"startDate": payload.startDate, "endDate": payload.endDate, "basis": "cnc-plus-three"},
+            payload.calculationDate,
+            scenario_id=payload.scenarioId,
+            scenario_revision=payload.scenarioRevision,
+            user=user,
+        )
         if snapshot["digest"] != payload.digest:
             raise DeliveryReportError("Teslimat önizlemesi değişti. Yeniden inceleyin.", 409)
         if not snapshot["report"]["complete"]:
             raise DeliveryReportError("Teslim tarihi belirlenemeyen işler var. Tam teslimat planı indirilemez.")
-        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {**{key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}, "basis": "Geçici tahmin: Torna CNC bitişi + 3 takvim günü"}})
+        basis_label = "Geçici tahmin: Torna CNC bitişi + 3 takvim günü"
+        if snapshot.get("scenarioId"):
+            basis_label = f"Kişisel taslak ({snapshot.get('scenarioName') or snapshot['scenarioId']} · sürüm {snapshot['scenarioRevision']}) · {basis_label}"
+        content = build_delivery_plan(template_path, {**snapshot["report"]["payload"], "verification": {**{key: snapshot[key] for key in ["revision", "engineVersion", "calculationDate", "calculatedAt", "digest"]}, "basis": basis_label}})
         # A file is certified against this accepted revision, never claimed live forever.
         current = planning_state()
         if not current or current["updatedAt"] != payload.expectedRevision:
             raise DeliveryReportError("Dosya hazırlanırken plan değişti. Önizlemeyi yenileyin.", 409)
+        if payload.scenarioId is not None:
+            from .collaboration import get_scenario
+            latest_scenario = get_scenario(payload.scenarioId, user)
+            if latest_scenario.get("revision") != payload.scenarioRevision:
+                raise DeliveryReportError("Dosya hazırlanırken kişisel taslak değişti. Önizlemeyi yenileyin.", 409)
     except DeliveryReportError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
     except DeliveryPlanError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    filename = f"Teslimat_Plani_CNC_3_Gun_{payload.startDate}_{payload.endDate}.xlsx"
+    prefix = "Teslimat_Plani_Taslak_CNC_3_Gun_" if payload.scenarioId else "Teslimat_Plani_CNC_3_Gun_"
+    filename = f"{prefix}{payload.startDate}_{payload.endDate}.xlsx"
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
+
+from .auth import CurrentUser
+from .collaboration import get_scenario, run_domain
 from .database import planning_state
 from .models import DeliveryPlanPayload
 
@@ -64,7 +68,27 @@ def run_delivery_runtime(seed: dict, scope: dict, today: str) -> tuple[dict, str
     return report, engine
 
 
-def report_snapshot(expected_revision: str, scope: dict, calculation_date: str | None = None) -> dict:
+def _load_scenario_for_report(scenario_id: str, scenario_revision: int, user: CurrentUser | None) -> dict:
+    if user is None:
+        raise DeliveryReportError("Kişisel taslak teslimat raporu için oturum gerekli.", 401)
+    try:
+        scenario = get_scenario(scenario_id, user)
+    except HTTPException as error:
+        raise DeliveryReportError(str(error.detail), error.status_code) from error
+    if scenario.get("revision") != scenario_revision:
+        raise DeliveryReportError("Kişisel taslak değişti. Güncel taslakla teslimat önizlemesini yenileyin.", 409)
+    return scenario
+
+
+def report_snapshot(
+    expected_revision: str,
+    scope: dict,
+    calculation_date: str | None = None,
+    *,
+    scenario_id: str | None = None,
+    scenario_revision: int | None = None,
+    user: CurrentUser | None = None,
+) -> dict:
     state = planning_state()
     if not state or not state.get("seed"):
         raise DeliveryReportError("Önce ortak üretim planını kaydedin.", 409)
@@ -73,11 +97,37 @@ def report_snapshot(expected_revision: str, scope: dict, calculation_date: str |
     today = datetime.now(ZoneInfo("Europe/Istanbul")).date().isoformat()
     if calculation_date is not None and calculation_date != today:
         raise DeliveryReportError("Hesaplama günü değişti. Teslimat önizlemesini yenileyin.", 409)
-    report, engine = run_delivery_runtime(state["seed"], scope, today)
-    canonical = json.dumps({"revision": expected_revision, "engine": engine, "today": today, "scope": scope, "report": report}, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    scenario = None
+    seed_for_report = state["seed"]
+    if scenario_id is not None:
+        assert scenario_revision is not None
+        scenario = _load_scenario_for_report(scenario_id, scenario_revision, user)
+        try:
+            composed = run_domain({
+                "action": "compose",
+                "draft": scenario["seed"],
+                "seed": state["seed"],
+                "worldChanged": scenario.get("worldRevision") != expected_revision,
+            })
+        except HTTPException as error:
+            raise DeliveryReportError(str(error.detail), error.status_code) from error
+        seed_for_report = composed["seed"]
+    report, engine = run_delivery_runtime(seed_for_report, scope, today)
+    canonical_payload = {"revision": expected_revision, "engine": engine, "today": today, "scope": scope, "report": report}
+    if scenario is not None:
+        canonical_payload["scenarioId"] = scenario["id"]
+        canonical_payload["scenarioRevision"] = scenario["revision"]
+    canonical = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     current = planning_state()
     if not current or current["updatedAt"] != expected_revision:
         raise DeliveryReportError("Hesaplama sırasında ortak plan değişti. Önizlemeyi yenileyin.", 409)
-    return {"revision": expected_revision, "engineVersion": engine, "calculationDate": today,
-            "calculatedAt": datetime.now(timezone.utc).isoformat(), "digest": digest, "report": report}
+    if scenario is not None:
+        _load_scenario_for_report(scenario_id, scenario_revision, user)
+    result = {"revision": expected_revision, "engineVersion": engine, "calculationDate": today,
+              "calculatedAt": datetime.now(timezone.utc).isoformat(), "digest": digest, "report": report}
+    if scenario is not None:
+        result["scenarioId"] = scenario["id"]
+        result["scenarioRevision"] = scenario["revision"]
+        result["scenarioName"] = scenario["name"]
+    return result

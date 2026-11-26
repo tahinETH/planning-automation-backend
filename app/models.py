@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import date
 
 
@@ -158,12 +158,20 @@ class DeliveryReportRequest(BaseModel):
     expectedRevision: str = Field(min_length=1, max_length=100)
     startDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     endDate: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    scenarioId: str | None = Field(default=None, min_length=1, max_length=120)
+    scenarioRevision: int | None = Field(default=None, ge=1)
 
     @field_validator("startDate", "endDate")
     @classmethod
     def real_date(cls, value: str) -> str:
         date.fromisoformat(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_scenario_pair(self) -> "DeliveryReportRequest":
+        if (self.scenarioId is None) != (self.scenarioRevision is None):
+            raise ValueError("Kişisel taslak kimliği ve sürümü birlikte gönderilmelidir.")
+        return self
 
 
 class DeliveryReportExportRequest(DeliveryReportRequest):

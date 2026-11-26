@@ -6501,6 +6501,12 @@ function resetDownstreamProcessPlan(seed, result, process2) {
   nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).filter((override) => override.process !== process2 || nextSeed.processCurrentJobs?.some((job) => job.batchId === override.batchId && job.process === process2) || nextSeed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === override.batchId && item.process === process2) || activeLotInterruptions(nextSeed, nextSeed.wipLots?.find((lot) => lot.id === override.batchId)).length > 0);
   return { seed: nextSeed, plan: buildDownstreamProcessPlan(nextSeed, result) };
 }
+function resetAllDownstreamProcessPlans(seed, result) {
+  const downstream = new Set(productionProcessOrder(seed).filter((process2) => process2 !== "turning"));
+  const nextSeed = structuredClone(seed);
+  nextSeed.processOperationOverrides = (nextSeed.processOperationOverrides ?? []).filter((override) => !downstream.has(override.process) || nextSeed.processCurrentJobs?.some((job) => job.batchId === override.batchId && job.process === override.process) || nextSeed.productionInterruptions?.some((item) => isProductionInterruption(item) && !item.completedAt && item.chargeId === override.batchId && item.process === override.process) || activeLotInterruptions(nextSeed, nextSeed.wipLots?.find((lot) => lot.id === override.batchId)).length > 0);
+  return { seed: nextSeed, plan: buildDownstreamProcessPlan(nextSeed, result) };
+}
 function startProcessCurrentJob(seed, result, operationId, requestedStart, confirmedInterruption = false) {
   const plan = buildDownstreamProcessPlan(seed, result);
   const operation = plan.operations.find((item) => item.id === operationId);
@@ -8853,7 +8859,7 @@ function rollForwardUnfinishedProduction(seed, asOf = inputDateSerial3(factoryDa
 }
 function requireTurningRemainderAction(assigned, completed, action) {
   if (action !== void 0 && action !== null && action !== "" && action !== "keep" && action !== "scrap") throw new Error("Ge\xE7ersiz kalan miktar i\u015Flemi.");
-  if (!Number.isInteger(completed) || completed <= 0 || completed > assigned) throw new Error("Fiili tamamlanan adet toplam adedi a\u015Fmayan pozitif tam say\u0131 olmal\u0131d\u0131r.");
+  if (!Number.isSafeInteger(completed) || completed <= 0) throw new Error("Fiili tamamlanan adet s\u0131f\u0131rdan b\xFCy\xFCk tam say\u0131 olmal\u0131d\u0131r.");
   if (completed < assigned && action !== "keep" && action !== "scrap") {
     const recovery = action == null ? " Eski sekmeden gelen bu i\u015Flem kaydedilmedi. Bekleyen iste\u011Fi Bu i\u015Flemi daha sonra incele \u2192 Yedekle ve beklemeden \xE7\u0131kar ile koruyun. Sonra sayfay\u0131 yenileyip i\u015Flemi yeniden a\xE7\u0131n." : "";
     throw new Error(`Kalan miktar i\xE7in Tornada devam et veya Iskartaya ay\u0131r se\xE7in.${recovery}`);
@@ -8871,11 +8877,10 @@ function completeMachineCurrentJob(seed, result, machineId, completedAt, complet
   const originalQuantity = current.originalQuantity ?? current.quantity;
   if (!Number.isSafeInteger(originalQuantity) || originalQuantity <= 0) throw new Error("Mevcut i\u015Fin toplam adedi ge\xE7ersiz.");
   const actualQuantity = completedQuantity ?? originalQuantity;
-  if (!Number.isInteger(actualQuantity) || actualQuantity <= 0) throw new Error("Fiili tamamlanan adet s\u0131f\u0131rdan b\xFCy\xFCk tam say\u0131 olmal\u0131d\u0131r.");
-  if (actualQuantity > originalQuantity) throw new Error("Fiili tamamlanan adet mevcut i\u015Fin toplam adedini a\u015Famaz.");
+  if (!Number.isSafeInteger(actualQuantity) || actualQuantity <= 0) throw new Error("Fiili tamamlanan adet s\u0131f\u0131rdan b\xFCy\xFCk tam say\u0131 olmal\u0131d\u0131r.");
   requireTurningRemainderAction(originalQuantity, actualQuantity, remainderAction);
-  if (hasActiveProductionInterruption(nextSeed, current.batchId, current.interruptionId) && actualQuantity !== current.quantity && !(remainderAction === "scrap" && originalQuantity === current.quantity)) throw new Error("Yar\u0131m kalan \u015Farj\u0131n kalan adedini tamamlay\u0131n; yeniden ara vermek i\xE7in Mevcut i\u015Fi de\u011Fi\u015Ftir kullan\u0131n.");
-  const loss = remainderAction === "scrap" ? originalQuantity - actualQuantity : 0;
+  if (hasActiveProductionInterruption(nextSeed, current.batchId, current.interruptionId) && actualQuantity < current.quantity && !(remainderAction === "scrap" && originalQuantity === current.quantity)) throw new Error("Yar\u0131m kalan \u015Farj\u0131n kalan adedini tamamlay\u0131n; yeniden ara vermek i\xE7in Mevcut i\u015Fi de\u011Fi\u015Ftir kullan\u0131n.");
+  const loss = remainderAction === "scrap" && actualQuantity < originalQuantity ? originalQuantity - actualQuantity : 0;
   const partial = actualQuantity < originalQuantity && !loss;
   if (partial && result.batches.some((batch) => batch.machineId === machineId && batch.locked)) throw new Error("Kalan i\u015Fi ilk s\u0131raya eklemek i\xE7in tezgah kuyru\u011Fundaki kilitleri \xF6nce kald\u0131r\u0131n.");
   const splitId = partial ? `split-${crypto.randomUUID()}` : void 0;
@@ -9424,7 +9429,6 @@ function completeWipOperation(seed, input) {
   if (source.nextProcess !== input.process) throw new Error(`S\u0131radaki operasyon ${source.nextProcess ?? "tan\u0131ml\u0131 de\u011Fil"}.`);
   assertProcessNotCompleted(source, input.process);
   if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0) throw new Error("Tamamlanan adet pozitif tam say\u0131 olmal\u0131d\u0131r.");
-  if (input.quantity > source.availableQuantity && seed.productionArea !== "cubuk-filtre") throw new Error("Tamamlanan adet, yar\u0131 mam\xFCl bakiyesini a\u015Fmayan pozitif tam say\u0131 olmal\u0131d\u0131r.");
   if (input.quantity > source.availableQuantity && !input.countCorrectionReason?.trim()) throw new Error("Adet bakiyeyi a\u015F\u0131yor. Say\u0131m d\xFCzeltmesi nedenini yaz\u0131n.");
   if (input.remainderAction && input.remainderAction !== "keep" && input.remainderAction !== "scrap") throw new Error("Kalan miktar i\u015Flemini se\xE7in.");
   if (!Number.isFinite(input.startedAt) || !Number.isFinite(input.completedAt) || input.completedAt < input.startedAt) throw new Error("Operasyon ba\u015Flang\u0131\xE7 ve biti\u015F tarihlerini kontrol edin.");
@@ -12068,6 +12072,23 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
       return false;
     }
   }
+  function replanAllDownstreamProcesses() {
+    try {
+      const next = resetAllDownstreamProcessPlans(seed, result);
+      commitOperationalChange(
+        next.seed,
+        result,
+        "T\xFCm prosesler otomatik plana d\xF6nd\xFCr\xFCld\xFC \xB7 Torna plan\u0131 korundu",
+        { type: "wip", message: "T\xFCm proses kuyruklar\u0131 otomatik planland\u0131; \xE7al\u0131\u015Fan i\u015Fler ve Torna plan\u0131 korundu." },
+        "T\xFCm proseslerin otomatik planlamas\u0131 geri al\u0131nabilir"
+      );
+      if (dirty) setDirty(true);
+      return true;
+    } catch (error) {
+      setOperationAlert({ id: Date.now(), message: error instanceof Error ? error.message : "Prosesler otomatik plana d\xF6nd\xFCr\xFClemedi." });
+      return false;
+    }
+  }
   function saveCurrentJob(machineId, input, remainingAsOf) {
     try {
       const next = updateMachineCurrentJob(seed, result, machineId, input, remainingAsOf);
@@ -12320,6 +12341,7 @@ function createProductionActions({ seed, result, commitOperationalChange: commit
     rescheduleDownstreamOperation,
     placeDownstreamQueueOperation,
     replanDownstreamProcess,
+    replanAllDownstreamProcesses,
     replaceTurningJob,
     recordOutsidePlanProduction: recordOutsidePlanProduction2,
     saveCurrentJob,
@@ -12879,16 +12901,10 @@ function mergeScenarioWithLiveOperations(scenarioSeed, liveSeed) {
 }
 function mergePublishedOverrides(draft, live) {
   if (draft.planningResetVersion === 1) return mergeResetProcessOverrides(draft, live);
-  const physical = /* @__PURE__ */ new Set();
-  for (const lot of live.wipLots ?? []) {
-    physical.add(lot.id);
-    if (lot.sourceBatchId) physical.add(lot.sourceBatchId);
-  }
-  for (const job of live.processCurrentJobs ?? []) physical.add(job.batchId);
-  const isPhysical = (batchId) => batchId.startsWith("current:") || physical.has(batchId);
+  const currentKeys = new Set((live.processCurrentJobs ?? []).map(processOverrideKey));
   return [
-    ...(live.processOperationOverrides ?? []).filter((item) => isPhysical(item.batchId)),
-    ...(draft.processOperationOverrides ?? []).filter((item) => !isPhysical(item.batchId))
+    ...(live.processOperationOverrides ?? []).filter((item) => currentKeys.has(processOverrideKey(item))),
+    ...(draft.processOperationOverrides ?? []).filter((item) => !currentKeys.has(processOverrideKey(item)))
   ];
 }
 function projectPlanningRunInputs(world, run) {
