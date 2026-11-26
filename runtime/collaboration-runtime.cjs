@@ -5453,11 +5453,84 @@ function wipPlanStartFloor(seed) {
   if (!createdAt) return 0;
   const planDay = inputDateSerial2(factoryDateInput(createdAt));
   if (!Number.isFinite(planDay) || planDay <= 0) return 0;
-  const scopeEnd = inputDateSerial2(seed.activePlanRun?.scope.endDate ?? "");
+  const scopeEnd = inputDateSerial2(seed.activePlanRun?.scope?.endDate ?? "");
   if (scopeEnd > 0 && planDay > scopeEnd) return 0;
   return planDay;
 }
+function assignSourceDueDates(seed, sources) {
+  const scopeEndSerial = inputDateSerial2(seed.activePlanRun?.scope?.endDate ?? "");
+  const standardGoal = seed.activePlanRun?.optimizationGoal === "standard" && scopeEndSerial > 0;
+  const byProduct = /* @__PURE__ */ new Map();
+  const scopeLastSerialByProduct = /* @__PURE__ */ new Map();
+  const sortedOrders = [...seed.orders ?? []].filter((order) => Number.isFinite(order.quantity) && order.quantity > 0).sort((left, right) => (left.dueDate || "9999").localeCompare(right.dueDate || "9999") || left.id.localeCompare(right.id));
+  for (const order of sortedOrders) {
+    const code3 = order.product.trim().toUpperCase();
+    const list = byProduct.get(code3) ?? [];
+    const prior = list.at(-1)?.quantity ?? 0;
+    const milestones = orderDeliveryMilestones(order).filter((milestone) => milestone.quantity > 0 && milestone.date);
+    const hasMilestones = milestones.length > 0;
+    const rawMilestones = [
+      ...milestones,
+      ...order.dueDate ? [{ id: "final", quantity: order.quantity, date: order.dueDate }] : []
+    ].sort((left, right) => left.date.localeCompare(right.date) || left.quantity - right.quantity);
+    const scopeLastDate = standardGoal ? rawMilestones.filter((milestone) => {
+      const serial2 = inputDateSerial2(milestone.date);
+      return serial2 > 0 && serial2 <= scopeEndSerial;
+    }).at(-1)?.date : void 0;
+    if (hasMilestones && scopeLastDate) scopeLastSerialByProduct.set(code3, inputDateSerial2(scopeLastDate));
+    for (const milestone of rawMilestones) {
+      const rawSerial = inputDateSerial2(milestone.date);
+      const effectiveDate = scopeLastDate && rawSerial > 0 && rawSerial <= scopeEndSerial ? scopeLastDate : milestone.date;
+      const dueSerial = inputDateSerial2(effectiveDate);
+      const cumulativeQuantity = prior + milestone.quantity;
+      if (dueSerial > 0 && cumulativeQuantity > (list.at(-1)?.quantity ?? 0)) {
+        list.push({ quantity: cumulativeQuantity, dueSerial, date: effectiveDate });
+      }
+    }
+    byProduct.set(code3, list);
+  }
+  const cumulativeByProduct = /* @__PURE__ */ new Map();
+  const cutoff = seed.customerDemand?.snapshotDate ? inputDateSerial2(seed.customerDemand.snapshotDate) : Number.NaN;
+  if (Number.isFinite(cutoff)) {
+    const deductedIds = new Set(
+      (seed.activePlanRun?.deliveryDeduction?.items ?? []).flatMap(
+        (item) => item.sourceEntryId ? [item.entryId, item.sourceEntryId] : [item.entryId]
+      )
+    );
+    const seen = /* @__PURE__ */ new Set();
+    for (const entry of seed.productionHistory ?? []) {
+      if (entry.inventoryStatus !== "delivered" || entry.completedQuantity <= 0 || seen.has(entry.id) || deductedIds.has(entry.id)) continue;
+      seen.add(entry.id);
+      const ts = effectiveDeliveryTimestamp(entry);
+      if (!ts) continue;
+      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(ts.trim()) ? ts.trim() : factoryDateInput(ts);
+      const deliveredSerial = inputDateSerial2(dateStr);
+      if (Number.isFinite(deliveredSerial) && deliveredSerial >= cutoff) {
+        const code3 = entry.product.trim().toUpperCase();
+        cumulativeByProduct.set(code3, (cumulativeByProduct.get(code3) ?? 0) + Math.max(0, Math.trunc(entry.completedQuantity)));
+      }
+    }
+  }
+  for (const source of sources) {
+    const code3 = source.product.trim().toUpperCase();
+    const checkpoints = byProduct.get(code3) ?? [];
+    const prior = cumulativeByProduct.get(code3) ?? 0;
+    cumulativeByProduct.set(code3, prior + source.quantity);
+    const checkpoint = checkpoints.find((item) => item.quantity > prior) ?? checkpoints.at(-1);
+    const own = source.batch?.demandDueDate ? inputDateSerial2(source.batch.demandDueDate) : 0;
+    if (own <= 0) {
+      source.dueSerial = checkpoint?.dueSerial;
+    } else if (source.batch?.pullForward && checkpoint && checkpoint.dueSerial < own) {
+      source.dueSerial = checkpoint.dueSerial;
+    } else if (standardGoal && source.batch?.demandCheckpointId === "order-total" && checkpoint && own === scopeLastSerialByProduct.get(code3) && checkpoint.dueSerial > own) {
+      source.dueSerial = checkpoint.dueSerial;
+    } else {
+      source.dueSerial = own;
+    }
+  }
+}
 function sourceDueSerial(seed, source) {
+  if (source.dueSerial !== void 0) return source.dueSerial;
   const own = source.batch?.demandDueDate ? inputDateSerial2(source.batch.demandDueDate) : 0;
   if (own > 0) return own;
   const dates = seed.orders.filter((order) => order.product.toUpperCase() === source.product.toUpperCase() && order.quantity > 0 && order.dueDate).map((order) => inputDateSerial2(order.dueDate)).filter((value) => value > 0);
@@ -6730,6 +6803,11 @@ function downstreamBaseInputKey(seed, result) {
     seed.holidays,
     seed.calendarEvents,
     seed.orders,
+    seed.activePlanRun?.scope?.endDate,
+    seed.activePlanRun?.optimizationGoal,
+    seed.activePlanRun?.deliveryDeduction?.items,
+    seed.customerDemand?.snapshotDate,
+    (seed.productionHistory ?? []).filter((entry) => entry.inventoryStatus === "delivered" && entry.completedQuantity > 0).map((entry) => [entry.id, entry.completedQuantity, effectiveDeliveryTimestamp(entry)]),
     seed.processStockSettings?.opening,
     seed.processStockSettings?.openingDate,
     (seed.products ?? []).map((item) => [item.product, item.batchSize]),
@@ -6845,6 +6923,7 @@ function buildDownstreamBaseContext(seed, result, includeInterruptedCandidates) 
   }
   const sourceRank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
   sources.sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || left.releaseAt - right.releaseAt || left.id.localeCompare(right.id));
+  assignSourceDueDates(seed, sources);
   const baseOperationsByKey = /* @__PURE__ */ new Map();
   const baseOperations = sources.flatMap((source) => source.source === "wip" ? actualWipOperations(source.lot, source.masterProduct) : [turningOperation(seed, source)]);
   for (const operation of baseOperations) baseOperationsByKey.set(`${operation.batchId}:${operation.process}`, operation);
