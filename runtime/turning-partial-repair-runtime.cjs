@@ -1060,16 +1060,16 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
   }).sort((left, right) => {
     if (Boolean(left.currentJob) !== Boolean(right.currentJob)) return left.currentJob ? -1 : 1;
     if (Boolean(left.override?.resumeAfterCurrent) !== Boolean(right.override?.resumeAfterCurrent)) return left.override?.resumeAfterCurrent ? -1 : 1;
+    const leftOrder = left.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    const leftScheduleAt = Math.max(left.scheduleReadyAt, left.override?.requestedStart ?? left.scheduleReadyAt, Number.isFinite(machineFree(left)) ? machineFree(left) : 0);
+    const rightScheduleAt = Math.max(right.scheduleReadyAt, right.override?.requestedStart ?? right.scheduleReadyAt, Number.isFinite(machineFree(right)) ? machineFree(right) : 0);
+    if (Math.abs(leftScheduleAt - rightScheduleAt) > 1e-8) return leftScheduleAt - rightScheduleAt;
     if (process2 === "drilling") {
       const difference = usableResources(left.source, left.parameter).length - usableResources(right.source, right.parameter).length;
       if (difference) return difference;
     }
-    const leftScheduleAt = Math.max(left.scheduleReadyAt, left.override?.requestedStart ?? left.scheduleReadyAt, Number.isFinite(machineFree(left)) ? machineFree(left) : 0);
-    const rightScheduleAt = Math.max(right.scheduleReadyAt, right.override?.requestedStart ?? right.scheduleReadyAt, Number.isFinite(machineFree(right)) ? machineFree(right) : 0);
-    const leftOrder = left.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = right.override?.queueOrder ?? Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    if (Math.abs(leftScheduleAt - rightScheduleAt) > 1e-8) return leftScheduleAt - rightScheduleAt;
     const rank = (source) => source === "wip" ? 0 : source === "current-turning" ? 1 : 2;
     const eitherWip = left.source.source === "wip" || right.source.source === "wip";
     if (!isPistonDownstream) {
@@ -1128,9 +1128,9 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
     }
     if (isPistonDownstream && !first.currentJob && !first.override) {
       const firstUsable = usableResources(first.source, first.parameter);
-      const firstCount = firstUsable.length;
-      if (firstCount > 0) {
+      if (firstUsable.length > 0) {
         const freeAt = Math.min(...firstUsable.map((id) => Math.max(first.scheduleReadyAt, queueByResource.get(id)?.tail ?? first.scheduleReadyAt, processResource(master, id)?.availableStart ?? 0)));
+        const shiftHours = getSetupSettings(seed).shiftHours;
         const readySetupRank = (candidate) => {
           const setup = { product: candidate.source.product, family: candidate.source.masterProduct.family, setupKey: candidate.parameter.setupKey };
           const firstSetupHours = calculateDownstreamSetup(process2, void 0, setup, seed.flowSettings).hours;
@@ -1145,16 +1145,58 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
           }
           return best;
         };
+        const earliestFeasibleStart = (candidate) => {
+          const setup = { product: candidate.source.product, family: candidate.source.masterProduct.family, setupKey: candidate.parameter.setupKey };
+          let bestStart = Number.POSITIVE_INFINITY;
+          for (const id of usableResources(candidate.source, candidate.parameter)) {
+            const res = processResource(master, id);
+            const rate = candidate.parameter.unitsPerShift[id];
+            if (!res || !Number.isFinite(rate) || rate <= 0) continue;
+            const queue = queueByResource.get(id);
+            const reqStart = Math.max(candidate.scheduleReadyAt, queue?.tail ?? candidate.scheduleReadyAt, res.availableStart ?? candidate.scheduleReadyAt);
+            if (candidate.rule?.mode === "dynamic" && candidate.predecessor) {
+              const setupH = calculateDownstreamSetup(process2, queue, setup, seed.flowSettings).hours;
+              const runH = candidate.source.quantity / rate * shiftHours;
+              try {
+                const start = dynamicFlowTiming(seed, processCalendarSeed(seed, id), res, candidate.predecessor, reqStart, setupH, runH, candidate.source.quantity, candidate.rule.minutes).start;
+                if (start < bestStart) bestStart = start;
+              } catch {
+              }
+            } else if (reqStart < bestStart) {
+              bestStart = reqStart;
+            }
+          }
+          return bestStart;
+        };
         const readyIndices = [];
         for (let i = 0; i < pending.length; i += 1) {
           const candidate = pending[i];
           if (candidate.currentJob || candidate.override) break;
-          if (process2 === "drilling" && usableResources(candidate.source, candidate.parameter).length !== firstCount) break;
           if (candidate.scheduleReadyAt <= freeAt + 1e-8) readyIndices.push(i);
         }
         if (readyIndices.length > 1) {
+          const startCache = /* @__PURE__ */ new Map();
+          const startOf = (idx) => {
+            let value = startCache.get(idx);
+            if (value === void 0) {
+              value = earliestFeasibleStart(pending[idx]);
+              startCache.set(idx, value);
+            }
+            return value;
+          };
+          const minActualStart = Math.min(...readyIndices.map(startOf));
           readyIndices.sort((a, b) => {
             const left = pending[a], right = pending[b];
+            const leftStart = startOf(a), rightStart = startOf(b);
+            const leftImmediate = leftStart <= minActualStart + 1e-6;
+            const rightImmediate = rightStart <= minActualStart + 1e-6;
+            if (leftImmediate !== rightImmediate) return leftImmediate ? -1 : 1;
+            if (!leftImmediate && Math.abs(leftStart - rightStart) > 1e-6) return leftStart - rightStart;
+            if (process2 === "drilling") {
+              const leftConstrained = usableResources(left.source, left.parameter).length === 1;
+              const rightConstrained = usableResources(right.source, right.parameter).length === 1;
+              if (leftConstrained !== rightConstrained) return leftConstrained ? -1 : 1;
+            }
             const leftDue = sourceDueSerial(seed, left.source) ?? Number.MAX_SAFE_INTEGER;
             const rightDue = sourceDueSerial(seed, right.source) ?? Number.MAX_SAFE_INTEGER;
             if (leftDue !== rightDue) return leftDue - rightDue;
@@ -1331,7 +1373,7 @@ function scheduleStage(seed, master, process2, sources, operationsByKey, warning
           const equalStart = chosenPool.filter((item2) => item2.option.start <= earliestStart + 1e-8);
           stageChoice = (equalStart.length ? equalStart : chosenPool).sort((left, right) => left.option.setupHours - right.option.setupHours || left.option.priority - right.option.priority || left.option.end - right.option.end || left.option.resource.id.localeCompare(right.option.resource.id))[0].option;
         } else {
-          stageChoice = ranked.sort((left, right) => left.option.setupHours - right.option.setupHours || left.option.end - right.option.end || left.option.priority - right.option.priority || left.option.resource.id.localeCompare(right.option.resource.id))[0].option;
+          stageChoice = ranked.sort((left, right) => left.option.setupHours - right.option.setupHours || left.option.start - right.option.start || left.option.end - right.option.end || left.option.priority - right.option.priority || left.option.resource.id.localeCompare(right.option.resource.id))[0].option;
         }
       }
     }
