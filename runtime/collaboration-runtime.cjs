@@ -4795,7 +4795,8 @@ function routedDeliveryReadyAt(seed, routeCompletionSerial, family, lastProcess 
 
 // lib/shared-charge.ts
 function chargeIdNamespace() {
-  return BigInt(`0x${crypto.randomUUID().replace(/-/g, "")}`).toString(36);
+  const value = BigInt(`0x${crypto.randomUUID().replace(/-/g, "")}`);
+  return String(BigInt(1e7) + value % BigInt(9e7));
 }
 function allocateSharedQuantity(quantity, resources) {
   if (!Number.isSafeInteger(quantity) || quantity <= 0 || !resources.length) return void 0;
